@@ -1,0 +1,172 @@
+# Policy Reference
+
+DEG reads two versioned JSON documents from `.deg` by default. Unknown schema
+versions fail closed.
+
+## Manifest
+
+Default location: `.deg/manifest.json`
+
+```json
+{
+  "schema": "deg.manifest.v1",
+  "project": {"id": "orders"},
+  "policy": ".deg/policy.json",
+  "state_dir": ".deg/state",
+  "ledger": ".deg/ledger.jsonl",
+  "targets": [
+    {
+      "id": "api",
+      "path": "services/api",
+      "governed_roots": ["src", "contracts"],
+      "exclude": ["src/generated/**", "src/**/__pycache__/**"]
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `schema` | Must be `deg.manifest.v1`. |
+| `project.id` | Stable lowercase project identity. |
+| `policy` | Policy path relative to the project root. |
+| `state_dir` | Rebuildable state directory; normally ignored by Git. |
+| `ledger` | Hash-chained evidence file. |
+| `targets[].id` | Stable id used in path and contract entries. |
+| `targets[].path` | Repository path relative to the project root; `.` is allowed. |
+| `targets[].governed_roots` | Files or directories that require ownership. |
+| `targets[].exclude` | Glob patterns removed from observation. |
+
+The project root is the parent of `.deg`. Target paths may point to sibling
+repositories when `.deg` is kept in a common workspace.
+
+## Policy
+
+Default location: `.deg/policy.json`
+
+```json
+{
+  "schema": "deg.policy.v1",
+  "cards": [],
+  "relations": [],
+  "contracts": [],
+  "checkers": []
+}
+```
+
+### Cards
+
+```json
+{
+  "id": "floor.api",
+  "type": "floor",
+  "title": "Orders API",
+  "summary": "Owns HTTP order operations.",
+  "scopes": [
+    {
+      "target": "api",
+      "include": ["src/http/**"],
+      "exclude": ["src/http/generated/**"],
+      "ownership": "primary"
+    }
+  ],
+  "checkers": ["check.api"],
+  "references": ["docs/orders-api.md"]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable card identity. |
+| `type` | `constitution`, `floor`, `boundary`, `knowledge`, `scenario`, or `task`. |
+| `title` | Short human-readable name. |
+| `summary` | Current responsibility or navigation statement. |
+| `scopes` | Target-qualified path selectors. |
+| `checkers` | Trusted checker ids owned by the card. |
+| `references` | Files to open during the hydration phase. |
+
+Only Floor cards may use `ownership: primary`. Every Floor requires a primary
+scope and at least one Floor checker. Knowledge and Task cards cannot own
+checkers.
+
+### Scope patterns
+
+Patterns are slash-normalized and case-sensitive:
+
+- `src/api.py` matches one exact file;
+- `src/http/*` matches one path segment below `src/http`;
+- `src/http/**` matches the directory and all descendants;
+- `src/**/__pycache__/**` uses `**` as zero or more directories.
+
+An artifact is covered only when exactly one primary Floor scope matches it.
+Reference and supporting scopes do not participate in primary ownership.
+
+### Relations
+
+```json
+{"source": "floor.worker", "type": "depends_on", "target": "floor.api"}
+```
+
+| Type | Required shape | Effect |
+| --- | --- | --- |
+| `depends_on` | Floor -> Floor | Adds an implementation dependency to the slice. |
+| `explains` | Knowledge -> Floor | Adds local navigation for a selected Floor. |
+| `producer` | Boundary -> Floor | Declares a public handoff producer. |
+| `consumer` | Boundary -> Floor | Declares a public handoff consumer. |
+| `governs` | Constitution -> any card | Declares a global invariant relationship. |
+| `related_to` | Any card pair | Records a non-routing relationship. |
+
+### Public contract bindings
+
+```json
+{
+  "target": "api",
+  "id": "orders.cancel",
+  "version": "2.0.0",
+  "boundary": "boundary.orders",
+  "scenarios": ["scenario.cancel-order"]
+}
+```
+
+The resulting entry is `api:orders.cancel@2.0.0`. A binding requires:
+
+- an exact target, contract id, and version;
+- a Boundary card;
+- at least one producer and consumer relation from that Boundary;
+- at least one Scenario card;
+- Boundary and Scenario checkers.
+
+### Checkers
+
+```json
+{
+  "id": "check.api",
+  "stage": "floor",
+  "target": "api",
+  "command": ["python", "-m", "pytest", "tests/api", "-q"],
+  "cwd": ".",
+  "timeout": 300
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable checker identity. |
+| `stage` | `static`, `floor`, `boundary`, or `scenario`. |
+| `target` | Optional target whose root anchors `cwd`. |
+| `command` | Non-empty argv array. Shell strings are rejected. |
+| `cwd` | Relative working directory. |
+| `timeout` | Positive timeout in seconds. |
+
+Checker stage must match the owning card type. Every checker must be bound to a
+card. DEG executes the argv with `shell=False` and does not install checker tools.
+
+## Generated state
+
+`.deg/state/index.sqlite` is rebuildable and contains target revisions, observed
+artifacts, ownership, findings, and an integrity digest over all indexed facts.
+
+`.deg/ledger.jsonl` is durable evidence. Each line contains a sequence number,
+previous event digest, payload, and event digest. Keep it in Git only when one
+protected writer owns append order; otherwise retain it as a CI artifact or use a
+single append service.

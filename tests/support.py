@@ -1,0 +1,102 @@
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+from deg.config import load_manifest, load_policy
+
+
+def write_project(root: Path, *, extra_file: bool = False):
+    (root / ".deg").mkdir(parents=True)
+    (root / "src" / "api").mkdir(parents=True)
+    (root / "src" / "worker").mkdir(parents=True)
+    (root / "src" / "api" / "service.py").write_text("VALUE = 'api'\n", encoding="utf-8")
+    (root / "src" / "worker" / "job.py").write_text("VALUE = 'worker'\n", encoding="utf-8")
+    if extra_file:
+        (root / "src" / "other.py").write_text("VALUE = 'other'\n", encoding="utf-8")
+    manifest = {
+        "schema": "deg.manifest.v1",
+        "project": {"id": "test-project"},
+        "policy": ".deg/policy.json",
+        "state_dir": ".deg/state",
+        "ledger": ".deg/ledger.jsonl",
+        "targets": [
+            {"id": "app", "path": ".", "governed_roots": ["src"], "exclude": []}
+        ],
+    }
+    success = [sys.executable, "-c", "print('checker passed')"]
+    policy = {
+        "schema": "deg.policy.v1",
+        "cards": [
+            {
+                "id": "constitution.project",
+                "type": "constitution",
+                "title": "Constitution",
+                "summary": "Global project invariants.",
+            },
+            {
+                "id": "floor.api",
+                "type": "floor",
+                "title": "API",
+                "summary": "Owns API source.",
+                "scopes": [{"target": "app", "include": ["src/api/**"], "ownership": "primary"}],
+                "checkers": ["check.floor"],
+            },
+            {
+                "id": "floor.worker",
+                "type": "floor",
+                "title": "Worker",
+                "summary": "Owns worker source.",
+                "scopes": [{"target": "app", "include": ["src/worker/**"], "ownership": "primary"}],
+                "checkers": ["check.floor"],
+            },
+            {
+                "id": "knowledge.worker",
+                "type": "knowledge",
+                "title": "Worker navigation",
+                "summary": "Explains worker source.",
+                "scopes": [{"target": "app", "include": ["src/worker/**"], "ownership": "reference"}],
+                "references": ["src/worker/job.py"],
+            },
+            {
+                "id": "boundary.jobs",
+                "type": "boundary",
+                "title": "Jobs boundary",
+                "summary": "Connects the API producer to the worker consumer.",
+                "checkers": ["check.boundary"],
+            },
+            {
+                "id": "scenario.jobs",
+                "type": "scenario",
+                "title": "Jobs scenario",
+                "summary": "Proves the worker consumes a submitted job.",
+                "checkers": ["check.scenario"],
+            },
+        ],
+        "relations": [
+            {"source": "floor.worker", "type": "depends_on", "target": "floor.api"},
+            {"source": "knowledge.worker", "type": "explains", "target": "floor.worker"},
+            {"source": "boundary.jobs", "type": "producer", "target": "floor.api"},
+            {"source": "boundary.jobs", "type": "consumer", "target": "floor.worker"},
+        ],
+        "contracts": [
+            {
+                "target": "app",
+                "id": "jobs.submit",
+                "version": "1.0.0",
+                "boundary": "boundary.jobs",
+                "scenarios": ["scenario.jobs"],
+            }
+        ],
+        "checkers": [
+            {"id": "check.floor", "stage": "floor", "target": "app", "command": success},
+            {"id": "check.boundary", "stage": "boundary", "target": "app", "command": success},
+            {"id": "check.scenario", "stage": "scenario", "target": "app", "command": success},
+        ],
+    }
+    manifest_path = root / ".deg" / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    (root / ".deg" / "policy.json").write_text(json.dumps(policy, indent=2), encoding="utf-8")
+    loaded_manifest = load_manifest(manifest_path)
+    return loaded_manifest, load_policy(loaded_manifest)

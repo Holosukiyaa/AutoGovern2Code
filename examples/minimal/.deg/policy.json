@@ -1,0 +1,103 @@
+{
+  "schema": "deg.policy.v1",
+  "cards": [
+    {
+      "id": "constitution.project",
+      "type": "constitution",
+      "title": "Minimal project constitution",
+      "summary": "The example keeps ownership explicit and validates public behavior through a real test.",
+      "references": ["README.md"]
+    },
+    {
+      "id": "floor.application",
+      "type": "floor",
+      "title": "Application producer",
+      "summary": "Owns the application implementation and the public hello API producer.",
+      "scopes": [
+        {"target": "app", "include": ["src/__init__.py", "src/app.py", "src/api.py"], "ownership": "primary"}
+      ],
+      "checkers": ["check.unit"],
+      "references": ["README.md"]
+    },
+    {
+      "id": "floor.client",
+      "type": "floor",
+      "title": "Client consumer",
+      "summary": "Owns the consumer that interprets the public hello API result.",
+      "scopes": [
+        {"target": "app", "include": ["src/client.py"], "ownership": "primary"}
+      ],
+      "checkers": ["check.unit"],
+      "references": ["README.md"]
+    },
+    {
+      "id": "boundary.hello-api",
+      "type": "boundary",
+      "title": "Hello API boundary",
+      "summary": "The producer and consumer must agree on the public hello response.",
+      "scopes": [
+        {"target": "app", "include": ["src/api.py"], "ownership": "supporting"}
+      ],
+      "checkers": ["check.boundary"],
+      "references": ["src/api.py", "src/client.py"]
+    },
+    {
+      "id": "knowledge.application",
+      "type": "knowledge",
+      "title": "Application navigation",
+      "summary": "Read the producer first, then the client when the API contract is involved.",
+      "scopes": [
+        {"target": "app", "include": ["src/**"], "ownership": "reference"}
+      ],
+      "references": ["README.md"]
+    },
+    {
+      "id": "scenario.hello-consumer",
+      "type": "scenario",
+      "title": "Consumer reads hello API",
+      "summary": "A real test proves the consumer can interpret the producer response.",
+      "checkers": ["check.api-contract"],
+      "references": ["tests/test_api.py"]
+    }
+  ],
+  "relations": [
+    {"source": "knowledge.application", "type": "explains", "target": "floor.application"},
+    {"source": "boundary.hello-api", "type": "producer", "target": "floor.application"},
+    {"source": "boundary.hello-api", "type": "consumer", "target": "floor.client"}
+  ],
+  "contracts": [
+    {
+      "target": "app",
+      "id": "example.hello",
+      "version": "1.0.0",
+      "boundary": "boundary.hello-api",
+      "scenarios": ["scenario.hello-consumer"]
+    }
+  ],
+  "checkers": [
+    {
+      "id": "check.unit",
+      "stage": "floor",
+      "target": "app",
+      "command": ["python", "-m", "unittest", "discover", "-s", "tests", "-v"],
+      "cwd": ".",
+      "timeout": 60
+    },
+    {
+      "id": "check.boundary",
+      "stage": "boundary",
+      "target": "app",
+      "command": ["python", "-m", "unittest", "tests.test_api", "-v"],
+      "cwd": ".",
+      "timeout": 60
+    },
+    {
+      "id": "check.api-contract",
+      "stage": "scenario",
+      "target": "app",
+      "command": ["python", "-m", "unittest", "tests.test_api", "-v"],
+      "cwd": ".",
+      "timeout": 60
+    }
+  ]
+}

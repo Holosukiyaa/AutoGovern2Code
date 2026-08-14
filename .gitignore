@@ -1,0 +1,12 @@
+**/.deg/state/
+examples/**/.deg/ledger.jsonl
+examples/**/.deg/ledger.jsonl.lock
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/

@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deg-governance"
+version = "0.1.0"
+description = "Deterministic Engineering Governance for repository-aware change slicing and evidence-backed checks"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [
+  { name = "DEG contributors" }
+]
+keywords = ["governance", "developer-tools", "ai-agents", "repository", "compliance"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = []
+
+[project.urls]
+Documentation = "https://github.com/Holosukiyaa/DEG#readme"
+Issues = "https://github.com/Holosukiyaa/DEG/issues"
+Source = "https://github.com/Holosukiyaa/DEG"
+
+[project.scripts]
+deg = "deg.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+deg = ["py.typed"]

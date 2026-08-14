@@ -1,74 +1,82 @@
-# Architecture
+# Architecture and evidence model
 
-DEG separates policy, current repository facts, and historical evidence because
-they have different owners and lifecycles.
+DEG separates the user experience from its enforcement internals. The user talks to an AI agent normally. The enrolled repository and installed Skill make governance automatic.
 
 ```text
-.deg/policy.json               normative and descriptive responsibility model
-          |
-          v
-.deg/state/index.sqlite        rebuildable repository observation
-          |
-          v
-entry slice                    bounded responsibility and checker closure
-          |
-          v
-trusted checker processes      repository-native evidence
-          |
-          v
-.deg/ledger.jsonl              append-only hash-chained event history
+normal coding request
+        |
+root AGENTS.md + installed Skill       automatic entry before writes
+        |
+task record + external Git worktree    isolated construction
+        |
+Policy + SQLite index + slicer         deterministic responsibility route
+        |
+trusted argv-only checkers             repository-native proof
+        |
+verified change digest                 binds proof to exact bytes
+        |
+fast-forward integration               controlled delivery
+        |
+JSON task record + hash-chain Ledger   durable local evidence
 ```
 
-## Components
+## Enrollment
 
-### Manifest
+`deg enroll` operates once on a clean Git repository. It:
 
-Declares project identity, target repository locations, governed roots, state
-location, policy location, and ledger location. It contains placement, not rules.
+1. detects the current tracked project roots;
+2. creates a minimal internal Policy and Manifest;
+3. adds a managed `AGENTS.md` block;
+4. commits those reviewable enrollment files;
+5. installs the packaged `deg-governed-development` Skill;
+6. activates a machine-local pre-commit guard;
+7. builds the initial index and records enrollment evidence.
 
-### Policy
+The tracked enrollment is portable. Machine paths, generated indexes, local hooks, active task records, and Ledger data live under ignored `.deg/state` or other ignored files.
 
-Declares cards, scopes, explicit relations, exact public contract bindings, and
-checker argv. Policy is human-reviewed input and is never inferred from semantic
-similarity.
+## Automatic task state
 
-### Index
+Each task moves through machine states:
 
-Observes governed files, Git revision state, content digests, and primary
-ownership coverage. It is disposable and must be rebuilt after source or policy
-changes.
+```text
+active -- passing verification for current bytes --> completed
+   |                                                ^
+   +-- failed verification remains active           |
+   +-- changed bytes invalidate the passing proof ---+
+```
 
-### Slicer
+The canonical checkout and source HEAD are captured at task start. DEG creates a `deg/<task-id>` branch in an external sibling worktree. Writes in the canonical checkout, a changed source HEAD, ungoverned paths, governance-control mutations, failed checks, or stale evidence all block integration.
 
-Compiles path and contract entries into a deterministic closure. Unknown or
-ambiguous coordinates produce conservative expansion.
+## Correction evidence
 
-### Checker runner
+DEG distinguishes participation from correction. A start record proves only that DEG was present. A correction requires a machine-observed event, such as:
 
-Runs only checker argv declared in policy, with `shell=False`. Product-native
-commands remain the authority for build, test, conformance, and scenario facts.
+- the actual diff expanding beyond the initial route;
+- a canonical-checkout write being detected and blocked;
+- a trusted checker failing before a later passing attempt;
+- a checker mutating governed bytes and forcing another verification;
+- integration being blocked because the canonical branch changed.
 
-### Ledger
+The task record links every intervention to a Ledger event digest. A later passing verification does not erase earlier failures.
 
-Stores canonical JSON events. Every event includes its sequence, the previous
-event digest, and its own digest. Removing, reordering, or rewriting an event
-breaks verification.
+## Exact-byte binding
 
-## Dependency boundary
+Before checks, DEG rebuilds the index and compiles a route from the actual diff. The verification stores a digest of the full binary Git diff plus untracked file content in a dedicated hash-chained Ledger event. `task finish` validates that event, recomputes the digest before commit, then recomputes it from the resulting commit. Any source edit or pre-commit-hook mutation requires another verification.
 
-DEG may read and execute checks against governed targets. Governed application
-code must not import DEG, read DEG state, or require DEG during build or runtime.
+## Git guard
 
-## Acceptance states
+The local pre-commit guard rejects commits from the canonical checkout and from worktree branches not created under `deg/`. Activation uses the exact Python interpreter that installed DEG and delegates an existing user pre-commit hook after the DEG checks pass.
 
-DEG reports `static`, `floor`, `boundary`, `scenario`, and `complete` separately.
-A stage with no policy checker is `not-applicable`; a scoped slice that does not
-select an existing stage is `not-run`. Complete acceptance is only available for
-`deg check --all` when every policy checker passes.
+The guard is one layer, not the only trust boundary. The Skill, task state machine, clean-checkout checks, exact diff digest, trusted checkers, fast-forward-only integration, and Ledger verification must all agree before completion.
+
+## Internal routing model
+
+Manifest, Policy, cards, scopes, public contract bindings, SQLite index, and entry slicing remain internal deterministic machinery. They are documented for maintainers and integrations in [Entry Slicing](ENTRY_SLICING.md) and [Policy Reference](POLICY_REFERENCE.md), but are not part of ordinary user operation.
+
+## Detachability
+
+DEG may inspect and test a governed repository. Product code must not import DEG, read DEG state, or require DEG during build or runtime. Removing local DEG state must not change product behavior; it only removes the governed development path and its evidence.
 
 ## Current limits
 
-Version `0.1` indexes file identity and ownership, not language symbols or import
-graphs. Dependencies are policy-declared. Ledger locking is local-filesystem
-oriented; teams that require concurrent distributed writers should place event
-append behind a single CI job or external append service.
+Version `0.2` governs one local Git repository per enrollment and one integrator at a time. The local guard is not an operating-system write ACL. A hostile process with filesystem and Git-configuration access can bypass local controls; remote enforcement requires protected branches and required CI checks, planned for the team version.

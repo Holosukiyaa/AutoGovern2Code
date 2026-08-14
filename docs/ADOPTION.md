@@ -1,69 +1,34 @@
-# Adoption Guide
+# Adoption
 
-Adopt DEG incrementally. The first useful milestone is unique ownership plus real
-Floor checks, not a complete architecture encyclopedia.
+Users should not hand-author DEG governance before receiving value.
 
-## 1. Choose a governance root
-
-For one repository, place `.deg` in that repository root. For several sibling
-repositories, place `.deg` in a common workspace and give every target a stable id.
-
-## 2. Declare governed roots
-
-Include source and public contract locations that should have an owner. Exclude
-generated output, dependencies, caches, and vendored code unless the project truly
-owns them.
-
-## 3. Model Floors
-
-Create the smallest set of real ownership domains. Run `deg index build` and
-`deg index findings` until every governed artifact has exactly one owner.
-
-## 4. Bind native checks
-
-Replace the starter checker with the project's existing commands. Commands are
-argv arrays, for example:
-
-```json
-{
-  "id": "check.api-tests",
-  "stage": "floor",
-  "target": "api",
-  "command": ["python", "-m", "pytest", "tests/api", "-q"],
-  "cwd": ".",
-  "timeout": 300
-}
-```
-
-DEG does not install those tools; the repository or CI environment owns them.
-
-## 5. Add local Knowledge
-
-Knowledge summaries and references should help a contributor navigate one narrow
-area. Do not put mandatory rules or executable commands in Knowledge.
-
-## 6. Model public Boundaries
-
-Add a Boundary when data or artifacts cross a component, process, language,
-repository, or release-package boundary. Declare producer and consumer relations,
-then bind exact contract versions.
-
-## 7. Add scenarios
-
-A Scenario should exercise the real consumer behavior that endpoint-local checks
-cannot prove. Bind its checker to the Scenario card and its id to the contract.
-
-## 8. Put DEG in CI
-
-A minimal CI sequence is:
+## Install
 
 ```bash
-deg index build
-deg index findings
-deg check --all
-deg ledger verify
+python -m pip install .
+deg skill install
 ```
 
-Persist the ledger only when your evidence-retention policy requires it. For pull
-requests, it is often better to upload the ledger and rendered slice as CI
-artifacts and append accepted evidence from a single protected branch job.
+Use `python -m pip install deg-governance` after the package is published.
+
+## Enroll once
+
+From a clean Git repository, invoke the Skill:
+
+```text
+$deg-governed-development enroll this project in DEG
+```
+
+Enrollment is refused when the worktree is dirty, empty, not a Git repository, or already enrolled. DEG commits only its generated enrollment files. Existing `AGENTS.md`, `.gitignore`, and pre-commit behavior are preserved through managed blocks and hook delegation.
+
+## Work normally
+
+After enrollment, use the AI agent normally. The root `AGENTS.md` requires the Skill for every change request. The Skill performs route, worktree, verification, commit, merge, and evidence commands without asking the user to operate governance.
+
+## Review evidence
+
+`deg evidence` is read-only. Treat a task as managed successfully only when it was controlled from the start, its final verification passed, its verified digest reached the recorded commit, the merge was fast-forward, and the Ledger remains valid.
+
+## Clone on another machine
+
+Tracked enrollment travels with Git; machine-local activation does not. The Skill runs `deg activate` when `deg guard status` reports an inactive clone. Activation reinstalls the current Skill, restores the local Git guard, preserves an existing hook delegate, rebuilds the index, and records a new activation event.

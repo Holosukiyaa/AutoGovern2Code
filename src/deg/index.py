@@ -77,6 +77,8 @@ def _git(root: Path, *args: str, binary: bool = False) -> str | bytes | None:
 def _under_root(path: str, root: str) -> bool:
     normalized = path.replace("\\", "/").strip("/")
     root = root.replace("\\", "/").strip("/")
+    if root in {"", ".", "**"}:
+        return True
     return normalized == root or normalized.startswith(root + "/")
 
 

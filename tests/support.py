@@ -1,10 +1,45 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
 from deg.config import load_manifest, load_policy
+
+
+def _git(root: Path, *args: str) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(root), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    return completed.stdout.strip()
+
+
+def git_project(root: Path) -> Path:
+    root.mkdir(parents=True)
+    (root / "src").mkdir()
+    (root / "tests").mkdir()
+    (root / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (root / "src" / "value.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (root / "tests" / "__init__.py").write_text("", encoding="utf-8")
+    (root / "tests" / "test_value.py").write_text(
+        "import unittest\nfrom src.value import VALUE\n\n"
+        "class ValueTests(unittest.TestCase):\n"
+        "    def test_value(self):\n"
+        "        self.assertEqual(VALUE, 1)\n",
+        encoding="utf-8",
+    )
+    (root / ".gitignore").write_text("__pycache__/\n*.pyc\n", encoding="utf-8")
+    _git(root, "init", "-b", "main")
+    _git(root, "config", "user.name", "DEG Test")
+    _git(root, "config", "user.email", "deg-test@example.invalid")
+    _git(root, "add", "--all")
+    _git(root, "commit", "-m", "initial")
+    return root.resolve()
 
 
 def write_project(root: Path, *, extra_file: bool = False):

@@ -1,7 +1,7 @@
-# DEG minimal example
+# DEG Core routing example
 
-This example demonstrates a producer, a consumer, a public contract binding, and
-a scenario checker.
+This fixture demonstrates the deterministic routing core used automatically by
+the DEG Skill. It is intentionally not a separately enrolled Git repository.
 
 Run from this directory:
 

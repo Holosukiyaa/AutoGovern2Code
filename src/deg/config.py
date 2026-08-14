@@ -56,7 +56,9 @@ def discover_manifest(start: Path | None = None, explicit: Path | None = None) -
         candidate = directory / ".deg" / "manifest.json"
         if candidate.is_file():
             return candidate
-    raise ConfigurationError("cannot find .deg/manifest.json; run `deg init` or pass --manifest")
+    raise ConfigurationError(
+        "cannot find .deg/manifest.json; enroll the project with $deg-governed-development or pass --manifest"
+    )
 
 
 def load_manifest(path: Path) -> Manifest:

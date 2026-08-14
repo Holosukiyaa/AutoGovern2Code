@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "deg-governance"
-version = "0.1.0"
-description = "Deterministic Engineering Governance for repository-aware change slicing and evidence-backed checks"
+version = "0.2.0"
+description = "Automatic governed worktrees and evidence-backed verification for AI coding agents"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
@@ -37,4 +37,4 @@ deg = "deg.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-deg = ["py.typed"]
+deg = ["py.typed", "skills/*/SKILL.md", "skills/*/agents/*.yaml"]

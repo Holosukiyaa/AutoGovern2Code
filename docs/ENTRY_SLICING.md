@@ -1,5 +1,9 @@
 # Entry Slicing
 
+> Internal contract: ordinary users do not perform entry slicing. The installed
+> DEG Skill derives these coordinates from a normal coding request before the
+> first write, and `deg task verify` recompiles them from the actual diff.
+
 [中文版本](zh-CN/ENTRY_SLICING.md)
 
 Entry slicing is the method DEG uses to turn a proposed change into a bounded

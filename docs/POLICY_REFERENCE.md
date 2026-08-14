@@ -1,5 +1,9 @@
 # Policy Reference
 
+> Maintainer reference: Policy is internal configuration generated at enrollment
+> and consumed by the Skill and DEG Core. Ordinary users are not expected to edit
+> or understand it.
+
 DEG reads two versioned JSON documents from `.deg` by default. Unknown schema
 versions fail closed.
 

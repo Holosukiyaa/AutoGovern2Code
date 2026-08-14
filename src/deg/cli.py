@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import shutil
 import sys
 from pathlib import Path
@@ -10,7 +9,7 @@ from typing import Any
 
 from . import __version__
 from .checks import run_checks
-from .config import MANIFEST_SCHEMA, POLICY_SCHEMA, discover_manifest, load_manifest, load_policy
+from .config import discover_manifest, load_manifest, load_policy
 from .errors import DEGError
 from .index import build_index, findings, index_path, summary, verify_freshness
 from .ledger import ledger_summary, verify_ledger
@@ -32,106 +31,6 @@ def _write_output(content: str, output: Path | None) -> None:
     print(f"Wrote {output}")
 
 
-def _project_id(path: Path) -> str:
-    value = re.sub(r"[^a-z0-9._-]+", "-", path.name.lower()).strip("-.")
-    return value or "project"
-
-
-def _init_project(root: Path, project_id: str | None, force: bool) -> int:
-    root = root.resolve()
-    config_dir = root / ".deg"
-    manifest_path = config_dir / "manifest.json"
-    policy_path = config_dir / "policy.json"
-    guide_path = config_dir / "README.md"
-    existing = [path for path in (manifest_path, policy_path, guide_path) if path.exists()]
-    if existing and not force:
-        raise DEGError("refusing to overwrite existing DEG files: " + ", ".join(str(path) for path in existing))
-    config_dir.mkdir(parents=True, exist_ok=True)
-    project_id = project_id or _project_id(root)
-    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", project_id):
-        raise DEGError("project id must contain only lowercase letters, digits, dots, underscores, and hyphens")
-    manifest = {
-        "schema": MANIFEST_SCHEMA,
-        "project": {"id": project_id},
-        "policy": ".deg/policy.json",
-        "state_dir": ".deg/state",
-        "ledger": ".deg/ledger.jsonl",
-        "targets": [
-            {
-                "id": "app",
-                "path": ".",
-                "governed_roots": ["src"],
-                "exclude": ["src/**/__pycache__/**"],
-            }
-        ],
-    }
-    policy = {
-        "schema": POLICY_SCHEMA,
-        "cards": [
-            {
-                "id": "constitution.project",
-                "type": "constitution",
-                "title": "Project governance",
-                "summary": "Global rules that every governed change must preserve.",
-                "references": ["README.md"],
-            },
-            {
-                "id": "floor.app",
-                "type": "floor",
-                "title": "Application",
-                "summary": "Primary ownership for application source code.",
-                "scopes": [{"target": "app", "include": ["src/**"], "ownership": "primary"}],
-                "checkers": ["check.git-diff"],
-                "references": ["README.md"],
-            },
-            {
-                "id": "knowledge.app",
-                "type": "knowledge",
-                "title": "Application navigation",
-                "summary": "Current implementation notes for contributors entering application code.",
-                "scopes": [{"target": "app", "include": ["src/**"], "ownership": "reference"}],
-                "references": ["README.md"],
-            },
-        ],
-        "relations": [{"source": "knowledge.app", "type": "explains", "target": "floor.app"}],
-        "contracts": [],
-        "checkers": [
-            {
-                "id": "check.git-diff",
-                "stage": "floor",
-                "target": "app",
-                "command": ["git", "diff", "--check"],
-                "cwd": ".",
-                "timeout": 60,
-            }
-        ],
-    }
-    guide = """# Project DEG configuration
-
-Start with an exact entry, not a broad goal:
-
-```text
-deg index build
-deg slice --path app:src/path/to/file.py --output .deg/state/slice.md
-deg check --path app:src/path/to/file.py
-```
-
-Edit `manifest.json` to declare repositories and governed roots. Edit `policy.json`
-to declare ownership Floors, local Knowledge, Boundaries, public contract bindings,
-and real project checkers. Replace the generated `git diff --check` checker with the
-project's native tests and build commands.
-
-Read the Entry Slicing guide before adding broad scopes:
-https://github.com/Holosukiyaa/DEG/blob/main/docs/ENTRY_SLICING.md
-"""
-    manifest_path.write_text(_json(manifest) + "\n", encoding="utf-8")
-    policy_path.write_text(_json(policy) + "\n", encoding="utf-8")
-    guide_path.write_text(guide, encoding="utf-8")
-    print(f"Initialized DEG in {config_dir}")
-    print("Next: review .deg/policy.json, then run `deg index build`.")
-    return 0
-
-
 def _loaded(args: argparse.Namespace):
     manifest_path = discover_manifest(explicit=args.manifest)
     manifest = load_manifest(manifest_path)
@@ -149,10 +48,15 @@ def _slice_from_args(args: argparse.Namespace, manifest, policy):
     )
 
 
-def _add_slice_arguments(parser: argparse.ArgumentParser) -> None:
+def _add_slice_arguments(parser: argparse.ArgumentParser, *, goal_required: bool = False) -> None:
     parser.add_argument("--path", dest="paths", action="append", default=[], help="target-id:relative/path")
     parser.add_argument("--contract", dest="contracts", action="append", default=[], help="target-id:contract-id@version")
-    parser.add_argument("--goal", default="", help="advisory task description; never selects ownership by itself")
+    parser.add_argument(
+        "--goal",
+        default=None if goal_required else "",
+        required=goal_required,
+        help="advisory task description; never selects ownership by itself",
+    )
     parser.add_argument("--all", action="store_true", help="select all policy areas and checkers")
 
 
@@ -162,10 +66,39 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--manifest", type=Path, help="path to .deg/manifest.json")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    init = subparsers.add_parser("init", help="create a starter DEG policy")
-    init.add_argument("path", type=Path, nargs="?", default=Path.cwd())
-    init.add_argument("--project-id")
-    init.add_argument("--force", action="store_true")
+    enroll = subparsers.add_parser("enroll", help="enroll a clean Git project in automatic DEG governance")
+    enroll.add_argument("path", type=Path, nargs="?", default=Path.cwd())
+    enroll.add_argument("--project-id")
+
+    activate = subparsers.add_parser("activate", help="restore the local Skill and Git guard after cloning")
+    activate.add_argument("path", type=Path, nargs="?", default=Path.cwd())
+
+    skill = subparsers.add_parser("skill", help="install the packaged DEG Skill")
+    skill_commands = skill.add_subparsers(dest="skill_command", required=True)
+    skill_install = skill_commands.add_parser("install")
+    skill_install.add_argument("--destination", type=Path, help="skills directory; defaults to CODEX_HOME/skills")
+
+    guard = subparsers.add_parser("guard", help="internal activation and Git enforcement")
+    guard_commands = guard.add_subparsers(dest="guard_command", required=True)
+    guard_commands.add_parser("status")
+    guard_commands.add_parser("pre-commit")
+
+    task = subparsers.add_parser("task", help="internal lifecycle used by the DEG Skill")
+    task_commands = task.add_subparsers(dest="task_command", required=True)
+    task_start = task_commands.add_parser("start")
+    _add_slice_arguments(task_start, goal_required=True)
+    task_start.add_argument("--task-id")
+    task_start.add_argument("--worktree-root", type=Path)
+    task_commands.add_parser("verify")
+    task_finish = task_commands.add_parser("finish")
+    task_finish.add_argument("--task", required=True)
+    task_finish.add_argument("--message", required=True)
+    task_show = task_commands.add_parser("show")
+    task_show.add_argument("--task", required=True)
+
+    evidence = subparsers.add_parser("evidence", help="show read-only proof of DEG management")
+    evidence.add_argument("--task")
+    evidence.add_argument("--format", choices=("text", "json"), default="text")
 
     index = subparsers.add_parser("index", help="build and inspect the repository index")
     index_commands = index.add_subparsers(dest="index_command", required=True)
@@ -217,8 +150,90 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        if args.command == "init":
-            return _init_project(args.path, args.project_id, args.force)
+        if args.command == "enroll":
+            from .enrollment import enroll_project
+
+            print(_json(enroll_project(args.path, project_id=args.project_id)))
+            return 0
+        if args.command == "activate":
+            from .enrollment import activate_project
+
+            print(_json(activate_project(args.path)))
+            return 0
+        if args.command == "skill":
+            from .enrollment import install_skill
+
+            print(f"Installed DEG Skill: {install_skill(args.destination)}")
+            return 0
+        if args.command == "guard":
+            from .enrollment import activation_status, guard_pre_commit
+
+            if args.guard_command == "pre-commit":
+                return guard_pre_commit(Path.cwd())
+            status = activation_status(Path.cwd())
+            print(_json(status))
+            return 0 if status["managed"] else 1
+        if args.command == "task":
+            from .tasks import finish_task, start_task, task_record, verify_task
+
+            if args.task_command == "start":
+                print(
+                    _json(
+                        start_task(
+                            Path.cwd(),
+                            goal=args.goal,
+                            path_specs=list(args.paths),
+                            contract_specs=list(args.contracts),
+                            all_mode=bool(args.all),
+                            task_id=args.task_id,
+                            worktree_root=args.worktree_root,
+                        )
+                    )
+                )
+                return 0
+            if args.task_command == "verify":
+                result = verify_task(Path.cwd())
+                print(_json(result))
+                return 0 if result["passed"] else 1
+            if args.task_command == "finish":
+                print(_json(finish_task(Path.cwd(), args.task, message=args.message)))
+                return 0
+            print(_json(task_record(Path.cwd(), args.task)))
+            return 0
+        if args.command == "evidence":
+            from .tasks import evidence
+
+            report = evidence(Path.cwd(), args.task)
+            if args.format == "json":
+                print(_json(report))
+            else:
+                print(f"DEG evidence for {report['project']}")
+                print(f"Management active: {'yes' if report['managed'] else 'no'}")
+                print(f"Ledger valid: {'yes' if report['ledger_valid'] else 'no'}")
+                for task in report["tasks"]:
+                    print(f"\n[{task['state']}] {task['id']} - {task['goal']}")
+                    print(f"- managed from start: {'yes' if task['managed'] else 'no'}")
+                    print(f"- management result: {task['management_result']}")
+                    print(f"- evidence complete: {'yes' if task['evidence_complete'] else 'no'}")
+                    print(f"- route: {task['route_state']}")
+                    if task["interventions"]:
+                        print("- interventions:")
+                        for intervention in task["interventions"]:
+                            detail = {key: value for key, value in intervention.items() if key not in {"kind", "occurred_at", "ledger_event_digest"}}
+                            print(f"  - {intervention['kind']}: {json.dumps(detail, ensure_ascii=False, sort_keys=True)}")
+                    else:
+                        print("- interventions: none")
+                    print(f"- verification attempts: {task['verification_attempts']}")
+                    for verification in task["verifications"]:
+                        failed = [item["id"] for item in verification["checker_results"] if item["status"] != "passed"]
+                        result = "passed" if verification["passed"] else "failed"
+                        suffix = f"; failed: {', '.join(failed)}" if failed else ""
+                        print(f"  - attempt {verification['attempt']}: {result}{suffix}")
+                    print(f"- final verification: {'passed' if task['verified'] else 'not passed'}")
+                    if task["result"]:
+                        print(f"- merged commit: {task['result']['commit']}")
+            evidence_ok = all(task["management_result"] == "successful" for task in report["tasks"])
+            return 0 if report["managed"] and report["ledger_valid"] and evidence_ok else 1
         manifest, policy = _loaded(args)
         if args.command == "index":
             path = index_path(manifest)

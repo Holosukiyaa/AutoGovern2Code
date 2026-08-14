@@ -125,3 +125,10 @@ def ledger_summary(path: Path) -> dict[str, Any]:
         "event_types": dict(sorted(counts.items())),
         "head_digest": events[-1]["event_digest"] if events else ZERO_DIGEST,
     }
+
+
+def read_events(path: Path) -> list[dict[str, Any]]:
+    errors = verify_ledger(path)
+    if errors:
+        raise LedgerError("cannot read an invalid ledger:\n- " + "\n- ".join(errors))
+    return _read_events(path)

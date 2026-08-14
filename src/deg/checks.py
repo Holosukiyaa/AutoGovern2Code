@@ -32,6 +32,8 @@ def run_checks(
     *,
     requested_checker_ids: set[str] | None = None,
     all_mode: bool = False,
+    ledger_path: Path | None = None,
+    task_id: str | None = None,
 ) -> dict[str, Any]:
     current_errors = verify_freshness(manifest, policy, index_path(manifest))
     if current_errors:
@@ -131,7 +133,9 @@ def run_checks(
         "results": results,
         "acceptance": acceptance,
     }
-    event = append_event(manifest.ledger_path, "check-run", report)
+    if task_id is not None:
+        report["task_id"] = task_id
+    event = append_event(ledger_path or manifest.ledger_path, "check-run", report)
     report["ledger_sequence"] = event["sequence"]
     report["ledger_event_digest"] = event["event_digest"]
     return report

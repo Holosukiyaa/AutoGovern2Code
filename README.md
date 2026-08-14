@@ -1,134 +1,85 @@
 # DEG
 
-**Deterministic Engineering Governance** turns exact change entries into a small,
-reviewable responsibility and verification plan.
+**Keep AI changes on a governed path and retain proof that DEG corrected and verified the work.**
 
-[中文说明](README.zh-CN.md) | [Entry Slicing](docs/ENTRY_SLICING.md) | [Policy Reference](docs/POLICY_REFERENCE.md) | [Adoption Guide](docs/ADOPTION.md) | [Architecture](docs/ARCHITECTURE.md)
+[中文](README.zh-CN.md) | [Automatic governance](docs/AUTOMATIC_GOVERNANCE.md) | [Evidence architecture](docs/ARCHITECTURE.md)
 
-DEG is a development-time control plane. It observes repositories, maps files and
-public contracts to explicit owners, expands declared boundaries, selects trusted
-checkers, and records check evidence in a hash-chained ledger. It never becomes a
-runtime dependency of the software it governs.
+DEG is not a project-management UI. After one-time enrollment, people keep using Codex normally. The agent automatically follows the repository gate, routes responsibility, works in an external Git worktree, runs trusted project checks, and can integrate only the exact change covered by current evidence.
 
-## Why DEG exists
+## What users get
 
-Repository-wide instructions are too broad for focused work, while keyword search
-is too weak to decide ownership or acceptance. DEG starts from stable coordinates:
+- AI cannot commit directly from the canonical checkout.
+- Work is routed before the first write; uncertainty broadens verification.
+- Actual changes outside the initial route trigger a recorded correction.
+- Failed checks block completion; a later passing attempt proves the correction loop.
+- Any change after verification invalidates the evidence.
+- A dirty or advanced canonical branch blocks integration.
+- Every task records its route, interventions, checks, commit, and fast-forward merge.
+
+## One-time setup
+
+DEG requires Python 3.11 or newer. From a source checkout:
+
+```bash
+python -m pip install .
+deg skill install
+```
+
+After the package is published, `python -m pip install deg-governance` installs the same command and Skill payload.
+
+In a clean Git project, tell Codex:
 
 ```text
-exact path                         public contract
-    |                                    |
-    v                                    v
-primary Floor + local Knowledge    Boundary binding
-    |                                    |
-    +---- declared dependencies    producer + consumer + scenario
-                     \             /
-                      verification plan
+$deg-governed-development enroll this project in DEG
 ```
 
-If an entry is missing, ambiguous, or unknown, DEG expands validation
-conservatively. It never turns uncertainty into a narrower check plan.
+The Skill creates the root `AGENTS.md` gate, detects the current project surface and common native tests, commits the enrollment files, installs the local Git guard, and records the first Ledger evidence.
 
-## Install
+After that, never start DEG manually. Ask Codex for normal product work.
 
-DEG requires Python 3.11 or newer and has no third-party runtime dependencies.
+## Automatic path
 
-For the current source release:
+```text
+normal user request
+  -> DEG Skill before the first write
+  -> read-only route
+  -> external task worktree
+  -> implementation
+  -> route actual diff and run trusted checks
+  -> commit the verified bytes
+  -> fast-forward the original branch
+  -> retain task and Ledger evidence
+```
+
+Users do not need to learn cards, Policy, Floors, Boundaries, Scenarios, or Checker selection. Those remain internal mechanisms for deciding what the agent must read and prove.
+
+## Read-only evidence
 
 ```bash
-git clone https://github.com/Holosukiyaa/DEG.git
-cd DEG
-python -m pip install -e .
+deg evidence
+deg evidence --task <task-id>
+deg evidence --format json
 ```
 
-After a PyPI release is published, `python -m pip install deg-governance` installs
-the same `deg` command.
+Evidence reports whether DEG controlled the task from the beginning, what it blocked or corrected, verification attempts and outcomes, the merged commit, and Ledger integrity.
 
-## Five-minute start
+## Delivery contract
 
-From the root of an existing repository:
+A managed task is complete only when:
 
-```bash
-deg init
-```
+1. DEG created the task record and external worktree before any write.
+2. The canonical checkout stayed clean and at the original HEAD.
+3. Every actual change was governed and routed from the final diff.
+4. The verified change digest still matches the bytes being committed.
+5. Every selected trusted checker passed.
+6. The task commit reached the original branch by fast-forward.
+7. The task evidence and Ledger hash chain are valid.
 
-Review `.deg/manifest.json` and `.deg/policy.json`, then run:
+Missing evidence is an incomplete management result, never a successful one.
 
-```bash
-deg index build
-deg index findings
-deg slice --path app:src/example.py --output .deg/state/change-slice.md
-deg check --path app:src/example.py
-deg ledger verify
-```
+## Boundary
 
-`deg init` creates a deliberately small starter policy. Replace its sample
-`git diff --check` checker with the repository's real tests, builds, contract
-checks, and end-to-end scenarios.
-
-## Core commands
-
-| Command | Purpose |
-| --- | --- |
-| `deg init` | Create a starter manifest and policy. |
-| `deg index build` | Observe governed files and compute ownership coverage. |
-| `deg index verify` | Fail when policy, target revisions, or governed content changed. |
-| `deg slice` | Compile a bounded responsibility and check closure. |
-| `deg check` | Run only the trusted argv-based checkers selected by the slice. |
-| `deg ledger verify` | Verify the evidence event hash chain. |
-| `deg doctor` | Check configuration, tools, index freshness, and ledger integrity. |
-
-## Configuration
-
-`.deg/manifest.json` declares where governed repositories live:
-
-```json
-{
-  "schema": "deg.manifest.v1",
-  "project": { "id": "example" },
-  "policy": ".deg/policy.json",
-  "state_dir": ".deg/state",
-  "ledger": ".deg/ledger.jsonl",
-  "targets": [
-    {
-      "id": "app",
-      "path": ".",
-      "governed_roots": ["src"],
-      "exclude": ["src/generated/**"]
-    }
-  ]
-}
-```
-
-`.deg/policy.json` declares:
-
-- **Constitution** cards for global invariants;
-- **Floor** cards for unique primary ownership;
-- **Knowledge** cards for narrow, current navigation;
-- **Boundary** cards for cross-component handoffs;
-- **Scenario** cards for real consumer workflows;
-- relations, public contract bindings, and trusted checkers.
-
-See [`examples/minimal`](examples/minimal) for a complete policy.
-Every field is documented in the [Policy Reference](docs/POLICY_REFERENCE.md).
-
-## Design rules
-
-1. A goal describes intent but never decides ownership by itself.
-2. Every governed artifact has exactly one primary Floor.
-3. Public contracts route through a Boundary to producers, consumers, and scenarios.
-4. Knowledge explains current code; it does not own compliance rules.
-5. Uncertainty expands reading and verification, not code-edit permission.
-6. Static coverage is not product acceptance.
-7. Checkers are configured argv arrays and run without a shell.
-8. Governed products do not import DEG or require DEG at runtime.
-
-The full method is documented in [Entry Slicing](docs/ENTRY_SLICING.md).
-
-## Project status
-
-DEG `0.1` is an alpha release. Its manifest, policy, slice, index, and ledger
-formats are versioned, but compatibility guarantees begin with `1.0`.
+DEG is a detachable development-time control plane. Governed products do not import DEG or require it to build or run. Version `0.2` targets a local, single-user Git workflow; remote branch protection, concurrent teams, and hosted evidence are future work.
 
 ## License
 

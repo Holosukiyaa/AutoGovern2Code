@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0 - 2026-08-15
+
+- Repositioned DEG as automatic governance for enrolled Git projects.
+- Added one-time enrollment with a root AGENTS gate and packaged Codex Skill.
+- Added machine-local Git guard activation with existing hook delegation.
+- Added isolated external task worktrees and fast-forward-only integration.
+- Added actual-diff rerouting, exact change digests, and stale-evidence rejection.
+- Bound each verification and the final committed bytes to hash-chained evidence.
+- Added evidence for blocked writes, scope correction, failed checks, and proven fixes.
+- Added read-only task evidence output; users do not operate Policy or slicing.
+
 ## 0.1.0 - 2026-08-14
 
 - Introduced versioned Manifest and Policy formats.

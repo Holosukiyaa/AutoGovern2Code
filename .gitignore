@@ -13,9 +13,3 @@ htmlcov/
 build/
 dist/
 *.egg-info/
-
-# AG2C:BEGIN
-.ag2c/state/
-.ag2c/ledger.jsonl
-.ag2c/ledger.jsonl.lock
-# AG2C:END

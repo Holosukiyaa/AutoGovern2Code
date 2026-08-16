@@ -1,7 +1,0 @@
-{
-  "enrolled_at": "2026-08-16T08:25:32.765832+00:00",
-  "project_id": "autogovern2code",
-  "schema": "ag2c.enrollment.v1",
-  "skill": "ag2c-governed-development",
-  "tool_version": "0.4.0"
-}

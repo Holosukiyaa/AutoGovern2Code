@@ -16,8 +16,11 @@ from .slicer import compile_slice
 from .util import digest_file, digest_json
 
 RECEIPT_SCHEMA = "ag2c.receipt.v2"
+LEGACY_RECEIPT_SCHEMA = "ag2c.receipt.v1"
+LEGACY_RECEIPT_DIRECTORY = ".ag2c/receipts"
 TASK_TRAILER = "AG2C-Task"
 EVIDENCE_TRAILER = "AG2C-Evidence"
+LEGACY_RECEIPT_TRAILER = "AG2C-Receipt"
 
 
 def receipt_path(manifest, task_id: str) -> Path:
@@ -82,13 +85,25 @@ def _load_receipt(path: Path) -> dict[str, Any]:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise AG2CError(f"invalid AG2C evidence at {path}: {exc}") from exc
-    if not isinstance(value, dict) or value.get("schema") != RECEIPT_SCHEMA:
+    if not isinstance(value, dict) or value.get("schema") not in {RECEIPT_SCHEMA, LEGACY_RECEIPT_SCHEMA}:
         raise AG2CError(f"unsupported AG2C evidence at {path}")
     recorded = str(value.get("receipt_digest", ""))
     unsigned = dict(value)
     unsigned.pop("receipt_digest", None)
     if recorded != digest_json(unsigned):
         raise AG2CError(f"AG2C evidence digest mismatch at {path}")
+    return value
+
+
+def _commit_json(root: Path, commit: str, relative: str) -> dict[str, Any]:
+    try:
+        raw = git(root, "show", f"{commit}:{relative}", binary=True)
+        assert isinstance(raw, bytes)
+        value = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, AssertionError, AG2CError) as exc:
+        raise AG2CError(f"commit contains invalid AG2C evidence at {relative}") from exc
+    if not isinstance(value, dict):
+        raise AG2CError(f"commit contains invalid AG2C evidence at {relative}")
     return value
 
 
@@ -132,13 +147,28 @@ def verify_commit_receipt(start: Path, commit: str = "HEAD", *, rerun: bool = Fa
     message = str(git(root, "show", "-s", "--format=%B", target))
     task_id = _trailer(message, TASK_TRAILER)
     recorded_digest = _trailer(message, EVIDENCE_TRAILER)
-    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", task_id):
+    legacy_relative = _trailer(message, LEGACY_RECEIPT_TRAILER)
+    legacy = not task_id and bool(legacy_relative)
+    if legacy:
+        match = re.fullmatch(rf"{re.escape(LEGACY_RECEIPT_DIRECTORY)}/([a-z0-9][a-z0-9._-]*)\.json", legacy_relative)
+        if not match:
+            raise AG2CError("commit does not identify valid legacy AG2C evidence")
+        task_id = match.group(1)
+    elif not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", task_id):
         raise AG2CError("commit does not identify a valid AG2C task")
     manifest = load_manifest(discover_manifest(root), project_root=root)
     policy = load_policy(manifest)
     path = receipt_path(manifest, task_id)
     receipt = _load_receipt(path)
-    if receipt.get("receipt_digest") != recorded_digest:
+    if receipt.get("task_id") != task_id:
+        raise AG2CError("external AG2C evidence task id does not match the commit")
+    if legacy:
+        if receipt.get("schema") != LEGACY_RECEIPT_SCHEMA:
+            raise AG2CError("legacy AG2C commit does not match the external evidence format")
+        committed_receipt = _commit_json(root, target, legacy_relative)
+        if committed_receipt != receipt:
+            raise AG2CError("legacy AG2C commit does not match the external evidence")
+    elif receipt.get("schema") != RECEIPT_SCHEMA or receipt.get("receipt_digest") != recorded_digest:
         raise AG2CError("commit AG2C evidence digest does not match the external record")
     source = str(receipt.get("source_commit", ""))
     try:
@@ -147,18 +177,29 @@ def verify_commit_receipt(start: Path, commit: str = "HEAD", *, rerun: bool = Fa
         git(root, "merge-base", "--is-ancestor", source, target)
     except AG2CError as exc:
         raise AG2CError("AG2C evidence source is not an ancestor of the governed commit") from exc
-    actual_paths = commit_changed_paths(root, source, target)
+    excluded = (LEGACY_RECEIPT_DIRECTORY,) if legacy else ()
+    actual_paths = commit_changed_paths(root, source, target, exclude_prefixes=excluded)
     if receipt.get("changed_paths") != actual_paths:
         raise AG2CError("AG2C evidence changed paths do not match the commit")
-    actual_digest = commit_change_digest(root, source, target)
+    actual_digest = commit_change_digest(root, source, target, exclude_prefixes=excluded)
     if receipt.get("change_digest") != actual_digest:
         raise AG2CError("AG2C evidence content digest does not match the commit")
-    if receipt.get("project") != manifest.project_id:
-        raise AG2CError("AG2C evidence belongs to a different project")
-    if receipt.get("manifest_digest") != digest_file(manifest.path):
-        raise AG2CError("current AG2C manifest does not match the evidence")
-    if receipt.get("policy_digest") != digest_file(policy.path):
-        raise AG2CError("current AG2C policy does not match the evidence")
+    if legacy:
+        manifest_blob = str(git(root, "rev-parse", f"{target}:.ag2c/manifest.json")).strip()
+        policy_blob = str(git(root, "rev-parse", f"{target}:.ag2c/policy.json")).strip()
+        committed_manifest = _commit_json(root, target, ".ag2c/manifest.json")
+        committed_project = committed_manifest.get("project", {}).get("id")
+        if receipt.get("manifest_blob") != manifest_blob or receipt.get("policy_blob") != policy_blob:
+            raise AG2CError("legacy AG2C configuration identity does not match the commit")
+        if receipt.get("project") != committed_project:
+            raise AG2CError("legacy AG2C evidence belongs to a different project")
+    else:
+        if receipt.get("project") != manifest.project_id:
+            raise AG2CError("AG2C evidence belongs to a different project")
+        if receipt.get("manifest_digest") != digest_file(manifest.path):
+            raise AG2CError("current AG2C manifest does not match the evidence")
+        if receipt.get("policy_digest") != digest_file(policy.path):
+            raise AG2CError("current AG2C policy does not match the evidence")
     checks = receipt.get("checks")
     if not isinstance(checks, list) or not checks or any(
         not isinstance(item, dict) or item.get("status") != "passed" for item in checks
@@ -166,6 +207,8 @@ def verify_commit_receipt(start: Path, commit: str = "HEAD", *, rerun: bool = Fa
         raise AG2CError("AG2C evidence does not contain a passing checker result")
     rerun_report: dict[str, Any] | None = None
     if rerun:
+        if legacy:
+            raise AG2CError("externalized legacy AG2C evidence can be validated but not rerun")
         if target != head(root) or status_entries(root):
             raise AG2CError("evidence rerun requires a clean checkout at the governed commit")
         build_index(manifest, policy)

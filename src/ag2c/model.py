@@ -79,12 +79,21 @@ class Checker:
 
 
 @dataclass(frozen=True)
+class Coverage:
+    level: str
+    strategy: str
+    managed_by: str
+    areas: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Policy:
     path: Path
     cards: tuple[Card, ...]
     relations: tuple[Relation, ...]
     contracts: tuple[ContractBinding, ...]
     checkers: tuple[Checker, ...]
+    coverage: Coverage
 
     def card(self, card_id: str) -> Card:
         return next(card for card in self.cards if card.card_id == card_id)

@@ -1,6 +1,6 @@
 ---
 name: ag2c-governed-development
-description: Enroll a Git project in AutoGovern2Code (AG2C) when the user asks to adopt or enable it, then automatically govern every software change in an enrolled repository. Use for any implementation, fix, refactor, test, documentation, configuration, dependency, build, release, or other file-changing request when the repository contains `.ag2c/enrollment.json` or its root AGENTS.md requires AG2C. Route before writing, work only in the AG2C-created external Git worktree, run AG2C verification after the final change, and finish through AG2C so only verified evidence-backed commits reach the canonical checkout.
+description: Set up, migrate, repair, or use AutoGovern2Code (AG2C), then automatically govern every software change in an enrolled Git repository. Use when the user asks to adopt AG2C, when a repository contains `.deg` or `.ag2c` enrollment, or when root AGENTS.md requires AG2C for an implementation, fix, refactor, test, documentation, configuration, dependency, build, or release request. Restore local activation without making the user operate governance, route before writing, work only in the AG2C-created external worktree, verify the final diff, and finish through AG2C so only evidence-backed commits reach the canonical checkout.
 ---
 
 # AutoGovern2Code Development
@@ -9,7 +9,7 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
 
 ## Workflow
 
-1. If the user explicitly asks to enroll a project that has no `.ag2c/enrollment.json`, require a clean Git worktree and run `ag2c enroll`. This creates and commits the project gate, installs this Skill, and activates local enforcement. Report the enrollment evidence, then use the remaining workflow for future change requests. Never enroll an unrelated repository implicitly.
+1. If the user explicitly asks to adopt AG2C, require a clean Git worktree and run `ag2c setup --project .`. This single command chooses enrollment, legacy DEG migration, or upgrade and local activation. Never enroll an unrelated repository implicitly.
 
 2. Read the repository `AGENTS.md`. Before any write, run:
 
@@ -17,9 +17,9 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
    ag2c guard status
    ```
 
-   If the project is enrolled but local activation is missing after a clone, run `ag2c activate` and check status again. Stop if AG2C remains inactive.
+   If status fails after a clone, interpreter move, Skill update, or missing hook, run `ag2c doctor --repair` and check status again. Do not ask the user to repair AG2C. Stop if management remains inactive.
 
-3. Inspect the canonical checkout read-only to identify the narrow expected paths and any exact public contract keys. Do not edit, generate, build, install dependencies, or start a service there.
+3. Inspect the canonical checkout read-only and run `ag2c coverage --format json`. Identify narrow expected paths and exact public contract keys. Baseline coverage is intentionally conservative: use exact paths when known and broaden uncertain or new areas. Do not edit, generate, build, install dependencies, or start a service in the canonical checkout.
 
 4. Start the task from the canonical checkout:
 
@@ -47,7 +47,7 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
 
    AG2C refuses stale evidence, commits the verified diff, fast-forwards the original branch, records the result, and cleans up when the worktree contains no residual artifacts.
 
-8. Report the product outcome and AG2C evidence facts: task id, interventions, verification attempts, final status, and merged commit. Do not teach the user cards, slices, policies, or checker selection unless they explicitly request diagnostics.
+8. Run `ag2c evidence --task <task-id>` and report its plain-language facts with the product outcome: files changed, checks passed, whether a failed attempt was corrected, evidence completeness, and merged commit. Do not teach the user cards, floors, slices, policies, or checker selection unless they explicitly request diagnostics.
 
 ## Fail Closed
 

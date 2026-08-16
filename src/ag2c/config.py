@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import ConfigurationError
-from .model import Card, Checker, ContractBinding, Manifest, Policy, Relation, Scope, Target
+from .model import Card, Checker, ContractBinding, Coverage, Manifest, Policy, Relation, Scope, Target
 from .util import relative_config_path
 
 MANIFEST_SCHEMA = "ag2c.manifest.v1"
@@ -16,6 +16,7 @@ CARD_TYPES = {"constitution", "floor", "boundary", "knowledge", "scenario", "tas
 OWNERSHIP_TYPES = {"primary", "reference", "supporting"}
 CHECK_STAGES = {"static", "floor", "boundary", "scenario"}
 RELATION_TYPES = {"depends_on", "explains", "producer", "consumer", "governs", "related_to"}
+COVERAGE_LEVELS = {"baseline", "structured"}
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -267,4 +268,20 @@ def load_policy(manifest: Manifest) -> Policy:
         raise ConfigurationError("policy contract binding keys must be unique")
     if not any(card.card_type == "floor" for card in cards):
         raise ConfigurationError("policy requires at least one floor card")
-    return Policy(manifest.policy_path, tuple(cards), tuple(relations), tuple(contracts), tuple(checkers))
+    raw_coverage = raw.get("coverage", {})
+    if not isinstance(raw_coverage, dict):
+        raise ConfigurationError("policy.coverage must be an object")
+    inferred_level = "structured" if len([card for card in cards if card.card_type == "floor"]) > 1 or contracts else "baseline"
+    coverage_level = str(raw_coverage.get("level", inferred_level)).strip()
+    if coverage_level not in COVERAGE_LEVELS:
+        raise ConfigurationError(f"policy.coverage.level must be one of: {', '.join(sorted(COVERAGE_LEVELS))}")
+    coverage_strategy = str(raw_coverage.get("strategy", "conservative")).strip()
+    if coverage_strategy != "conservative":
+        raise ConfigurationError("policy.coverage.strategy must be conservative")
+    coverage = Coverage(
+        level=coverage_level,
+        strategy=coverage_strategy,
+        managed_by=str(raw_coverage.get("managed_by", "project")).strip() or "project",
+        areas=_strings(raw_coverage.get("areas"), "policy.coverage.areas"),
+    )
+    return Policy(manifest.policy_path, tuple(cards), tuple(relations), tuple(contracts), tuple(checkers), coverage)

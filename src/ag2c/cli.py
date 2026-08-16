@@ -69,12 +69,25 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--manifest", type=Path, help="path to .ag2c/manifest.json")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    setup = subparsers.add_parser("setup", help="install AG2C and optionally enroll, migrate, or upgrade one project")
+    setup.add_argument("--project", type=Path)
+    setup.add_argument("--project-id")
+    setup.add_argument("--skill-destination", type=Path)
+
     enroll = subparsers.add_parser("enroll", help="enroll a clean Git project in AutoGovern2Code")
     enroll.add_argument("path", type=Path, nargs="?", default=Path.cwd())
     enroll.add_argument("--project-id")
 
     activate = subparsers.add_parser("activate", help="restore the local Skill and Git guard after cloning")
     activate.add_argument("path", type=Path, nargs="?", default=Path.cwd())
+
+    upgrade = subparsers.add_parser("upgrade", help="upgrade tracked AG2C files and restore local activation")
+    upgrade.add_argument("path", type=Path, nargs="?", default=Path.cwd())
+    upgrade.add_argument("--skill-destination", type=Path)
+
+    migrate = subparsers.add_parser("migrate", help="migrate a clean legacy DEG enrollment to AG2C")
+    migrate.add_argument("path", type=Path, nargs="?", default=Path.cwd())
+    migrate.add_argument("--skill-destination", type=Path)
 
     skill = subparsers.add_parser("skill", help="install the packaged AG2C Skill")
     skill_commands = skill.add_subparsers(dest="skill_command", required=True)
@@ -107,6 +120,9 @@ def build_parser() -> argparse.ArgumentParser:
     evidence.add_argument("--task")
     evidence.add_argument("--format", choices=("text", "json"), default="text")
 
+    coverage = subparsers.add_parser("coverage", help="show the current conservative governance coverage")
+    coverage.add_argument("--format", choices=("text", "json"), default="text")
+
     index = subparsers.add_parser("index", help="build and inspect the repository index")
     index_commands = index.add_subparsers(dest="index_command", required=True)
     index_commands.add_parser("build")
@@ -129,12 +145,17 @@ def build_parser() -> argparse.ArgumentParser:
     ledger_commands.add_parser("verify")
     ledger_commands.add_parser("summary")
 
-    subparsers.add_parser("doctor", help="check configuration, tools, index, and ledger")
+    doctor = subparsers.add_parser("doctor", help="check configuration, activation, tools, index, and ledger")
+    doctor.add_argument("--repair", action="store_true", help="restore the Skill, Git guard, activation, and index")
+    doctor.add_argument("--skill-destination", type=Path)
     return parser
 
 
 def _doctor(manifest, policy) -> int:
+    from .enrollment import activation_status
+
     issues: list[str] = []
+    issues.extend(activation_status(manifest.project_root)["issues"])
     for target in manifest.targets:
         if not manifest.target_root(target.target_id).is_dir():
             issues.append(f"missing target directory: {target.target_id}:{manifest.target_root(target.target_id)}")
@@ -149,14 +170,57 @@ def _doctor(manifest, policy) -> int:
         for issue in issues:
             print(f"- {issue}")
         return 1
-    print("AG2C configuration, tools, index, and ledger are current.")
+    print("AG2C activation, configuration, tools, index, and ledger are current.")
     return 0
+
+
+def _print_evidence(report: dict[str, Any]) -> None:
+    coverage = report["coverage"]
+    print(f"AutoGovern2Code evidence: {report['project']}")
+    print(f"Governance: {'active' if report['managed'] else 'needs repair'}")
+    print(f"Evidence chain: {'valid' if report['ledger_valid'] else 'invalid'}")
+    print(
+        f"Coverage: {coverage['level']} / {coverage['area_count']} areas / "
+        f"{coverage['checker_count']} trusted checks / {coverage['strategy']} fallback"
+    )
+    if not report["tasks"]:
+        print("No governed tasks have been recorded yet.")
+        return
+    for task in report["tasks"]:
+        print(f"\n{task['goal']} [{task['id']}]")
+        print(f"Management: {task['management_result']}")
+        print(f"Files changed: {len(task['changed_files'])}")
+        print(f"Checks: {task['checks_passed']}/{task['checks_run']} passed")
+        print(f"Verification attempts: {task['verification_attempts']}")
+        if task["correction_proven"]:
+            print(f"AI correction: proven after {task['failed_attempts']} failed attempt(s)")
+        elif task["failed_attempts"]:
+            print(f"AI correction: not yet proven ({task['failed_attempts']} failed attempt(s))")
+        else:
+            print("AI correction: not required")
+        print(f"Blocked unsafe actions: {len(task['blocked_actions'])}")
+        if task["result"]:
+            print(f"Merged commit: {task['result']['commit']}")
+        print(f"Evidence: {'complete' if task['evidence_complete'] else 'incomplete'}")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        if args.command == "setup":
+            from .enrollment import setup_project
+
+            print(
+                _json(
+                    setup_project(
+                        args.project,
+                        project_id=args.project_id,
+                        skill_root=args.skill_destination,
+                    )
+                )
+            )
+            return 0
         if args.command == "enroll":
             from .enrollment import enroll_project
 
@@ -166,6 +230,16 @@ def main(argv: list[str] | None = None) -> int:
             from .enrollment import activate_project
 
             print(_json(activate_project(args.path)))
+            return 0
+        if args.command == "upgrade":
+            from .enrollment import upgrade_project
+
+            print(_json(upgrade_project(args.path, skill_root=args.skill_destination)))
+            return 0
+        if args.command == "migrate":
+            from .enrollment import migrate_project
+
+            print(_json(migrate_project(args.path, skill_root=args.skill_destination)))
             return 0
         if args.command == "skill":
             from .enrollment import install_skill
@@ -214,34 +288,33 @@ def main(argv: list[str] | None = None) -> int:
             if args.format == "json":
                 print(_json(report))
             else:
-                print(f"AG2C evidence for {report['project']}")
-                print(f"Management active: {'yes' if report['managed'] else 'no'}")
-                print(f"Ledger valid: {'yes' if report['ledger_valid'] else 'no'}")
-                for task in report["tasks"]:
-                    print(f"\n[{task['state']}] {task['id']} - {task['goal']}")
-                    print(f"- managed from start: {'yes' if task['managed'] else 'no'}")
-                    print(f"- management result: {task['management_result']}")
-                    print(f"- evidence complete: {'yes' if task['evidence_complete'] else 'no'}")
-                    print(f"- route: {task['route_state']}")
-                    if task["interventions"]:
-                        print("- interventions:")
-                        for intervention in task["interventions"]:
-                            detail = {key: value for key, value in intervention.items() if key not in {"kind", "occurred_at", "ledger_event_digest"}}
-                            print(f"  - {intervention['kind']}: {json.dumps(detail, ensure_ascii=False, sort_keys=True)}")
-                    else:
-                        print("- interventions: none")
-                    print(f"- verification attempts: {task['verification_attempts']}")
-                    for verification in task["verifications"]:
-                        failed = [item["id"] for item in verification["checker_results"] if item["status"] != "passed"]
-                        result = "passed" if verification["passed"] else "failed"
-                        suffix = f"; failed: {', '.join(failed)}" if failed else ""
-                        print(f"  - attempt {verification['attempt']}: {result}{suffix}")
-                    print(f"- final verification: {'passed' if task['verified'] else 'not passed'}")
-                    if task["result"]:
-                        print(f"- merged commit: {task['result']['commit']}")
+                _print_evidence(report)
             evidence_ok = all(task["management_result"] == "successful" for task in report["tasks"])
             return 0 if report["managed"] and report["ledger_valid"] and evidence_ok else 1
+        if args.command == "doctor" and args.repair:
+            from .enrollment import repair_project
+
+            repair_project(Path.cwd(), skill_root=args.skill_destination)
         manifest, policy = _loaded(args)
+        if args.command == "coverage":
+            value = {
+                "level": policy.coverage.level,
+                "strategy": policy.coverage.strategy,
+                "managed_by": policy.coverage.managed_by,
+                "areas": list(policy.coverage.areas),
+                "area_count": len([card for card in policy.cards if card.card_type == "floor"]),
+                "checker_count": len(policy.checkers),
+                "contract_count": len(policy.contracts),
+            }
+            if args.format == "json":
+                print(_json(value))
+            else:
+                print(f"Coverage level: {value['level']}")
+                print(f"Detected areas: {value['area_count']}")
+                print(f"Trusted checks: {value['checker_count']}")
+                print(f"Public contracts: {value['contract_count']}")
+                print(f"Unknown entries: {value['strategy']} expansion")
+            return 0
         if args.command == "index":
             path = index_path(manifest)
             if args.index_command == "build":

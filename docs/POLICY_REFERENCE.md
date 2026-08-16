@@ -51,12 +51,29 @@ Default location: `.ag2c/policy.json`
 ```json
 {
   "schema": "ag2c.policy.v1",
+  "coverage": {
+    "level": "baseline",
+    "strategy": "conservative",
+    "managed_by": "ag2c",
+    "areas": ["src", "tests"]
+  },
   "cards": [],
   "relations": [],
   "contracts": [],
   "checkers": []
 }
 ```
+
+### Coverage
+
+| Field | Meaning |
+| --- | --- |
+| `level` | `baseline` for conservative generated ownership, or `structured` for project-maintained responsibility and contracts. |
+| `strategy` | Must be `conservative`; unknown entries expand routing and checks. |
+| `managed_by` | `ag2c` permits `ag2c upgrade` to refresh generated areas and native checkers; any other value leaves Policy ownership with the project. |
+| `areas` | Informational top-level areas detected for baseline coverage. |
+
+Coverage metadata does not weaken routing rules. Missing metadata is inferred for older Policy files, while `ag2c upgrade` writes the explicit current form for AG2C-generated baselines.
 
 ### Cards
 
@@ -147,7 +164,7 @@ The resulting entry is `api:orders.cancel@2.0.0`. A binding requires:
   "id": "check.api",
   "stage": "floor",
   "target": "api",
-  "command": ["python", "-m", "pytest", "tests/api", "-q"],
+  "command": ["python", "-B", "-m", "pytest", "tests/api", "-q"],
   "cwd": ".",
   "timeout": 300
 }

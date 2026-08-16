@@ -22,10 +22,10 @@ JSON task record + hash-chain Ledger   durable local evidence
 
 ## Enrollment
 
-`ag2c enroll` operates once on a clean Git repository. It:
+The Skill uses `ag2c setup --project .` on a clean Git repository. Setup selects first enrollment, legacy migration, or an existing-project upgrade. First enrollment:
 
 1. detects the current tracked project roots;
-2. creates a minimal internal Policy and Manifest;
+2. creates a conservative baseline Policy split by detected top-level project areas and a Manifest;
 3. adds a managed `AGENTS.md` block;
 4. commits those reviewable enrollment files;
 5. installs the packaged `ag2c-governed-development` Skill;
@@ -33,6 +33,19 @@ JSON task record + hash-chain Ledger   durable local evidence
 7. builds the initial index and records enrollment evidence.
 
 The tracked enrollment is portable. Machine paths, generated indexes, local hooks, active task records, and Ledger data live under ignored `.ag2c/state` or other ignored files.
+
+## Coverage maturity
+
+Policy records one of two user-visible coverage levels:
+
+- `baseline`: AG2C owns detected project areas and runs all detected native checks conservatively. Unknown paths expand routing rather than being guessed into a narrow owner.
+- `structured`: maintainers have declared finer responsibilities, relations, and optionally public contracts and scenarios.
+
+`ag2c upgrade` refreshes only a baseline marked `managed_by: ag2c`. It never overwrites a project-maintained structured Policy. `ag2c coverage` exposes the current level without requiring users to read cards or slices.
+
+## Local recovery
+
+The Skill checks `ag2c guard status` before the first write. `ag2c doctor --repair` restores the packaged Skill, exact Python hook, prior hook delegation, activation record, and index. It validates but does not rewrite the evidence Ledger. Tracked upgrades require a clean canonical checkout and produce a narrow maintenance commit plus Ledger event.
 
 ## Automatic task state
 

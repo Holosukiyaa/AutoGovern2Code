@@ -37,18 +37,18 @@ Requirements: Python 3.11 or newer, Git, and Codex CLI or the Codex IDE extensio
 Install from GitHub:
 
 ```bash
-python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git"
-ag2c skill install
+python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.3.0"
+ag2c setup
 ```
 
 For local development from a cloned checkout:
 
 ```bash
 python -m pip install -e .
-ag2c skill install
+ag2c setup
 ```
 
-`ag2c skill install` places the Skill in `~/.agents/skills`, where current Codex clients discover user-level skills.
+`ag2c setup` installs the Skill in `~/.agents/skills`, where current Codex clients discover user-level skills. It does not enroll the current directory unless the Skill explicitly calls `ag2c setup --project .`.
 
 ## Enroll one project
 
@@ -61,6 +61,12 @@ $ag2c-governed-development enroll this project in AutoGovern2Code
 Enrollment creates and commits a reviewable root `AGENTS.md` gate plus `.ag2c` policy files. It also installs a machine-local Git guard, detects common native tests, builds the initial responsibility index, and records enrollment evidence.
 
 That is the last governance workflow the user needs to start. Future development requests automatically use AG2C because Codex reads the enrolled repository instructions before working.
+
+AG2C starts with conservative baseline coverage split by detected top-level project areas. Unknown or new paths broaden the route and checks instead of being guessed into a narrow area. Maintainers can later declare structured responsibilities and public contracts without changing the user workflow.
+
+## Automatic recovery and upgrades
+
+The Skill runs `ag2c guard status` before a change. After a clone, interpreter move, missing hook, or Skill update it runs `ag2c doctor --repair` before writing. `ag2c upgrade` refreshes AG2C-managed areas and native checkers in a clean project. `ag2c migrate` converts a clean pre-public `.deg` enrollment, archives the complete original `.deg` contents under ignored state, and links the old Ledger digest from the new evidence chain.
 
 ## What AG2C proves
 
@@ -85,7 +91,7 @@ ag2c evidence --task <task-id>
 ag2c evidence --format json
 ```
 
-It reports what AG2C controlled, blocked, or corrected; every verification attempt; the final commit and merge mode; cleanup state; and Ledger integrity.
+The default output stays in user language: files changed, checks passed, failed attempts corrected, blocked unsafe actions, final commit, and evidence completeness. `--format json` retains the complete machine-readable record.
 
 ## Safety boundary
 

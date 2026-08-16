@@ -510,7 +510,7 @@ def task_records(start: Path) -> list[dict[str, Any]]:
 def evidence(start: Path, task_id: str | None = None) -> dict[str, Any]:
     status = activation_status(start)
     canonical = Path(status["canonical_root"])
-    manifest, _ = _canonical_manifest(canonical)
+    manifest, policy = _canonical_manifest(canonical)
     ledger_errors = verify_ledger(manifest.ledger_path)
     events = read_events(manifest.ledger_path) if not ledger_errors else []
     events_by_digest = {str(event["event_digest"]): event for event in events}
@@ -579,6 +579,17 @@ def evidence(start: Path, task_id: str | None = None) -> dict[str, Any]:
             and _verification_evidence_valid(manifest, task, verifications[-1])
         )
         completed = task["state"] == "completed" and bool(task.get("result"))
+        last_verification = verifications[-1] if verifications else {}
+        checker_results = last_verification.get("checker_results", [])
+        correction_proven = any(
+            intervention.get("kind") == "ai-correction-proven"
+            for intervention in task.get("interventions", [])
+        )
+        blocked_actions = [
+            intervention.get("kind")
+            for intervention in task.get("interventions", [])
+            if str(intervention.get("kind", "")).endswith("-blocked")
+        ]
         summaries.append(
             {
                 "id": task["id"],
@@ -592,8 +603,30 @@ def evidence(start: Path, task_id: str | None = None) -> dict[str, Any]:
                 "verification_attempts": len(verifications),
                 "verifications": verifications,
                 "verified": verified,
+                "changed_files": list(last_verification.get("changed_paths", [])),
+                "checks_run": len(checker_results),
+                "checks_passed": sum(item.get("status") == "passed" for item in checker_results),
+                "failed_attempts": sum(not item.get("passed", False) for item in verifications),
+                "correction_proven": correction_proven,
+                "blocked_actions": blocked_actions,
                 "result": task.get("result"),
                 "cleanup": task.get("cleanup"),
             }
         )
-    return {"project": manifest.project_id, "managed": status["managed"], "ledger_valid": not ledger_errors, "ledger_errors": ledger_errors, "tasks": summaries}
+    coverage = {
+        "level": policy.coverage.level,
+        "strategy": policy.coverage.strategy,
+        "managed_by": policy.coverage.managed_by,
+        "areas": list(policy.coverage.areas),
+        "area_count": len([card for card in policy.cards if card.card_type == "floor"]),
+        "checker_count": len(policy.checkers),
+        "contract_count": len(policy.contracts),
+    }
+    return {
+        "project": manifest.project_id,
+        "managed": status["managed"],
+        "ledger_valid": not ledger_errors,
+        "ledger_errors": ledger_errors,
+        "coverage": coverage,
+        "tasks": summaries,
+    }

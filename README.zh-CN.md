@@ -37,18 +37,18 @@ AutoGovern2Code 是给 AI 编程使用的本地开源治理层。它不是另一
 从 GitHub 安装：
 
 ```bash
-python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git"
-ag2c skill install
+python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.3.0"
+ag2c setup
 ```
 
 从本地源码参与开发：
 
 ```bash
 python -m pip install -e .
-ag2c skill install
+ag2c setup
 ```
 
-`ag2c skill install` 会把 Skill 安装到当前 Codex 能发现的用户级目录 `~/.agents/skills`。
+`ag2c setup` 会把 Skill 安装到当前 Codex 能发现的用户级目录 `~/.agents/skills`。只有 Skill 明确执行 `ag2c setup --project .` 时才会纳管当前工程。
 
 ## 纳管一个工程
 
@@ -61,6 +61,12 @@ $ag2c-governed-development 把这个工程纳入 AutoGovern2Code
 纳管会生成并提交可审查的根级 `AGENTS.md` 门禁和 `.ag2c` 策略文件，同时安装本机 Git Guard、识别常见原生测试、建立初始责任索引并记录纳管证据。
 
 这是用户最后一次主动启动治理流程。以后只需要正常提出开发需求；Codex 开工前会读取已纳管工程的说明并自动使用 AG2C。
+
+首次纳管只声明“保守基线覆盖”：AG2C 按检测到的顶层工程区域拆分责任，遇到未知或新增路径时扩大路由和检查，不会假装已经理解全部业务架构。维护者以后可以继续补充结构化责任和公开合同，但用户工作流不变。
+
+## 自动恢复与升级
+
+Skill 每次开工前都会检查本机状态。重新克隆、Python 路径变化、Hook 缺失或 Skill 更新后，它会先运行 `ag2c doctor --repair` 再施工。`ag2c upgrade` 会在干净工程中刷新 AG2C 自动维护的区域和原生检查；`ag2c migrate` 会把旧 `.deg` 完整归档，原 Ledger 字节按摘要关联，不会被伪造重写。
 
 ## AG2C 能证明什么
 
@@ -85,7 +91,7 @@ ag2c evidence --task <task-id>
 ag2c evidence --format json
 ```
 
-它会说明 AG2C 接管、阻止或纠正过什么，每次验证的结果，最终提交和合并方式，清理状态，以及 Ledger 是否完整。
+默认输出只说用户关心的事实：改了几个文件、检查通过几项、失败后是否完成纠正、阻止过几次危险操作、最终提交和证据是否完整。`--format json` 保留完整机器记录。
 
 ## 技术边界
 

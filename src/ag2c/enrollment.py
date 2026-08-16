@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import __version__
 from .config import MANIFEST_SCHEMA, POLICY_SCHEMA, load_manifest, load_policy
 from .errors import AG2CError
 from .gitops import canonical_worktree, current_branch, git, repository_root, status_entries
@@ -25,6 +26,10 @@ AGENTS_BEGIN = "<!-- AG2C:BEGIN -->"
 AGENTS_END = "<!-- AG2C:END -->"
 IGNORE_BEGIN = "# AG2C:BEGIN"
 IGNORE_END = "# AG2C:END"
+LEGACY_AGENTS_BEGIN = "<!-- DEG:BEGIN -->"
+LEGACY_AGENTS_END = "<!-- DEG:END -->"
+LEGACY_IGNORE_BEGIN = "# DEG:BEGIN"
+LEGACY_IGNORE_END = "# DEG:END"
 
 AGENTS_BLOCK = f"""{AGENTS_BEGIN}
 # AutoGovern2Code managed engineering
@@ -33,10 +38,11 @@ This repository is enrolled in AG2C. For every request that may change source,
 tests, documentation, configuration, dependencies, or generated deliverables:
 
 1. Use `${SKILL_NAME}` before the first write.
-2. Do not edit this canonical checkout.
-3. Start an AG2C task and edit only the returned external Git worktree.
-4. Run AG2C verification after the final change.
-5. Finish through AG2C so verified commits are fast-forwarded into this checkout.
+2. Let the Skill repair local activation before starting a task.
+3. Do not edit this canonical checkout.
+4. Start an AG2C task and edit only the returned external Git worktree.
+5. Run AG2C verification after the final change.
+6. Finish through AG2C so verified commits are fast-forwarded into this checkout.
 
 Do not claim completion without a valid AG2C task record and verification evidence.
 If AG2C blocks an action, fix the cause; never bypass the guard, checker, or ledger.
@@ -87,11 +93,29 @@ def _replace_block(path: Path, begin: str, end: str, block: str) -> None:
         handle.write(content)
 
 
+def _remove_block(path: Path, begin: str, end: str) -> None:
+    if not path.is_file():
+        return
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        original = handle.read()
+    start = original.find(begin)
+    finish = original.find(end, start)
+    if start < 0 and finish < 0:
+        return
+    if start < 0 or finish < 0:
+        raise AG2CError(f"cannot remove malformed legacy AG2C block in {path}")
+    finish += len(end)
+    content = (original[:start].rstrip("\r\n") + original[finish:]).lstrip("\r\n")
+    newline = "\r\n" if "\r\n" in original else "\n"
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        handle.write(content.rstrip("\r\n") + (newline if content else ""))
+
+
 def _tracked_roots(root: Path) -> list[str]:
     tracked = [line.replace("\\", "/") for line in str(git(root, "ls-files")).splitlines()]
     candidates: dict[str, bool] = {}
     for relative in tracked:
-        if relative in {"AGENTS.md", ".gitignore"} or relative.startswith(".ag2c/"):
+        if relative in {"AGENTS.md", ".gitignore"} or relative.startswith((".ag2c/", ".deg/")):
             continue
         first, separator, _ = relative.partition("/")
         candidates[first] = bool(separator) or (root / first).is_dir()
@@ -102,6 +126,68 @@ def _tracked_roots(root: Path) -> list[str]:
     if not candidates:
         raise AG2CError("cannot enroll an empty project; add the initial project files first")
     return sorted(candidates)
+
+
+def _area_slug(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-") or "area"
+    return slug[:40]
+
+
+def _baseline_cards(root: Path, project_roots: list[str], checker_ids: list[str]) -> list[dict[str, Any]]:
+    cards: list[dict[str, Any]] = [
+        {
+            "id": "constitution.project",
+            "type": "constitution",
+            "title": "Managed project invariants",
+            "summary": "All changes use AG2C routing, isolated worktrees, verified checks, and evidence-backed integration.",
+            "references": ["AGENTS.md"],
+        }
+    ]
+    top_level_files = [name for name in project_roots if not (root / name).is_dir()]
+    directories = [name for name in project_roots if (root / name).is_dir()]
+    used_ids = {"constitution.project", "floor.root"}
+    if top_level_files:
+        cards.append(
+            {
+                "id": "floor.root",
+                "type": "floor",
+                "title": "Project root files",
+                "summary": "Conservative ownership for tracked files at the project root.",
+                "scopes": [{"target": "app", "include": top_level_files, "ownership": "primary"}],
+                "checkers": checker_ids,
+                "references": ["AGENTS.md"],
+            }
+        )
+    for name in directories:
+        base_id = f"floor.{_area_slug(name)}"
+        card_id = base_id
+        if card_id in used_ids:
+            card_id = f"{base_id}-{hashlib.sha256(name.encode('utf-8')).hexdigest()[:6]}"
+        used_ids.add(card_id)
+        cards.append(
+            {
+                "id": card_id,
+                "type": "floor",
+                "title": f"{name} area",
+                "summary": f"Conservative ownership for the detected top-level {name} project area.",
+                "scopes": [{"target": "app", "include": [f"{name}/**"], "ownership": "primary"}],
+                "checkers": checker_ids,
+                "references": ["AGENTS.md"],
+            }
+        )
+    if len(cards) == 1:
+        cards.append(
+            {
+                "id": "floor.project",
+                "type": "floor",
+                "title": "Project implementation",
+                "summary": "Conservative ownership for the complete project.",
+                "scopes": [{"target": "app", "include": ["**"], "ownership": "primary"}],
+                "checkers": checker_ids,
+                "references": ["AGENTS.md"],
+            }
+        )
+    return cards
 
 
 def _native_checkers(root: Path) -> list[dict[str, Any]]:
@@ -275,7 +361,7 @@ def enroll_project(start: Path, *, project_id: str | None = None, skill_root: Pa
     if dirty:
         raise AG2CError("enrollment requires a clean worktree; commit or stash: " + ", ".join(dirty))
     if (root / ".ag2c" / "enrollment.json").exists():
-        raise AG2CError("project is already enrolled; run `ag2c activate`")
+        raise AG2CError("project is already enrolled; run `ag2c upgrade`")
     project_id = project_id or _project_id(root)
     if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", project_id):
         raise AG2CError("project id must contain only lowercase letters, digits, dots, underscores, and hyphens")
@@ -299,35 +385,24 @@ def enroll_project(start: Path, *, project_id: str | None = None, skill_root: Pa
     checker_ids = [item["id"] for item in checkers]
     policy = {
         "schema": POLICY_SCHEMA,
-        "cards": [
-            {
-                "id": "constitution.project",
-                "type": "constitution",
-                "title": "Managed project invariants",
-                "summary": "All changes use AG2C routing, isolated worktrees, verified checks, and evidence-backed integration.",
-                "references": ["AGENTS.md"],
-            },
-            {
-                "id": "floor.project",
-                "type": "floor",
-                "title": "Project implementation",
-                "summary": "Primary responsibility for every file present when the project was enrolled.",
-                "scopes": [
-                    {
-                        "target": "app",
-                        "include": ["**"],
-                        "ownership": "primary",
-                    }
-                ],
-                "checkers": checker_ids,
-                "references": ["AGENTS.md"],
-            },
-        ],
+        "coverage": {
+            "level": "baseline",
+            "strategy": "conservative",
+            "managed_by": "ag2c",
+            "areas": project_roots,
+        },
+        "cards": _baseline_cards(root, project_roots, checker_ids),
         "relations": [],
         "contracts": [],
         "checkers": checkers,
     }
-    enrollment = {"schema": ENROLLMENT_SCHEMA, "project_id": project_id, "enrolled_at": _now(), "skill": SKILL_NAME}
+    enrollment = {
+        "schema": ENROLLMENT_SCHEMA,
+        "project_id": project_id,
+        "enrolled_at": _now(),
+        "skill": SKILL_NAME,
+        "tool_version": __version__,
+    }
     _write_json(root / ".ag2c" / "manifest.json", manifest)
     _write_json(root / ".ag2c" / "policy.json", policy)
     _write_json(root / ".ag2c" / "enrollment.json", enrollment)
@@ -343,6 +418,244 @@ def enroll_project(start: Path, *, project_id: str | None = None, skill_root: Pa
     )
     activation = activate_project(root, skill_root=skill_root)
     return {"project_id": project_id, "root": str(root), "skill_path": activation["skill_path"], "ledger_event": event["event_digest"]}
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AG2CError(f"cannot read AG2C lifecycle file {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise AG2CError(f"AG2C lifecycle file must contain an object: {path}")
+    return value
+
+
+def _replace_legacy_namespace(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _replace_legacy_namespace(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_replace_legacy_namespace(item) for item in value]
+    if not isinstance(value, str):
+        return value
+    if value == "deg":
+        return "ag2c"
+    return (
+        value.replace(".deg/", ".ag2c/")
+        .replace("deg-governed-development", SKILL_NAME)
+        .replace("deg.", "ag2c.")
+        .replace("DEG", "AG2C")
+    )
+
+
+def _upgrade_python_checkers(policy: dict[str, Any]) -> bool:
+    changed = False
+    for checker in policy.get("checkers", []):
+        if not isinstance(checker, dict):
+            continue
+        command = checker.get("command")
+        if (
+            isinstance(command, list)
+            and len(command) >= 3
+            and command[0] in {"python", "python3"}
+            and command[1] == "-m"
+            and command[2] in {"pytest", "unittest"}
+        ):
+            checker["command"] = [command[0], "-B", *command[1:]]
+            changed = True
+    return changed
+
+
+def _upgrade_generated_policy(root: Path, policy: dict[str, Any]) -> bool:
+    changed = _upgrade_python_checkers(policy)
+    project_roots = _tracked_roots(root)
+    coverage = policy.get("coverage")
+    card_ids = {
+        str(card.get("id"))
+        for card in policy.get("cards", [])
+        if isinstance(card, dict)
+    }
+    legacy_generated = card_ids == {"constitution.project", "floor.project"} and not policy.get("relations") and not policy.get("contracts")
+    if coverage is None and legacy_generated:
+        coverage = {
+            "level": "baseline",
+            "strategy": "conservative",
+            "managed_by": "ag2c",
+            "areas": project_roots,
+        }
+        policy["coverage"] = coverage
+        changed = True
+    if isinstance(coverage, dict) and coverage.get("managed_by") == "ag2c" and coverage.get("level") == "baseline":
+        detected_checkers = _native_checkers(root)
+        if policy.get("checkers") != detected_checkers:
+            policy["checkers"] = detected_checkers
+            changed = True
+        floor_checkers = [str(item["id"]) for item in detected_checkers]
+        cards = _baseline_cards(root, project_roots, floor_checkers)
+        expected_coverage = {
+            "level": "baseline",
+            "strategy": "conservative",
+            "managed_by": "ag2c",
+            "areas": project_roots,
+        }
+        if policy.get("cards") != cards:
+            policy["cards"] = cards
+            changed = True
+        if coverage != expected_coverage:
+            policy["coverage"] = expected_coverage
+            changed = True
+    return changed
+
+
+def _maintenance_commit(root: Path, message: str, paths: list[str]) -> str | None:
+    changed = str(git(root, "status", "--porcelain=v1", "--", *paths)).strip()
+    if not changed:
+        return None
+    git(root, "add", "--all", "--", *paths)
+    git(root, "-c", "core.hooksPath=", "commit", "-m", message)
+    return str(git(root, "rev-parse", "HEAD")).strip()
+
+
+def upgrade_project(start: Path, *, skill_root: Path | None = None) -> dict[str, Any]:
+    root = repository_root(start)
+    if root != canonical_worktree(root):
+        raise AG2CError(f"upgrade AG2C from the canonical worktree: {canonical_worktree(root)}")
+    if (root / ".deg" / "enrollment.json").is_file() and not (root / ".ag2c" / "enrollment.json").is_file():
+        return migrate_project(root, skill_root=skill_root)
+    enrollment_path = root / ".ag2c" / "enrollment.json"
+    policy_path = root / ".ag2c" / "policy.json"
+    if not enrollment_path.is_file() or not policy_path.is_file():
+        raise AG2CError("project is not enrolled in AG2C")
+    dirty = status_entries(root)
+    if dirty:
+        raise AG2CError("upgrade requires a clean canonical worktree; commit or stash: " + ", ".join(dirty))
+    enrollment = _read_json(enrollment_path)
+    policy = _read_json(policy_path)
+    enrollment.update({"schema": ENROLLMENT_SCHEMA, "skill": SKILL_NAME, "tool_version": __version__})
+    _upgrade_generated_policy(root, policy)
+    _write_json(enrollment_path, enrollment)
+    _write_json(policy_path, policy)
+    _replace_block(root / "AGENTS.md", AGENTS_BEGIN, AGENTS_END, AGENTS_BLOCK)
+    _replace_block(root / ".gitignore", IGNORE_BEGIN, IGNORE_END, IGNORE_BLOCK)
+    manifest = load_manifest(root / ".ag2c" / "manifest.json")
+    load_policy(manifest)
+    paths = ["AGENTS.md", ".gitignore", ".ag2c/enrollment.json", ".ag2c/policy.json"]
+    commit = _maintenance_commit(root, f"chore: upgrade AG2C to {__version__}", paths)
+    if commit:
+        append_event(manifest.ledger_path, "project-upgraded", {"version": __version__, "commit": commit})
+    activation = activate_project(root, skill_root=skill_root)
+    return {
+        "action": "upgraded" if commit else "reactivated",
+        "project_id": manifest.project_id,
+        "root": str(root),
+        "version": __version__,
+        "commit": commit,
+        "skill_path": activation["skill_path"],
+    }
+
+
+def migrate_project(start: Path, *, skill_root: Path | None = None) -> dict[str, Any]:
+    root = repository_root(start)
+    if root != canonical_worktree(root):
+        raise AG2CError(f"migrate AG2C from the canonical worktree: {canonical_worktree(root)}")
+    legacy = root / ".deg"
+    destination = root / ".ag2c"
+    if destination.exists():
+        raise AG2CError("cannot migrate because .ag2c already exists")
+    required = [legacy / "manifest.json", legacy / "policy.json", legacy / "enrollment.json"]
+    if not all(path.is_file() for path in required):
+        raise AG2CError("cannot find a complete legacy .deg enrollment")
+    dirty = status_entries(root)
+    if dirty:
+        raise AG2CError("migration requires a clean canonical worktree; commit or stash: " + ", ".join(dirty))
+    active_tasks = []
+    task_dir = legacy / "state" / "tasks"
+    if task_dir.is_dir():
+        for task_path in task_dir.glob("*.json"):
+            task = _read_json(task_path)
+            if task.get("state") == "active":
+                active_tasks.append(str(task.get("id", task_path.stem)))
+    if active_tasks:
+        raise AG2CError("finish or abandon active legacy tasks before migration: " + ", ".join(sorted(active_tasks)))
+    old_activation = _read_json(legacy / "state" / "activation.json") if (legacy / "state" / "activation.json").is_file() else {}
+    actual_hooks = str(git(root, "config", "--get", "core.hooksPath", check=False)).strip()
+    legacy_hooks = str((legacy / "state" / "hooks").resolve())
+    if actual_hooks == legacy_hooks:
+        previous_hooks = str(old_activation.get("previous_hooks_path", ""))
+        if previous_hooks:
+            git(root, "config", "core.hooksPath", previous_hooks)
+        else:
+            git(root, "config", "--unset-all", "core.hooksPath", check=False)
+    manifest_raw = _replace_legacy_namespace(_read_json(legacy / "manifest.json"))
+    policy_raw = _replace_legacy_namespace(_read_json(legacy / "policy.json"))
+    enrollment_raw = _replace_legacy_namespace(_read_json(legacy / "enrollment.json"))
+    enrollment_raw.update({"schema": ENROLLMENT_SCHEMA, "skill": SKILL_NAME, "tool_version": __version__})
+    destination.mkdir(parents=True)
+    archive = destination / "state" / "legacy-deg"
+    archive.mkdir(parents=True)
+    legacy_ledger_digest: str | None = None
+    if (legacy / "ledger.jsonl").is_file():
+        legacy_ledger_digest = digest_file(legacy / "ledger.jsonl")
+    for source in list(legacy.iterdir()):
+        shutil.move(str(source), str(archive / source.name))
+    legacy.rmdir()
+    _upgrade_generated_policy(root, policy_raw)
+    _write_json(destination / "manifest.json", manifest_raw)
+    _write_json(destination / "policy.json", policy_raw)
+    _write_json(destination / "enrollment.json", enrollment_raw)
+    _remove_block(root / "AGENTS.md", LEGACY_AGENTS_BEGIN, LEGACY_AGENTS_END)
+    _remove_block(root / ".gitignore", LEGACY_IGNORE_BEGIN, LEGACY_IGNORE_END)
+    _replace_block(root / "AGENTS.md", AGENTS_BEGIN, AGENTS_END, AGENTS_BLOCK)
+    _replace_block(root / ".gitignore", IGNORE_BEGIN, IGNORE_END, IGNORE_BLOCK)
+    manifest = load_manifest(destination / "manifest.json")
+    load_policy(manifest)
+    paths = ["AGENTS.md", ".gitignore", ".deg", ".ag2c/enrollment.json", ".ag2c/manifest.json", ".ag2c/policy.json"]
+    commit = _maintenance_commit(root, "chore: migrate DEG to AutoGovern2Code", paths)
+    event = append_event(
+        manifest.ledger_path,
+        "project-migrated",
+        {"from": "DEG", "to": "AutoGovern2Code", "commit": commit, "legacy_ledger_digest": legacy_ledger_digest},
+    )
+    activation = activate_project(root, skill_root=skill_root)
+    return {
+        "action": "migrated",
+        "project_id": manifest.project_id,
+        "root": str(root),
+        "version": __version__,
+        "commit": commit,
+        "legacy_archive": str(archive),
+        "legacy_ledger_digest": legacy_ledger_digest,
+        "ledger_event": event["event_digest"],
+        "skill_path": activation["skill_path"],
+    }
+
+
+def setup_project(
+    project: Path | None = None,
+    *,
+    project_id: str | None = None,
+    skill_root: Path | None = None,
+) -> dict[str, Any]:
+    skill_path = install_skill(skill_root)
+    if project is None:
+        return {"action": "skill-installed", "version": __version__, "skill_path": str(skill_path)}
+    root = repository_root(project)
+    if (root / ".ag2c" / "enrollment.json").is_file():
+        return upgrade_project(root, skill_root=skill_root)
+    if (root / ".deg" / "enrollment.json").is_file():
+        return migrate_project(root, skill_root=skill_root)
+    result = enroll_project(root, project_id=project_id, skill_root=skill_root)
+    return {"action": "enrolled", "version": __version__, **result}
+
+
+def repair_project(start: Path, *, skill_root: Path | None = None) -> dict[str, Any]:
+    root = repository_root(start)
+    if (root / ".deg" / "enrollment.json").is_file() and not (root / ".ag2c" / "enrollment.json").is_file():
+        return migrate_project(root, skill_root=skill_root)
+    activation = activate_project(root, skill_root=skill_root)
+    status = activation_status(root)
+    if not status["managed"]:
+        raise AG2CError("AG2C repair did not restore management: " + "; ".join(status["issues"]))
+    return {"action": "repaired", "root": str(root), "version": __version__, "activation": activation}
 
 
 def activation_status(start: Path) -> dict[str, Any]:

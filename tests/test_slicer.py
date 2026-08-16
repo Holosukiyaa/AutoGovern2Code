@@ -2,9 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deg.errors import SliceError
-from deg.index import build_index
-from deg.slicer import compile_slice
+from ag2c.errors import SliceError
+from ag2c.index import build_index
+from ag2c.slicer import compile_slice
 
 from support import write_project
 

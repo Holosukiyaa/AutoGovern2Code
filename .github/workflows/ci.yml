@@ -9,11 +9,19 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        include:
+          - os: ubuntu-latest
+            python-version: "3.11"
+          - os: ubuntu-latest
+            python-version: "3.12"
+          - os: ubuntu-latest
+            python-version: "3.13"
+          - os: windows-latest
+            python-version: "3.13"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -22,12 +30,26 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e .
       - run: python -m unittest discover -s tests -v
-      - run: deg --version
+      - run: ag2c --version
       - name: Run minimal example
         working-directory: examples/minimal
         run: |
-          deg index build
-          deg index findings
-          deg slice --path app:src/client.py --contract app:example.hello@1.0.0 --output .deg/state/slice.md
-          deg check --path app:src/client.py --contract app:example.hello@1.0.0
-          deg ledger verify
+          ag2c index build
+          ag2c index findings
+          ag2c slice --path app:src/client.py --contract app:example.hello@1.0.0 --output .ag2c/state/slice.md
+          ag2c check --path app:src/client.py --contract app:example.hello@1.0.0
+          ag2c ledger verify
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install --upgrade pip build
+      - run: python -m build
+      - run: python -m pip install dist/*.whl
+      - run: ag2c --version
+      - run: ag2c skill install --destination .tmp-skills
+      - run: test -f .tmp-skills/ag2c-governed-development/SKILL.md

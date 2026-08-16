@@ -1,0 +1,14 @@
+include CHANGELOG.md
+include CONTRIBUTING.md
+include README.zh-CN.md
+include SECURITY.md
+
+recursive-include docs *.md
+recursive-include tests *.py
+
+include examples/minimal/README.md
+include examples/minimal/.ag2c/README.md
+include examples/minimal/.ag2c/manifest.json
+include examples/minimal/.ag2c/policy.json
+recursive-include examples/minimal/src *.py
+recursive-include examples/minimal/tests *.py

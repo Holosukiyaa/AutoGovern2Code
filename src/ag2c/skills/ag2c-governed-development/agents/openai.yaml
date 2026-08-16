@@ -1,0 +1,4 @@
+interface:
+  display_name: "AutoGovern2Code"
+  short_description: "Govern AI code changes with verifiable evidence."
+  default_prompt: "Use $ag2c-governed-development to make this project change through AutoGovern2Code."

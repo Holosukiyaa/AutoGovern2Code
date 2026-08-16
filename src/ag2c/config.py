@@ -9,8 +9,8 @@ from .errors import ConfigurationError
 from .model import Card, Checker, ContractBinding, Manifest, Policy, Relation, Scope, Target
 from .util import relative_config_path
 
-MANIFEST_SCHEMA = "deg.manifest.v1"
-POLICY_SCHEMA = "deg.policy.v1"
+MANIFEST_SCHEMA = "ag2c.manifest.v1"
+POLICY_SCHEMA = "ag2c.policy.v1"
 IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 CARD_TYPES = {"constitution", "floor", "boundary", "knowledge", "scenario", "task"}
 OWNERSHIP_TYPES = {"primary", "reference", "supporting"}
@@ -53,11 +53,11 @@ def discover_manifest(start: Path | None = None, explicit: Path | None = None) -
         return explicit.resolve()
     current = (start or Path.cwd()).resolve()
     for directory in (current, *current.parents):
-        candidate = directory / ".deg" / "manifest.json"
+        candidate = directory / ".ag2c" / "manifest.json"
         if candidate.is_file():
             return candidate
     raise ConfigurationError(
-        "cannot find .deg/manifest.json; enroll the project with $deg-governed-development or pass --manifest"
+        "cannot find .ag2c/manifest.json; enroll the project with $ag2c-governed-development or pass --manifest"
     )
 
 
@@ -71,9 +71,9 @@ def load_manifest(path: Path) -> Manifest:
         raise ConfigurationError("manifest.project must be an object")
     project_id = _identifier(project.get("id", ""), "project.id")
     project_root = path.parent.parent.resolve()
-    policy_rel = relative_config_path(str(raw.get("policy", ".deg/policy.json")), "manifest.policy")
-    state_rel = relative_config_path(str(raw.get("state_dir", ".deg/state")), "manifest.state_dir")
-    ledger_rel = relative_config_path(str(raw.get("ledger", ".deg/ledger.jsonl")), "manifest.ledger")
+    policy_rel = relative_config_path(str(raw.get("policy", ".ag2c/policy.json")), "manifest.policy")
+    state_rel = relative_config_path(str(raw.get("state_dir", ".ag2c/state")), "manifest.state_dir")
+    ledger_rel = relative_config_path(str(raw.get("ledger", ".ag2c/ledger.jsonl")), "manifest.ledger")
     raw_targets = raw.get("targets")
     if not isinstance(raw_targets, list) or not raw_targets:
         raise ConfigurationError("manifest.targets must be a non-empty list")

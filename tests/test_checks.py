@@ -3,12 +3,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deg.checks import run_checks
-from deg.config import load_manifest, load_policy
-from deg.errors import ConfigurationError
-from deg.index import build_index
-from deg.ledger import verify_ledger
-from deg.slicer import compile_slice
+from ag2c.checks import run_checks
+from ag2c.config import load_manifest, load_policy
+from ag2c.errors import ConfigurationError
+from ag2c.index import build_index
+from ag2c.ledger import verify_ledger
+from ag2c.slicer import compile_slice
 
 from support import write_project
 
@@ -29,7 +29,7 @@ class CheckerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             manifest, _ = write_project(root)
-            policy_path = root / ".deg" / "policy.json"
+            policy_path = root / ".ag2c" / "policy.json"
             value = json.loads(policy_path.read_text(encoding="utf-8"))
             for card in value["cards"]:
                 card.pop("checkers", None)

@@ -1,5 +1,5 @@
 {
-  "schema": "deg.policy.v1",
+  "schema": "ag2c.policy.v1",
   "cards": [
     {
       "id": "constitution.project",

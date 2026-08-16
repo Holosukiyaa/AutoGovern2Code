@@ -1,95 +1,109 @@
-# DEG
+# AutoGovern2Code（AG2C）
 
-**让 AI 在受控路径里改代码，并留下它确实被纠正和验证过的证据。**
+**照常使用 Codex。AG2C 会自动隔离、检查、证明并安全合并每一次工程修改。**
 
-[English](README.md) | [自动治理](docs/zh-CN/AUTOMATIC_GOVERNANCE.md) | [证据模型](docs/ARCHITECTURE.md)
+[English](README.md) | [接入说明](docs/zh-CN/ADOPTION.md) | [自动治理原理](docs/zh-CN/AUTOMATIC_GOVERNANCE.md) | [架构与证据](docs/ARCHITECTURE.md)
 
-DEG 不是需要用户操作的项目管理台。工程完成一次纳管后，用户继续像平时一样使用 Codex；AI 会自动读取项目门禁、经过责任路由、进入外部 Git worktree 施工、执行项目检查，并且只有在证据对应当前修改时才能合并。
+AutoGovern2Code 是给 AI 编程使用的本地开源治理层。它不是另一套项目管理台，也不会要求用户操作卡片、策略或审批页面。一个 Git 工程完成一次纳管后，根级说明和 AG2C Skill 会让 Codex 在首次写入之前自动进入受治理施工流程。
 
-## 用户能得到什么
+## 用户体验发生了什么变化
 
-- AI 不能直接在正式工作副本里提交修改。
-- AI 开工前必须确定修改范围；不确定时扩大验证，不能偷偷缩小范围。
-- 实际修改超出最初判断时，DEG 自动重新路由并记录这次纠正。
-- 必要检查失败时任务不能完成；修复后重新通过会形成前后证据。
-- 通过检查后又发生修改，旧证据立即失效。
-- 正式分支有用户修改、HEAD 变化或无法 fast-forward 时拒绝合并。
-- 每个任务留下开始、干预、检查、提交和合并记录。
+没有 AG2C 时：
 
-## 一次性安装
+```text
+让 Codex 修改工程 -> 只能希望它找对文件、跑对检查
+```
 
-DEG 需要 Python 3.11 或更高版本。当前从源码目录安装：
+完成一次纳管后：
+
+```text
+正常向 Codex 提开发需求
+  -> 写入前确定责任范围
+  -> 在工程外创建 Git worktree
+  -> AI 只在 worktree 施工
+  -> 按实际 diff 重新计算范围
+  -> 运行工程自己的可信检查
+  -> 把通过证据绑定到这份修改的精确字节
+  -> fast-forward 合并已验证提交
+  -> 留下可校验的治理记录
+```
+
+用户仍然只需要说“修复这个问题”或“实现这个功能”。治理留在后台，但失败原因和成功证据不会被隐藏。
+
+## 安装一次
+
+需要 Python 3.11 或更高版本、Git，以及 Codex CLI 或 Codex IDE 扩展。
+
+从 GitHub 安装：
 
 ```bash
-python -m pip install .
-deg skill install
+python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git"
+ag2c skill install
 ```
 
-正式发布软件包后，`python -m pip install deg-governance` 会安装同一个命令和 Skill 内容。
+从本地源码参与开发：
 
-然后在一个干净的 Git 工程中告诉 Codex：
+```bash
+python -m pip install -e .
+ag2c skill install
+```
+
+`ag2c skill install` 会把 Skill 安装到当前 Codex 能发现的用户级目录 `~/.agents/skills`。
+
+## 纳管一个工程
+
+在一个干净且非空的 Git 工程中打开 Codex，然后说：
 
 ```text
-$deg-governed-development 把这个工程纳入 DEG
+$ag2c-governed-development 把这个工程纳入 AutoGovern2Code
 ```
 
-Skill 会执行一次性纳管：生成根级 `AGENTS.md` 门禁、自动识别当前工程范围和常见原生测试、提交纳管配置、安装本机 Git Guard，并建立第一条 Ledger 证据。
+纳管会生成并提交可审查的根级 `AGENTS.md` 门禁和 `.ag2c` 策略文件，同时安装本机 Git Guard、识别常见原生测试、建立初始责任索引并记录纳管证据。
 
-从此以后不再需要启动 DEG。正常告诉 Codex“修复这个问题”或“实现这个功能”即可。
+这是用户最后一次主动启动治理流程。以后只需要正常提出开发需求；Codex 开工前会读取已纳管工程的说明并自动使用 AG2C。
 
-## 日常过程
+## AG2C 能证明什么
 
-```text
-用户正常提出开发任务
-        ↓
-Codex 自动进入 DEG Skill
-        ↓
-只读判断入口和责任范围
-        ↓
-DEG 建立外部任务 worktree
-        ↓
-AI 只在 worktree 修改
-        ↓
-DEG 按实际 diff 重新路由并运行可信检查
-        ↓
-同一份修改验证通过后提交并 fast-forward 合并
-        ↓
-Ledger 和任务记录保存管理证据
-```
+- 正式工作副本没有被当成施工目录。
+- 首次受治理写入前已经存在任务记录和外部 worktree。
+- 最终责任范围来自实际 Git diff，而不只是 AI 自己的计划。
+- 检查失败不会被后续通过覆盖，修复后的通过可以证明纠正过程。
+- 通过证据对应的就是最终提交的精确内容。
+- 合并时原分支仍然干净且 HEAD 没有变化。
+- 已验证提交通过 fast-forward 进入原分支。
+- 任务证据与哈希链 Ledger 仍然相互一致。
 
-用户不需要理解卡片、Policy、Floor、Boundary、Scenario 或 Checker。它们是 DEG 内部确定“该看什么、该防什么、该测什么”的实现机制。
+缺少任何一项，只能得到“治理不完整”，不能冒充成功。
 
 ## 查看证据
 
-证据入口是只读的：
+证据入口只读：
 
 ```bash
-deg evidence
-deg evidence --task <task-id>
-deg evidence --format json
+ag2c evidence
+ag2c evidence --task <task-id>
+ag2c evidence --format json
 ```
 
-它只回答：DEG 是否从任务开始接管、阻止或纠正过什么、验证尝试了几次、最终是否通过、哪个提交被合并，以及 Ledger 是否完整。
-
-## 交付标准
-
-一个任务只有同时满足以下条件才算管理成功：
-
-1. DEG 在首次写入前建立任务记录和外部 worktree。
-2. 正式工作副本在施工期间保持干净且 HEAD 不变。
-3. 实际修改全部处于受治理范围，并按最终 diff 完成路由。
-4. 最后一次验证的修改摘要与提交前摘要完全一致。
-5. 所有选中的可信检查通过。
-6. 任务提交通过 fast-forward 进入原分支。
-7. Ledger 哈希链和任务证据完整。
-
-缺少任意一项，只能报告“管理不完整”，不能冒充完成。
+它会说明 AG2C 接管、阻止或纠正过什么，每次验证的结果，最终提交和合并方式，清理状态，以及 Ledger 是否完整。
 
 ## 技术边界
 
-DEG 是开发期外挂。被治理产品不导入 DEG，也不依赖 DEG才能构建或运行。项目内只有可审查的纳管门禁和策略；索引、任务状态、Hook 与 Ledger 运行数据不会进入产品运行时。
+AG2C 是可拆除的开发期基础设施。被纳管产品不导入 AG2C，也不依赖 AG2C 才能构建、测试或运行。移除本机 AG2C 只会移除受治理施工路径，不会改变产品功能。
 
-当前 `0.2` 是单人、本地 Git 工作流。远端分支保护、多人并发和托管证据不在本版本范围内。
+`0.3` 版本面向单人、本地 Git 工作流，每个工程独立纳管。本机 Guard 不是操作系统级安全边界；多人协作仍然需要远端受保护分支和强制 CI。
+
+首个正式支持的 harness 是 Codex。确定性 CLI 和持久化合同已经与具体 AI 解耦，后续可以增加其他编程 Agent 的 Skill，而不需要改造被纳管产品。
+
+## 维护者文档
+
+- [接入与换机激活](docs/zh-CN/ADOPTION.md)
+- [自动治理合同](docs/zh-CN/AUTOMATIC_GOVERNANCE.md)
+- [架构与证据模型](docs/ARCHITECTURE.md)
+- [入口切片](docs/zh-CN/ENTRY_SLICING.md)
+- [策略参考](docs/POLICY_REFERENCE.md)
+- [参与贡献](CONTRIBUTING.md)
+- [安全策略](SECURITY.md)
 
 ## 许可证
 

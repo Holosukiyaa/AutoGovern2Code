@@ -1,12 +1,12 @@
 # Entry Slicing
 
 > Internal contract: ordinary users do not perform entry slicing. The installed
-> DEG Skill derives these coordinates from a normal coding request before the
-> first write, and `deg task verify` recompiles them from the actual diff.
+> AG2C Skill derives these coordinates from a normal coding request before the
+> first write, and `ag2c task verify` recompiles them from the actual diff.
 
 [中文版本](zh-CN/ENTRY_SLICING.md)
 
-Entry slicing is the method DEG uses to turn a proposed change into a bounded
+Entry slicing is the method AG2C uses to turn a proposed change into a bounded
 responsibility, reading, and verification closure. It answers four questions
 before implementation begins:
 
@@ -20,7 +20,7 @@ minimum justified work context plus a validation plan.
 
 ## 1. Entry coordinates
 
-DEG accepts deterministic coordinates, ordered from most useful to broadest:
+AG2C accepts deterministic coordinates, ordered from most useful to broadest:
 
 | Coordinate | Syntax | Use |
 | --- | --- | --- |
@@ -34,7 +34,7 @@ context, but natural language does not grant ownership and cannot suppress check
 
 ## 2. Path closure
 
-For each path, DEG evaluates primary Floor scopes:
+For each path, AG2C evaluates primary Floor scopes:
 
 ```text
 path
@@ -77,7 +77,7 @@ the same task.
 
 ## 4. Conservative expansion
 
-DEG uses a fail-closed routing rule:
+AG2C uses a fail-closed routing rule:
 
 > Uncertainty can only expand reading and verification.
 
@@ -94,7 +94,7 @@ smallest change justified by the task; only the validation scope expands.
 
 ## 5. Slice versus hydrated context
 
-A slice should stay small. DEG returns card identity, summary, selection reasons,
+A slice should stay small. AG2C returns card identity, summary, selection reasons,
 references, and the checker plan. It does not dump every policy body or every
 source symbol into the result.
 
@@ -116,7 +116,7 @@ explainable through a selection reason.
 ### Modify an existing file
 
 ```bash
-deg slice --path api:src/http/orders.py --goal "Add cancellation reason"
+ag2c slice --path api:src/http/orders.py --goal "Add cancellation reason"
 ```
 
 ### Add a new file
@@ -124,13 +124,13 @@ deg slice --path api:src/http/orders.py --goal "Add cancellation reason"
 Use its intended path even before creation:
 
 ```bash
-deg slice --path api:src/http/cancellation.py
+ag2c slice --path api:src/http/cancellation.py
 ```
 
 ### Change a public API
 
 ```bash
-deg slice \
+ag2c slice \
   --path api:src/http/orders.py \
   --contract api:orders.cancel@2.0.0
 ```
@@ -138,7 +138,7 @@ deg slice \
 ### Change a producer and consumer in separate repositories
 
 ```bash
-deg slice \
+ag2c slice \
   --path producer:src/package.py \
   --path consumer:src/install.go \
   --contract producer:package.install@1.2.0
@@ -147,7 +147,7 @@ deg slice \
 ### Run a release baseline
 
 ```bash
-deg check --all
+ag2c check --all
 ```
 
 Only `--all` is eligible to produce `complete` acceptance, and only when every

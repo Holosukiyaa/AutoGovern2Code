@@ -1,23 +1,23 @@
 # Policy Reference
 
 > Maintainer reference: Policy is internal configuration generated at enrollment
-> and consumed by the Skill and DEG Core. Ordinary users are not expected to edit
+> and consumed by the Skill and AG2C Core. Ordinary users are not expected to edit
 > or understand it.
 
-DEG reads two versioned JSON documents from `.deg` by default. Unknown schema
+AG2C reads two versioned JSON documents from `.ag2c` by default. Unknown schema
 versions fail closed.
 
 ## Manifest
 
-Default location: `.deg/manifest.json`
+Default location: `.ag2c/manifest.json`
 
 ```json
 {
-  "schema": "deg.manifest.v1",
+  "schema": "ag2c.manifest.v1",
   "project": {"id": "orders"},
-  "policy": ".deg/policy.json",
-  "state_dir": ".deg/state",
-  "ledger": ".deg/ledger.jsonl",
+  "policy": ".ag2c/policy.json",
+  "state_dir": ".ag2c/state",
+  "ledger": ".ag2c/ledger.jsonl",
   "targets": [
     {
       "id": "api",
@@ -31,7 +31,7 @@ Default location: `.deg/manifest.json`
 
 | Field | Meaning |
 | --- | --- |
-| `schema` | Must be `deg.manifest.v1`. |
+| `schema` | Must be `ag2c.manifest.v1`. |
 | `project.id` | Stable lowercase project identity. |
 | `policy` | Policy path relative to the project root. |
 | `state_dir` | Rebuildable state directory; normally ignored by Git. |
@@ -41,16 +41,16 @@ Default location: `.deg/manifest.json`
 | `targets[].governed_roots` | Files or directories that require ownership. |
 | `targets[].exclude` | Glob patterns removed from observation. |
 
-The project root is the parent of `.deg`. Target paths may point to sibling
-repositories when `.deg` is kept in a common workspace.
+The project root is the parent of `.ag2c`. Target paths may point to sibling
+repositories when `.ag2c` is kept in a common workspace.
 
 ## Policy
 
-Default location: `.deg/policy.json`
+Default location: `.ag2c/policy.json`
 
 ```json
 {
-  "schema": "deg.policy.v1",
+  "schema": "ag2c.policy.v1",
   "cards": [],
   "relations": [],
   "contracts": [],
@@ -163,14 +163,14 @@ The resulting entry is `api:orders.cancel@2.0.0`. A binding requires:
 | `timeout` | Positive timeout in seconds. |
 
 Checker stage must match the owning card type. Every checker must be bound to a
-card. DEG executes the argv with `shell=False` and does not install checker tools.
+card. AG2C executes the argv with `shell=False` and does not install checker tools.
 
 ## Generated state
 
-`.deg/state/index.sqlite` is rebuildable and contains target revisions, observed
+`.ag2c/state/index.sqlite` is rebuildable and contains target revisions, observed
 artifacts, ownership, findings, and an integrity digest over all indexed facts.
 
-`.deg/ledger.jsonl` is durable evidence. Each line contains a sequence number,
+`.ag2c/ledger.jsonl` is durable evidence. Each line contains a sequence number,
 previous event digest, payload, and event digest. Keep it in Git only when one
 protected writer owns append order; otherwise retain it as a CI artifact or use a
 single append service.

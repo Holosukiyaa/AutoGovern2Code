@@ -1,85 +1,109 @@
-# DEG
+# AutoGovern2Code (AG2C)
 
-**Keep AI changes on a governed path and retain proof that DEG corrected and verified the work.**
+**Use Codex normally. AG2C automatically keeps every project change isolated, checked, evidenced, and safely integrated.**
 
-[中文](README.zh-CN.md) | [Automatic governance](docs/AUTOMATIC_GOVERNANCE.md) | [Evidence architecture](docs/ARCHITECTURE.md)
+[中文](README.zh-CN.md) | [Adoption](docs/ADOPTION.md) | [How automatic governance works](docs/AUTOMATIC_GOVERNANCE.md) | [Architecture and evidence](docs/ARCHITECTURE.md)
 
-DEG is not a project-management UI. After one-time enrollment, people keep using Codex normally. The agent automatically follows the repository gate, routes responsibility, works in an external Git worktree, runs trusted project checks, and can integrate only the exact change covered by current evidence.
+AutoGovern2Code is a local, open-source governance layer for AI coding. It is not another project-management UI and it does not ask users to operate cards, policies, or approval screens. Once a Git project is enrolled, its root instructions and AG2C Skill put Codex on the governed construction path before the first write.
 
-## What users get
+## What changes for the user
 
-- AI cannot commit directly from the canonical checkout.
-- Work is routed before the first write; uncertainty broadens verification.
-- Actual changes outside the initial route trigger a recorded correction.
-- Failed checks block completion; a later passing attempt proves the correction loop.
-- Any change after verification invalidates the evidence.
-- A dirty or advanced canonical branch blocks integration.
-- Every task records its route, interventions, checks, commit, and fast-forward merge.
-
-## One-time setup
-
-DEG requires Python 3.11 or newer. From a source checkout:
-
-```bash
-python -m pip install .
-deg skill install
-```
-
-After the package is published, `python -m pip install deg-governance` installs the same command and Skill payload.
-
-In a clean Git project, tell Codex:
+Before AG2C:
 
 ```text
-$deg-governed-development enroll this project in DEG
+Ask Codex to change the project -> hope the right files and checks were used
 ```
 
-The Skill creates the root `AGENTS.md` gate, detects the current project surface and common native tests, commits the enrollment files, installs the local Git guard, and records the first Ledger evidence.
-
-After that, never start DEG manually. Ask Codex for normal product work.
-
-## Automatic path
+After one-time enrollment:
 
 ```text
-normal user request
-  -> DEG Skill before the first write
-  -> read-only route
-  -> external task worktree
-  -> implementation
-  -> route actual diff and run trusted checks
-  -> commit the verified bytes
-  -> fast-forward the original branch
-  -> retain task and Ledger evidence
+Ask Codex to change the project
+  -> route responsibility before writing
+  -> create an external Git worktree
+  -> implement only there
+  -> recompute scope from the actual diff
+  -> run trusted project checks
+  -> bind passing evidence to the exact bytes
+  -> fast-forward the verified commit
+  -> retain a tamper-evident record
 ```
 
-Users do not need to learn cards, Policy, Floors, Boundaries, Scenarios, or Checker selection. Those remain internal mechanisms for deciding what the agent must read and prove.
+The user still says things like "fix this bug" or "add this feature." Governance stays in the background. Failures and proof remain visible.
 
-## Read-only evidence
+## Install once
+
+Requirements: Python 3.11 or newer, Git, and Codex CLI or the Codex IDE extension.
+
+Install from GitHub:
 
 ```bash
-deg evidence
-deg evidence --task <task-id>
-deg evidence --format json
+python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git"
+ag2c skill install
 ```
 
-Evidence reports whether DEG controlled the task from the beginning, what it blocked or corrected, verification attempts and outcomes, the merged commit, and Ledger integrity.
+For local development from a cloned checkout:
 
-## Delivery contract
+```bash
+python -m pip install -e .
+ag2c skill install
+```
 
-A managed task is complete only when:
+`ag2c skill install` places the Skill in `~/.agents/skills`, where current Codex clients discover user-level skills.
 
-1. DEG created the task record and external worktree before any write.
-2. The canonical checkout stayed clean and at the original HEAD.
-3. Every actual change was governed and routed from the final diff.
-4. The verified change digest still matches the bytes being committed.
-5. Every selected trusted checker passed.
-6. The task commit reached the original branch by fast-forward.
-7. The task evidence and Ledger hash chain are valid.
+## Enroll one project
 
-Missing evidence is an incomplete management result, never a successful one.
+Open Codex in a clean, non-empty Git repository and say:
 
-## Boundary
+```text
+$ag2c-governed-development enroll this project in AutoGovern2Code
+```
 
-DEG is a detachable development-time control plane. Governed products do not import DEG or require it to build or run. Version `0.2` targets a local, single-user Git workflow; remote branch protection, concurrent teams, and hosted evidence are future work.
+Enrollment creates and commits a reviewable root `AGENTS.md` gate plus `.ag2c` policy files. It also installs a machine-local Git guard, detects common native tests, builds the initial responsibility index, and records enrollment evidence.
+
+That is the last governance workflow the user needs to start. Future development requests automatically use AG2C because Codex reads the enrolled repository instructions before working.
+
+## What AG2C proves
+
+- The canonical checkout was not used as a construction directory.
+- A task and external worktree existed before the first governed write.
+- The final route was calculated from the actual Git diff, not only the AI's plan.
+- Failed checks stayed in history and a later pass proved the correction.
+- The passing evidence covered the exact bytes that were committed.
+- The original branch was still clean and unchanged at integration time.
+- The verified commit entered through a fast-forward merge.
+- Task evidence still agrees with the hash-chained Ledger.
+
+Any missing fact produces an incomplete management result, never a false success.
+
+## Read the evidence
+
+The evidence interface is read-only:
+
+```bash
+ag2c evidence
+ag2c evidence --task <task-id>
+ag2c evidence --format json
+```
+
+It reports what AG2C controlled, blocked, or corrected; every verification attempt; the final commit and merge mode; cleanup state; and Ledger integrity.
+
+## Safety boundary
+
+AG2C is detachable development-time infrastructure. Enrolled products do not import AG2C and do not require it to build, test, or run. Removing the local AG2C installation removes the governed construction path, not product functionality.
+
+Version `0.3` targets one local user and one Git repository per enrollment. The local guard is not an operating-system security boundary. Shared teams still need protected remote branches and required CI checks.
+
+The first supported harness is Codex. The deterministic CLI and persisted contracts are designed so other coding-agent Skills can be added later without changing enrolled products.
+
+## Maintainer documentation
+
+- [Adoption and clone activation](docs/ADOPTION.md)
+- [Automatic governance contract](docs/AUTOMATIC_GOVERNANCE.md)
+- [Architecture and evidence model](docs/ARCHITECTURE.md)
+- [Entry slicing](docs/ENTRY_SLICING.md)
+- [Policy reference](docs/POLICY_REFERENCE.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
 
 ## License
 

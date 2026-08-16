@@ -1,22 +1,22 @@
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "deg-governance"
-version = "0.2.0"
-description = "Automatic governed worktrees and evidence-backed verification for AI coding agents"
+name = "autogovern2code"
+version = "0.3.0"
+description = "Zero-touch, evidence-backed governance for AI coding changes"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
-  { name = "DEG contributors" }
+  { name = "AutoGovern2Code contributors" }
 ]
-keywords = ["governance", "developer-tools", "ai-agents", "repository", "compliance"]
+keywords = ["governance", "developer-tools", "ai-agents", "codex", "git-worktree", "verification"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
-  "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -26,15 +26,15 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Documentation = "https://github.com/Holosukiyaa/DEG#readme"
-Issues = "https://github.com/Holosukiyaa/DEG/issues"
-Source = "https://github.com/Holosukiyaa/DEG"
+Documentation = "https://github.com/Holosukiyaa/AutoGovern2Code#readme"
+Issues = "https://github.com/Holosukiyaa/AutoGovern2Code/issues"
+Source = "https://github.com/Holosukiyaa/AutoGovern2Code"
 
 [project.scripts]
-deg = "deg.cli:main"
+ag2c = "ag2c.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-deg = ["py.typed", "skills/*/SKILL.md", "skills/*/agents/*.yaml"]
+ag2c = ["py.typed", "skills/*/SKILL.md", "skills/*/agents/*.yaml"]

@@ -10,7 +10,7 @@ from typing import Any, Iterator
 from .errors import LedgerError
 from .util import canonical_json, digest_json
 
-EVENT_SCHEMA = "deg.ledger.event.v1"
+EVENT_SCHEMA = "ag2c.ledger.event.v1"
 ZERO_DIGEST = "0" * 64
 
 

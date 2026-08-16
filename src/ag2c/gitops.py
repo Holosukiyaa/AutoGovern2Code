@@ -5,7 +5,7 @@ import stat
 import subprocess
 from pathlib import Path
 
-from .errors import DEGError
+from .errors import AG2CError
 
 
 def git(root: Path, *args: str, check: bool = True, binary: bool = False) -> str | bytes:
@@ -20,17 +20,17 @@ def git(root: Path, *args: str, check: bool = True, binary: bool = False) -> str
             shell=False,
         )
     except OSError as exc:
-        raise DEGError(f"cannot execute Git: {exc}") from exc
+        raise AG2CError(f"cannot execute Git: {exc}") from exc
     if check and completed.returncode != 0:
         stderr = completed.stderr.decode("utf-8", errors="replace") if binary else completed.stderr
-        raise DEGError(f"Git command failed ({' '.join(args)}): {str(stderr).strip()}")
+        raise AG2CError(f"Git command failed ({' '.join(args)}): {str(stderr).strip()}")
     return completed.stdout
 
 
 def repository_root(start: Path) -> Path:
     value = str(git(start.resolve(), "rev-parse", "--show-toplevel")).strip()
     if not value:
-        raise DEGError(f"not a Git worktree: {start}")
+        raise AG2CError(f"not a Git worktree: {start}")
     return Path(value).resolve()
 
 
@@ -39,14 +39,14 @@ def canonical_worktree(start: Path) -> Path:
     listing = str(git(root, "worktree", "list", "--porcelain"))
     first = next((line[9:] for line in listing.splitlines() if line.startswith("worktree ")), "")
     if not first:
-        raise DEGError("Git did not report a canonical worktree")
+        raise AG2CError("Git did not report a canonical worktree")
     return Path(first).resolve()
 
 
 def current_branch(root: Path) -> str:
     branch = str(git(root, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)).strip()
     if not branch:
-        raise DEGError("DEG requires a named branch; detached HEAD is not supported")
+        raise AG2CError("AG2C requires a named branch; detached HEAD is not supported")
     return branch
 
 

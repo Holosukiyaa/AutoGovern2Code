@@ -1,0 +1,65 @@
+name: Bug report
+description: Report reproducible AutoGovern2Code behavior that is incorrect or unsafe.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include credentials, private source, or sensitive Ledger content. Report security issues through GitHub private vulnerability reporting.
+  - type: input
+    id: version
+    attributes:
+      label: AG2C version
+      description: Output of `ag2c --version`.
+    validations:
+      required: true
+  - type: dropdown
+    id: command
+    attributes:
+      label: Affected stage
+      options:
+        - Install or Skill discovery
+        - Enrollment or activation
+        - Task start or worktree creation
+        - Verification
+        - Finish or integration
+        - Evidence or Ledger
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the exact command, sanitized output, and exit code.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: Use a disposable repository when possible.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Python, Git, and Codex client versions.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed secrets and private project content.
+          required: true
+        - label: This is not a security vulnerability that should be reported privately.
+          required: true

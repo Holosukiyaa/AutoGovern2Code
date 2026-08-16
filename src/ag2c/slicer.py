@@ -11,7 +11,7 @@ from .index import index_path, primary_owners, summary as index_summary, verify_
 from .model import Card, Manifest, Policy, Scope
 from .util import digest_file, digest_json, normalize_artifact_path, path_matches
 
-SLICE_SCHEMA = "deg.slice.v1"
+SLICE_SCHEMA = "ag2c.slice.v1"
 CARD_ORDER = {"constitution": 0, "floor": 1, "boundary": 2, "knowledge": 3, "scenario": 4, "task": 5}
 
 

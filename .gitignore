@@ -1,6 +1,6 @@
-**/.deg/state/
-examples/**/.deg/ledger.jsonl
-examples/**/.deg/ledger.jsonl.lock
+**/.ag2c/state/
+examples/**/.ag2c/ledger.jsonl
+examples/**/.ag2c/ledger.jsonl.lock
 .venv/
 __pycache__/
 *.py[cod]

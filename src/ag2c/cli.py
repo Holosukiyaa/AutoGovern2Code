@@ -10,7 +10,7 @@ from typing import Any
 from . import __version__
 from .checks import run_checks
 from .config import discover_manifest, load_manifest, load_policy
-from .errors import DEGError
+from .errors import AG2CError
 from .index import build_index, findings, index_path, summary, verify_freshness
 from .ledger import ledger_summary, verify_ledger
 from .render import render_slice_markdown
@@ -61,29 +61,36 @@ def _add_slice_arguments(parser: argparse.ArgumentParser, *, goal_required: bool
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="deg", description="Deterministic Engineering Governance")
-    parser.add_argument("--version", action="version", version=f"DEG {__version__}")
-    parser.add_argument("--manifest", type=Path, help="path to .deg/manifest.json")
+    parser = argparse.ArgumentParser(
+        prog="ag2c",
+        description="AutoGovern2Code: zero-touch governance for AI coding changes",
+    )
+    parser.add_argument("--version", action="version", version=f"AutoGovern2Code {__version__}")
+    parser.add_argument("--manifest", type=Path, help="path to .ag2c/manifest.json")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    enroll = subparsers.add_parser("enroll", help="enroll a clean Git project in automatic DEG governance")
+    enroll = subparsers.add_parser("enroll", help="enroll a clean Git project in AutoGovern2Code")
     enroll.add_argument("path", type=Path, nargs="?", default=Path.cwd())
     enroll.add_argument("--project-id")
 
     activate = subparsers.add_parser("activate", help="restore the local Skill and Git guard after cloning")
     activate.add_argument("path", type=Path, nargs="?", default=Path.cwd())
 
-    skill = subparsers.add_parser("skill", help="install the packaged DEG Skill")
+    skill = subparsers.add_parser("skill", help="install the packaged AG2C Skill")
     skill_commands = skill.add_subparsers(dest="skill_command", required=True)
     skill_install = skill_commands.add_parser("install")
-    skill_install.add_argument("--destination", type=Path, help="skills directory; defaults to CODEX_HOME/skills")
+    skill_install.add_argument(
+        "--destination",
+        type=Path,
+        help="skills directory; defaults to ~/.agents/skills",
+    )
 
     guard = subparsers.add_parser("guard", help="internal activation and Git enforcement")
     guard_commands = guard.add_subparsers(dest="guard_command", required=True)
     guard_commands.add_parser("status")
     guard_commands.add_parser("pre-commit")
 
-    task = subparsers.add_parser("task", help="internal lifecycle used by the DEG Skill")
+    task = subparsers.add_parser("task", help="internal lifecycle used by the AG2C Skill")
     task_commands = task.add_subparsers(dest="task_command", required=True)
     task_start = task_commands.add_parser("start")
     _add_slice_arguments(task_start, goal_required=True)
@@ -96,7 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
     task_show = task_commands.add_parser("show")
     task_show.add_argument("--task", required=True)
 
-    evidence = subparsers.add_parser("evidence", help="show read-only proof of DEG management")
+    evidence = subparsers.add_parser("evidence", help="show read-only proof of AG2C management")
     evidence.add_argument("--task")
     evidence.add_argument("--format", choices=("text", "json"), default="text")
 
@@ -138,11 +145,11 @@ def _doctor(manifest, policy) -> int:
     issues.extend(current_errors)
     issues.extend(f"ledger: {error}" for error in verify_ledger(manifest.ledger_path))
     if issues:
-        print("DEG doctor found issues:")
+        print("AG2C doctor found issues:")
         for issue in issues:
             print(f"- {issue}")
         return 1
-    print("DEG configuration, tools, index, and ledger are current.")
+    print("AG2C configuration, tools, index, and ledger are current.")
     return 0
 
 
@@ -163,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "skill":
             from .enrollment import install_skill
 
-            print(f"Installed DEG Skill: {install_skill(args.destination)}")
+            print(f"Installed AG2C Skill: {install_skill(args.destination)}")
             return 0
         if args.command == "guard":
             from .enrollment import activation_status, guard_pre_commit
@@ -207,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.format == "json":
                 print(_json(report))
             else:
-                print(f"DEG evidence for {report['project']}")
+                print(f"AG2C evidence for {report['project']}")
                 print(f"Management active: {'yes' if report['managed'] else 'no'}")
                 print(f"Ledger valid: {'yes' if report['ledger_valid'] else 'no'}")
                 for task in report["tasks"]:
@@ -240,24 +247,24 @@ def main(argv: list[str] | None = None) -> int:
             if args.index_command == "build":
                 published = build_index(manifest, policy, path)
                 current_findings = findings(published)
-                print(f"Built DEG index: {published}")
+                print(f"Built AG2C index: {published}")
                 print(f"Findings: {len(current_findings)}")
                 return 0
             if args.index_command == "verify":
                 errors = verify_freshness(manifest, policy, path)
                 if errors:
-                    raise DEGError("index verification failed:\n- " + "\n- ".join(errors))
-                print("DEG index is valid and current.")
+                    raise AG2CError("index verification failed:\n- " + "\n- ".join(errors))
+                print("AG2C index is valid and current.")
                 return 0
             if args.index_command == "summary":
                 errors = verify_freshness(manifest, policy, path)
                 if errors:
-                    raise DEGError("index is not current:\n- " + "\n- ".join(errors))
+                    raise AG2CError("index is not current:\n- " + "\n- ".join(errors))
                 print(_json(summary(path)))
                 return 0
             errors = verify_freshness(manifest, policy, path)
             if errors:
-                raise DEGError("index is not current:\n- " + "\n- ".join(errors))
+                raise AG2CError("index is not current:\n- " + "\n- ".join(errors))
             current = findings(path)
             print(_json(current))
             return 1 if current else 0
@@ -291,15 +298,15 @@ def main(argv: list[str] | None = None) -> int:
             if args.ledger_command == "verify":
                 errors = verify_ledger(manifest.ledger_path)
                 if errors:
-                    raise DEGError("ledger verification failed:\n- " + "\n- ".join(errors))
-                print("DEG ledger hash chain is valid.")
+                    raise AG2CError("ledger verification failed:\n- " + "\n- ".join(errors))
+                print("AG2C ledger hash chain is valid.")
                 return 0
             print(_json(ledger_summary(manifest.ledger_path)))
             return 0
         if args.command == "doctor":
             return _doctor(manifest, policy)
         parser.error("unhandled command")
-    except (DEGError, OSError, ValueError) as exc:
-        print(f"DEG error: {exc}", file=sys.stderr)
+    except (AG2CError, OSError, ValueError) as exc:
+        print(f"AG2C error: {exc}", file=sys.stderr)
         return 2
     return 0

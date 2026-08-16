@@ -1,18 +1,18 @@
-class DEGError(RuntimeError):
-    """Base error for user-facing DEG failures."""
+class AG2CError(RuntimeError):
+    """Base error for user-facing AG2C failures."""
 
 
-class ConfigurationError(DEGError):
+class ConfigurationError(AG2CError):
     """Raised when the manifest or policy is invalid."""
 
 
-class IndexError(DEGError):
+class IndexError(AG2CError):
     """Raised when the repository index cannot be built or verified."""
 
 
-class SliceError(DEGError):
+class SliceError(AG2CError):
     """Raised when an entry slice cannot be compiled safely."""
 
 
-class LedgerError(DEGError):
+class LedgerError(AG2CError):
     """Raised when the evidence ledger is invalid."""

@@ -1,0 +1,15 @@
+{
+  "schema": "ag2c.manifest.v1",
+  "project": {"id": "ag2c-minimal-example"},
+  "policy": ".ag2c/policy.json",
+  "state_dir": ".ag2c/state",
+  "ledger": ".ag2c/ledger.jsonl",
+  "targets": [
+    {
+      "id": "app",
+      "path": ".",
+      "governed_roots": ["src"],
+      "exclude": ["src/**/__pycache__/**"]
+    }
+  ]
+}

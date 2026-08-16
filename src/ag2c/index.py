@@ -14,7 +14,7 @@ from .errors import IndexError as GovernanceIndexError
 from .model import Card, Manifest, Policy, Scope, Target
 from .util import canonical_json, digest_file, digest_json, path_matches
 
-INDEX_SCHEMA = "deg.index.v1"
+INDEX_SCHEMA = "ag2c.index.v1"
 INDEX_FILENAME = "index.sqlite"
 
 SCHEMA_SQL = """
@@ -203,7 +203,7 @@ def build_index(manifest: Manifest, policy: Policy, destination: Path | None = N
     destination = (destination or index_path(manifest)).resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
     snapshots = [_target_snapshot(manifest, target) for target in manifest.targets]
-    handle, temporary_name = tempfile.mkstemp(prefix="deg-index-", suffix=".sqlite", dir=destination.parent)
+    handle, temporary_name = tempfile.mkstemp(prefix="ag2c-index-", suffix=".sqlite", dir=destination.parent)
     os.close(handle)
     temporary = Path(temporary_name)
     connection: sqlite3.Connection | None = None

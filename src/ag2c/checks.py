@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .errors import DEGError
+from .errors import AG2CError
 from .index import index_path, summary as index_summary, verify_freshness
 from .ledger import append_event
 from .model import Checker, Manifest, Policy
@@ -37,18 +37,18 @@ def run_checks(
 ) -> dict[str, Any]:
     current_errors = verify_freshness(manifest, policy, index_path(manifest))
     if current_errors:
-        raise DEGError("index is not current:\n- " + "\n- ".join(current_errors))
+        raise AG2CError("index is not current:\n- " + "\n- ".join(current_errors))
     selected_ids = {str(item["id"]) for item in entry_slice["check_plan"]}
     if requested_checker_ids:
         unknown = sorted(requested_checker_ids - {checker.checker_id for checker in policy.checkers})
         if unknown:
-            raise DEGError("unknown checker ids: " + ", ".join(unknown))
+            raise AG2CError("unknown checker ids: " + ", ".join(unknown))
         not_selected = sorted(requested_checker_ids - selected_ids)
         if not_selected and not all_mode:
-            raise DEGError("requested checkers are outside the entry slice: " + ", ".join(not_selected))
+            raise AG2CError("requested checkers are outside the entry slice: " + ", ".join(not_selected))
         selected_ids = requested_checker_ids
     if not selected_ids:
-        raise DEGError("entry slice selected no checkers; add a real checker before reporting validation")
+        raise AG2CError("entry slice selected no checkers; add a real checker before reporting validation")
     results: list[dict[str, Any]] = []
     for checker in sorted(policy.checkers, key=lambda item: (item.stage, item.checker_id)):
         if checker.checker_id not in selected_ids:
@@ -66,9 +66,9 @@ def run_checks(
             env = os.environ.copy()
             env.update(
                 {
-                    "DEG_PROJECT_ROOT": str(manifest.project_root),
-                    "DEG_PROJECT_ID": manifest.project_id,
-                    "DEG_SLICE_DIGEST": str(entry_slice["slice_digest"]),
+                    "AG2C_PROJECT_ROOT": str(manifest.project_root),
+                    "AG2C_PROJECT_ID": manifest.project_id,
+                    "AG2C_SLICE_DIGEST": str(entry_slice["slice_digest"]),
                 }
             )
             try:
@@ -123,7 +123,7 @@ def run_checks(
     complete = all_mode and selected_ids == all_policy_ids and all(result["status"] == "passed" for result in results)
     acceptance["complete"] = "passed" if complete else "not-run"
     report = {
-        "schema": "deg.check-run.v1",
+        "schema": "ag2c.check-run.v1",
         "project": manifest.project_id,
         "slice_digest": entry_slice["slice_digest"],
         "route": entry_slice["route"],

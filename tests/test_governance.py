@@ -6,10 +6,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deg.enrollment import activate_project, activation_status, enroll_project, guard_pre_commit
-from deg.errors import DEGError
-from deg.gitops import git, head
-from deg.tasks import evidence, finish_task, start_task, verify_task
+from ag2c.enrollment import activate_project, activation_status, enroll_project, guard_pre_commit
+from ag2c.errors import AG2CError
+from ag2c.gitops import git, head
+from ag2c.tasks import evidence, finish_task, start_task, verify_task
 
 from support import git_project
 
@@ -26,18 +26,18 @@ class AutomaticGovernanceTests(unittest.TestCase):
             root = self.enrolled(workspace)
             status = activation_status(root)
             self.assertTrue(status["managed"], status)
-            self.assertTrue((workspace / "skills" / "deg-governed-development" / "SKILL.md").is_file())
+            self.assertTrue((workspace / "skills" / "ag2c-governed-development" / "SKILL.md").is_file())
             self.assertIn("Do not edit this canonical checkout", (root / "AGENTS.md").read_text(encoding="utf-8"))
-            enrollment = json.loads((root / ".deg" / "enrollment.json").read_text(encoding="utf-8"))
-            self.assertEqual("deg.enrollment.v1", enrollment["schema"])
-            self.assertEqual("chore: enroll project in DEG", str(git(root, "log", "-1", "--pretty=%s")).strip())
+            enrollment = json.loads((root / ".ag2c" / "enrollment.json").read_text(encoding="utf-8"))
+            self.assertEqual("ag2c.enrollment.v1", enrollment["schema"])
+            self.assertEqual("chore: enroll project in AG2C", str(git(root, "log", "-1", "--pretty=%s")).strip())
 
     def test_canonical_commit_is_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = self.enrolled(Path(directory))
             (root / "src" / "value.py").write_text("VALUE = 2\n", encoding="utf-8")
             git(root, "add", "src/value.py")
-            with self.assertRaisesRegex(DEGError, "blocks commits in the canonical worktree"):
+            with self.assertRaisesRegex(AG2CError, "blocks commits in the canonical worktree"):
                 guard_pre_commit(root)
             completed = subprocess.run(
                 ["git", "-C", str(root), "commit", "-m", "bypass"],
@@ -106,7 +106,7 @@ class AutomaticGovernanceTests(unittest.TestCase):
             test_file.write_text(test_file.read_text(encoding="utf-8") + "\n# intended change\n", encoding="utf-8")
             self.assertTrue(verify_task(worktree)["passed"])
 
-            with self.assertRaisesRegex(DEGError, "commit hooks changed the verified bytes"):
+            with self.assertRaisesRegex(AG2CError, "commit hooks changed the verified bytes"):
                 finish_task(root, "hook-mutation", message="test: prove exact bytes")
 
             self.assertEqual(source_head, head(root))
@@ -129,12 +129,12 @@ class AutomaticGovernanceTests(unittest.TestCase):
             test_file = worktree / "tests" / "test_value.py"
             test_file.write_text(test_file.read_text(encoding="utf-8") + "\n# evidence coverage\n", encoding="utf-8")
             self.assertTrue(verify_task(worktree)["passed"])
-            record_path = root / ".deg" / "state" / "tasks" / "tampered-verification.json"
+            record_path = root / ".ag2c" / "state" / "tasks" / "tampered-verification.json"
             record = json.loads(record_path.read_text(encoding="utf-8"))
             record["verifications"][-1]["change_digest"] = "0" * 64
             record_path.write_text(json.dumps(record), encoding="utf-8")
 
-            with self.assertRaisesRegex(DEGError, "evidence is missing or inconsistent"):
+            with self.assertRaisesRegex(AG2CError, "evidence is missing or inconsistent"):
                 finish_task(root, "tampered-verification", message="test: reject forged evidence")
             self.assertFalse(evidence(root, "tampered-verification")["tasks"][0]["evidence_complete"])
 
@@ -152,18 +152,18 @@ class AutomaticGovernanceTests(unittest.TestCase):
             )
             worktree = Path(task["worktree"]["path"])
             (worktree / "AGENTS.md").unlink()
-            with self.assertRaisesRegex(DEGError, "governance controls"):
+            with self.assertRaisesRegex(AG2CError, "governance controls"):
                 verify_task(worktree)
 
     def test_changed_skill_invalidates_activation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
             root = self.enrolled(workspace)
-            skill = workspace / "skills" / "deg-governed-development" / "SKILL.md"
+            skill = workspace / "skills" / "ag2c-governed-development" / "SKILL.md"
             skill.write_text(skill.read_text(encoding="utf-8") + "\nchanged\n", encoding="utf-8")
             status = activation_status(root)
             self.assertFalse(status["managed"])
-            self.assertIn("installed DEG Skill changed after activation", status["issues"])
+            self.assertIn("installed AG2C Skill changed after activation", status["issues"])
 
             stale = skill.parent / "stale.txt"
             stale.write_text("old Skill residue\n", encoding="utf-8")
@@ -193,9 +193,9 @@ class AutomaticGovernanceTests(unittest.TestCase):
             workspace = Path(directory)
             root = self.enrolled(workspace)
             fake = workspace / "fake-worktree"
-            git(root, "worktree", "add", "-b", "deg/fake", str(fake), head(root))
+            git(root, "worktree", "add", "-b", "ag2c/fake", str(fake), head(root))
             (fake / "src" / "value.py").write_text("VALUE = 2\n", encoding="utf-8")
-            with self.assertRaisesRegex(DEGError, "valid active task record"):
+            with self.assertRaisesRegex(AG2CError, "valid active task record"):
                 guard_pre_commit(fake)
 
     def test_new_top_level_file_is_governed(self) -> None:
@@ -256,7 +256,7 @@ class AutomaticGovernanceTests(unittest.TestCase):
             self.assertEqual("successful", report["tasks"][0]["management_result"])
             self.assertEqual(completed["result"]["commit"], report["tasks"][0]["result"]["commit"])
 
-            record_path = root / ".deg" / "state" / "tasks" / "value-change.json"
+            record_path = root / ".ag2c" / "state" / "tasks" / "value-change.json"
             record = json.loads(record_path.read_text(encoding="utf-8"))
             record["start_ledger_event_digest"] = "0" * 64
             record_path.write_text(json.dumps(record), encoding="utf-8")
@@ -282,7 +282,7 @@ class AutomaticGovernanceTests(unittest.TestCase):
             test_file.write_text(test_file.read_text(encoding="utf-8") + "\n# verified comment\n", encoding="utf-8")
             self.assertTrue(verify_task(worktree)["passed"])
             test_file.write_text(test_file.read_text(encoding="utf-8") + "# changed later\n", encoding="utf-8")
-            with self.assertRaisesRegex(DEGError, "changed after verification"):
+            with self.assertRaisesRegex(AG2CError, "changed after verification"):
                 finish_task(root, "stale-proof", message="test: update value coverage")
 
     def test_formal_write_blocks_task_verification(self) -> None:
@@ -300,7 +300,7 @@ class AutomaticGovernanceTests(unittest.TestCase):
             worktree = Path(task["worktree"]["path"])
             (worktree / "src" / "value.py").write_text("VALUE = 2\n", encoding="utf-8")
             (root / "src" / "value.py").write_text("VALUE = 3\n", encoding="utf-8")
-            with self.assertRaisesRegex(DEGError, "canonical worktree changed"):
+            with self.assertRaisesRegex(AG2CError, "canonical worktree changed"):
                 verify_task(worktree)
             record = evidence(root, "blocked-change")["tasks"][0]
             self.assertEqual("canonical-write-blocked", record["interventions"][-1]["kind"])

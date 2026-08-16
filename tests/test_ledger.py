@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deg.errors import LedgerError
-from deg.ledger import append_event, ledger_summary, verify_ledger
+from ag2c.errors import LedgerError
+from ag2c.ledger import append_event, ledger_summary, verify_ledger
 
 
 class LedgerTests(unittest.TestCase):

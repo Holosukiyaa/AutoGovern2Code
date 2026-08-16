@@ -3,9 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from deg.config import load_manifest, load_policy
-from deg.errors import ConfigurationError
-from deg.util import path_matches
+from ag2c.config import load_manifest, load_policy
+from ag2c.errors import ConfigurationError
+from ag2c.util import path_matches
 
 from support import write_project
 
@@ -28,7 +28,7 @@ class ConfigurationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             manifest, _ = write_project(root)
-            path = root / ".deg" / "policy.json"
+            path = root / ".ag2c" / "policy.json"
             value = json.loads(path.read_text(encoding="utf-8"))
             value["cards"].append(dict(value["cards"][0]))
             path.write_text(json.dumps(value), encoding="utf-8")
@@ -39,7 +39,7 @@ class ConfigurationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             manifest, _ = write_project(root)
-            path = root / ".deg" / "policy.json"
+            path = root / ".ag2c" / "policy.json"
             value = json.loads(path.read_text(encoding="utf-8"))
             value["checkers"][0]["command"] = "python -m unittest"
             path.write_text(json.dumps(value), encoding="utf-8")
@@ -50,7 +50,7 @@ class ConfigurationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             manifest, _ = write_project(root)
-            path = root / ".deg" / "policy.json"
+            path = root / ".ag2c" / "policy.json"
             value = json.loads(path.read_text(encoding="utf-8"))
             value["contracts"][0]["scenarios"] = []
             path.write_text(json.dumps(value), encoding="utf-8")

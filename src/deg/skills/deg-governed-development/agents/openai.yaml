@@ -1,4 +1,0 @@
-interface:
-  display_name: "DEG Governed Development"
-  short_description: "Automatically govern every change in an enrolled project."
-  default_prompt: "Use $deg-governed-development to handle this project change through DEG."

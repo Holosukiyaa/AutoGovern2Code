@@ -12,41 +12,41 @@ from pathlib import Path
 from typing import Any
 
 from .config import MANIFEST_SCHEMA, POLICY_SCHEMA, load_manifest, load_policy
-from .errors import DEGError
+from .errors import AG2CError
 from .gitops import canonical_worktree, current_branch, git, repository_root, status_entries
 from .index import build_index
 from .ledger import append_event
 from .util import digest_file
 
-ENROLLMENT_SCHEMA = "deg.enrollment.v1"
-ACTIVATION_SCHEMA = "deg.activation.v1"
-SKILL_NAME = "deg-governed-development"
-AGENTS_BEGIN = "<!-- DEG:BEGIN -->"
-AGENTS_END = "<!-- DEG:END -->"
-IGNORE_BEGIN = "# DEG:BEGIN"
-IGNORE_END = "# DEG:END"
+ENROLLMENT_SCHEMA = "ag2c.enrollment.v1"
+ACTIVATION_SCHEMA = "ag2c.activation.v1"
+SKILL_NAME = "ag2c-governed-development"
+AGENTS_BEGIN = "<!-- AG2C:BEGIN -->"
+AGENTS_END = "<!-- AG2C:END -->"
+IGNORE_BEGIN = "# AG2C:BEGIN"
+IGNORE_END = "# AG2C:END"
 
 AGENTS_BLOCK = f"""{AGENTS_BEGIN}
-# DEG governed engineering
+# AutoGovern2Code managed engineering
 
-This repository is enrolled in DEG. For every request that may change source,
+This repository is enrolled in AG2C. For every request that may change source,
 tests, documentation, configuration, dependencies, or generated deliverables:
 
 1. Use `${SKILL_NAME}` before the first write.
 2. Do not edit this canonical checkout.
-3. Start a DEG task and edit only the returned external Git worktree.
-4. Run DEG verification after the final change.
-5. Finish through DEG so verified commits are fast-forwarded into this checkout.
+3. Start an AG2C task and edit only the returned external Git worktree.
+4. Run AG2C verification after the final change.
+5. Finish through AG2C so verified commits are fast-forwarded into this checkout.
 
-Do not claim completion without a valid DEG task record and verification evidence.
-If DEG blocks an action, fix the cause; never bypass the guard, checker, or ledger.
+Do not claim completion without a valid AG2C task record and verification evidence.
+If AG2C blocks an action, fix the cause; never bypass the guard, checker, or ledger.
 {AGENTS_END}
 """
 
 IGNORE_BLOCK = f"""{IGNORE_BEGIN}
-.deg/state/
-.deg/ledger.jsonl
-.deg/ledger.jsonl.lock
+.ag2c/state/
+.ag2c/ledger.jsonl
+.ag2c/ledger.jsonl.lock
 {IGNORE_END}
 """
 
@@ -76,7 +76,7 @@ def _replace_block(path: Path, begin: str, end: str, block: str) -> None:
         start = original.find(begin)
         finish = original.find(end, start)
         if start < 0 or finish < 0:
-            raise DEGError(f"cannot update malformed DEG block in {path}")
+            raise AG2CError(f"cannot update malformed AG2C block in {path}")
         finish += len(end)
         prefix = original[:start].rstrip("\r\n")
         separator = newline * 2 if prefix else ""
@@ -91,16 +91,16 @@ def _tracked_roots(root: Path) -> list[str]:
     tracked = [line.replace("\\", "/") for line in str(git(root, "ls-files")).splitlines()]
     candidates: dict[str, bool] = {}
     for relative in tracked:
-        if relative in {"AGENTS.md", ".gitignore"} or relative.startswith(".deg/"):
+        if relative in {"AGENTS.md", ".gitignore"} or relative.startswith(".ag2c/"):
             continue
         first, separator, _ = relative.partition("/")
         candidates[first] = bool(separator) or (root / first).is_dir()
     if not candidates:
         for child in sorted(root.iterdir(), key=lambda item: item.name):
-            if child.name not in {".git", ".deg", ".gitignore", "AGENTS.md"}:
+            if child.name not in {".git", ".ag2c", ".gitignore", "AGENTS.md"}:
                 candidates[child.name] = child.is_dir()
     if not candidates:
-        raise DEGError("cannot enroll an empty project; add the initial project files first")
+        raise AG2CError("cannot enroll an empty project; add the initial project files first")
     return sorted(candidates)
 
 
@@ -154,7 +154,7 @@ def _native_checkers(root: Path) -> list[dict[str, Any]]:
 def _skill_source() -> Path:
     source = Path(__file__).with_name("skills") / SKILL_NAME
     if not (source / "SKILL.md").is_file():
-        raise DEGError("packaged DEG Skill is missing")
+        raise AG2CError("packaged AG2C Skill is missing")
     return source
 
 
@@ -169,15 +169,13 @@ def _skill_digest(path: Path) -> str:
 
 def install_skill(destination_root: Path | None = None) -> Path:
     if destination_root is None:
-        configured = os.environ.get("CODEX_HOME")
-        destination_root = Path(configured) if configured else Path.home() / ".codex"
-        destination_root = destination_root / "skills"
+        destination_root = Path.home() / ".agents" / "skills"
     destination = destination_root.resolve() / SKILL_NAME
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.is_symlink():
-        raise DEGError(f"refusing to replace a symlinked Skill directory: {destination}")
+        raise AG2CError(f"refusing to replace a symlinked Skill directory: {destination}")
     if destination.exists() and not destination.is_dir():
-        raise DEGError(f"refusing to replace a non-directory Skill path: {destination}")
+        raise AG2CError(f"refusing to replace a non-directory Skill path: {destination}")
     staging = destination.parent / f".{SKILL_NAME}-{secrets.token_hex(4)}.tmp"
     backup = destination.parent / f".{SKILL_NAME}-{secrets.token_hex(4)}.backup"
     replaced = False
@@ -202,7 +200,7 @@ def install_skill(destination_root: Path | None = None) -> Path:
 
 
 def _activation_path(canonical: Path) -> Path:
-    return canonical / ".deg" / "state" / "activation.json"
+    return canonical / ".ag2c" / "state" / "activation.json"
 
 
 def _shell_quote(value: str) -> str:
@@ -213,12 +211,12 @@ def activate_project(start: Path, *, skill_root: Path | None = None) -> dict[str
     root = repository_root(start)
     canonical = canonical_worktree(root)
     if root != canonical:
-        raise DEGError(f"activate DEG from the canonical worktree: {canonical}")
-    enrollment_path = canonical / ".deg" / "enrollment.json"
+        raise AG2CError(f"activate AG2C from the canonical worktree: {canonical}")
+    enrollment_path = canonical / ".ag2c" / "enrollment.json"
     if not enrollment_path.is_file():
-        raise DEGError("project is not enrolled in DEG")
+        raise AG2CError("project is not enrolled in AG2C")
     previous = str(git(canonical, "config", "--get", "core.hooksPath", check=False)).strip()
-    hooks = (canonical / ".deg" / "state" / "hooks").resolve()
+    hooks = (canonical / ".ag2c" / "state" / "hooks").resolve()
     hooks.mkdir(parents=True, exist_ok=True)
     hook = hooks / "pre-commit"
     expected = str(hooks)
@@ -241,7 +239,7 @@ def activate_project(start: Path, *, skill_root: Path | None = None) -> dict[str
         candidate = delegate_root / "pre-commit"
         if candidate.is_file() and candidate.resolve() != hook.resolve():
             delegate = candidate.resolve()
-    script = f"#!/bin/sh\n{_shell_quote(Path(sys.executable).resolve().as_posix())} -m deg guard pre-commit || exit $?\n"
+    script = f"#!/bin/sh\n{_shell_quote(Path(sys.executable).resolve().as_posix())} -m ag2c guard pre-commit || exit $?\n"
     if delegate is not None:
         script += f"{_shell_quote(delegate.as_posix())} \"$@\"\n"
     hook.write_text(script, encoding="utf-8", newline="\n")
@@ -262,7 +260,7 @@ def activate_project(start: Path, *, skill_root: Path | None = None) -> dict[str
         "skill_digest": _skill_digest(skill_path),
     }
     _write_json(activation_path, activation)
-    manifest = load_manifest(canonical / ".deg" / "manifest.json")
+    manifest = load_manifest(canonical / ".ag2c" / "manifest.json")
     policy = load_policy(manifest)
     build_index(manifest, policy)
     append_event(manifest.ledger_path, "project-activated", {"canonical_root": str(canonical), "skill_digest": activation["skill_digest"]})
@@ -272,29 +270,29 @@ def activate_project(start: Path, *, skill_root: Path | None = None) -> dict[str
 def enroll_project(start: Path, *, project_id: str | None = None, skill_root: Path | None = None) -> dict[str, Any]:
     root = repository_root(start)
     if root != canonical_worktree(root):
-        raise DEGError("enroll DEG from the canonical worktree")
+        raise AG2CError("enroll AG2C from the canonical worktree")
     dirty = status_entries(root)
     if dirty:
-        raise DEGError("enrollment requires a clean worktree; commit or stash: " + ", ".join(dirty))
-    if (root / ".deg" / "enrollment.json").exists():
-        raise DEGError("project is already enrolled; run `deg activate`")
+        raise AG2CError("enrollment requires a clean worktree; commit or stash: " + ", ".join(dirty))
+    if (root / ".ag2c" / "enrollment.json").exists():
+        raise AG2CError("project is already enrolled; run `ag2c activate`")
     project_id = project_id or _project_id(root)
     if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", project_id):
-        raise DEGError("project id must contain only lowercase letters, digits, dots, underscores, and hyphens")
+        raise AG2CError("project id must contain only lowercase letters, digits, dots, underscores, and hyphens")
     project_roots = _tracked_roots(root)
     checkers = _native_checkers(root)
     manifest = {
         "schema": MANIFEST_SCHEMA,
         "project": {"id": project_id},
-        "policy": ".deg/policy.json",
-        "state_dir": ".deg/state",
-        "ledger": ".deg/ledger.jsonl",
+        "policy": ".ag2c/policy.json",
+        "state_dir": ".ag2c/state",
+        "ledger": ".ag2c/ledger.jsonl",
         "targets": [
             {
                 "id": "app",
                 "path": ".",
                 "governed_roots": ["."],
-                "exclude": [".deg/state/**", ".deg/ledger.jsonl", ".deg/ledger.jsonl.lock"],
+                "exclude": [".ag2c/state/**", ".ag2c/ledger.jsonl", ".ag2c/ledger.jsonl.lock"],
             }
         ],
     }
@@ -306,7 +304,7 @@ def enroll_project(start: Path, *, project_id: str | None = None, skill_root: Pa
                 "id": "constitution.project",
                 "type": "constitution",
                 "title": "Managed project invariants",
-                "summary": "All changes use DEG routing, isolated worktrees, verified checks, and evidence-backed integration.",
+                "summary": "All changes use AG2C routing, isolated worktrees, verified checks, and evidence-backed integration.",
                 "references": ["AGENTS.md"],
             },
             {
@@ -330,14 +328,14 @@ def enroll_project(start: Path, *, project_id: str | None = None, skill_root: Pa
         "checkers": checkers,
     }
     enrollment = {"schema": ENROLLMENT_SCHEMA, "project_id": project_id, "enrolled_at": _now(), "skill": SKILL_NAME}
-    _write_json(root / ".deg" / "manifest.json", manifest)
-    _write_json(root / ".deg" / "policy.json", policy)
-    _write_json(root / ".deg" / "enrollment.json", enrollment)
+    _write_json(root / ".ag2c" / "manifest.json", manifest)
+    _write_json(root / ".ag2c" / "policy.json", policy)
+    _write_json(root / ".ag2c" / "enrollment.json", enrollment)
     _replace_block(root / "AGENTS.md", AGENTS_BEGIN, AGENTS_END, AGENTS_BLOCK)
     _replace_block(root / ".gitignore", IGNORE_BEGIN, IGNORE_END, IGNORE_BLOCK)
-    git(root, "add", "AGENTS.md", ".gitignore", ".deg/enrollment.json", ".deg/manifest.json", ".deg/policy.json")
-    git(root, "commit", "-m", "chore: enroll project in DEG")
-    loaded_manifest = load_manifest(root / ".deg" / "manifest.json")
+    git(root, "add", "AGENTS.md", ".gitignore", ".ag2c/enrollment.json", ".ag2c/manifest.json", ".ag2c/policy.json")
+    git(root, "commit", "-m", "chore: enroll project in AG2C")
+    loaded_manifest = load_manifest(root / ".ag2c" / "manifest.json")
     event = append_event(
         loaded_manifest.ledger_path,
         "project-enrolled",
@@ -350,36 +348,36 @@ def enroll_project(start: Path, *, project_id: str | None = None, skill_root: Pa
 def activation_status(start: Path) -> dict[str, Any]:
     root = repository_root(start)
     canonical = canonical_worktree(root)
-    manifest_path = canonical / ".deg" / "manifest.json"
-    enrollment_path = canonical / ".deg" / "enrollment.json"
+    manifest_path = canonical / ".ag2c" / "manifest.json"
+    enrollment_path = canonical / ".ag2c" / "enrollment.json"
     activation_path = _activation_path(canonical)
     issues: list[str] = []
     if not enrollment_path.is_file() or not manifest_path.is_file():
         issues.append("project is not enrolled")
-    expected_hooks = str((canonical / ".deg" / "state" / "hooks").resolve())
+    expected_hooks = str((canonical / ".ag2c" / "state" / "hooks").resolve())
     actual_hooks = str(git(canonical, "config", "--get", "core.hooksPath", check=False)).strip()
     if actual_hooks != expected_hooks:
-        issues.append("DEG Git guard is not active")
+        issues.append("AG2C Git guard is not active")
     activation: dict[str, Any] = {}
     if activation_path.is_file():
         activation = json.loads(activation_path.read_text(encoding="utf-8"))
         configured_python = Path(str(activation.get("python_path", "")))
         if not configured_python.is_file() or configured_python.resolve() != Path(sys.executable).resolve():
-            issues.append("DEG Git guard uses a missing or different Python interpreter")
+            issues.append("AG2C Git guard uses a missing or different Python interpreter")
         skill = Path(str(activation.get("skill_path", "")))
         if not (skill / "SKILL.md").is_file():
-            issues.append("DEG Skill is not installed")
+            issues.append("AG2C Skill is not installed")
         elif _skill_digest(skill) != activation.get("skill_digest"):
-            issues.append("installed DEG Skill changed after activation")
+            issues.append("installed AG2C Skill changed after activation")
         elif _skill_digest(skill) != _skill_digest(_skill_source()):
-            issues.append("installed DEG Skill is out of date")
+            issues.append("installed AG2C Skill is out of date")
     else:
-        issues.append("DEG activation record is missing")
-    guard = canonical / ".deg" / "state" / "hooks" / "pre-commit"
+        issues.append("AG2C activation record is missing")
+    guard = canonical / ".ag2c" / "state" / "hooks" / "pre-commit"
     if not guard.is_file():
-        issues.append("DEG Git guard hook is missing")
+        issues.append("AG2C Git guard hook is missing")
     elif activation and digest_file(guard) != activation.get("guard_digest"):
-        issues.append("DEG Git guard hook changed after activation")
+        issues.append("AG2C Git guard hook changed after activation")
     return {"managed": not issues, "canonical_root": str(canonical), "issues": issues, "activation": activation}
 
 
@@ -388,25 +386,25 @@ def guard_pre_commit(start: Path) -> int:
     canonical = canonical_worktree(root)
     if root == canonical:
         try:
-            manifest = load_manifest(canonical / ".deg" / "manifest.json")
+            manifest = load_manifest(canonical / ".ag2c" / "manifest.json")
             append_event(manifest.ledger_path, "violation-blocked", {"kind": "canonical-commit", "paths": status_entries(root)})
         except Exception:
             pass
-        raise DEGError("DEG blocks commits in the canonical worktree; use a DEG task worktree")
+        raise AG2CError("AG2C blocks commits in the canonical worktree; use a AG2C task worktree")
     branch = current_branch(root)
-    if not branch.startswith("deg/"):
-        raise DEGError(f"DEG blocks commits from an unmanaged worktree branch: {branch}")
-    marker_path = root / ".deg" / "state" / "active-task.json"
+    if not branch.startswith("ag2c/"):
+        raise AG2CError(f"AG2C blocks commits from an unmanaged worktree branch: {branch}")
+    marker_path = root / ".ag2c" / "state" / "active-task.json"
     try:
         marker = json.loads(marker_path.read_text(encoding="utf-8"))
         task_id = str(marker["task_id"])
-        task = json.loads((canonical / ".deg" / "state" / "tasks" / f"{task_id}.json").read_text(encoding="utf-8"))
+        task = json.loads((canonical / ".ag2c" / "state" / "tasks" / f"{task_id}.json").read_text(encoding="utf-8"))
     except (FileNotFoundError, KeyError, OSError, json.JSONDecodeError) as exc:
-        raise DEGError("DEG blocks commits without a valid active task record") from exc
+        raise AG2CError("AG2C blocks commits without a valid active task record") from exc
     if (
         task.get("state") != "active"
         or task.get("worktree", {}).get("branch") != branch
         or Path(str(task.get("worktree", {}).get("path", ""))).resolve() != root
     ):
-        raise DEGError("DEG task record does not authorize this worktree commit")
+        raise AG2CError("AG2C task record does not authorize this worktree commit")
     return 0

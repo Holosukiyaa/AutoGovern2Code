@@ -6,7 +6,7 @@ from typing import Any
 def render_slice_markdown(value: dict[str, Any]) -> str:
     route = value["route"]
     lines = [
-        f"# DEG entry slice: {value['project']}",
+        f"# AG2C entry slice: {value['project']}",
         "",
         f"- State: `{route['state']}`",
         f"- Slice digest: `{value['slice_digest']}`",

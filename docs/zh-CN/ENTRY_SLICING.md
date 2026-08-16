@@ -1,11 +1,11 @@
 # 入口切片
 
-> 内部合同：普通用户不需要操作入口切片。DEG Skill 会在首次写入前从正常
-> 开发任务中确定这些坐标，`deg task verify` 再按实际 diff 重新编译。
+> 内部合同：普通用户不需要操作入口切片。AG2C Skill 会在首次写入前从正常
+> 开发任务中确定这些坐标，`ag2c task verify` 再按实际 diff 重新编译。
 
 [English](../ENTRY_SLICING.md)
 
-入口切片，是 DEG 把“一次想做的修改”转换成有限责任闭包、阅读范围和验证计划的方法。它要求在动手前回答四个问题：
+入口切片，是 AG2C 把“一次想做的修改”转换成有限责任闭包、阅读范围和验证计划的方法。它要求在动手前回答四个问题：
 
 1. 这次变更从哪个可观察的仓库事实进入？
 2. 谁拥有这个事实？
@@ -16,7 +16,7 @@
 
 ## 1. 什么叫入口
 
-DEG 接受以下确定性坐标，顺序从最精确到最宽：
+AG2C 接受以下确定性坐标，顺序从最精确到最宽：
 
 | 坐标 | 写法 | 用途 |
 | --- | --- | --- |
@@ -84,7 +84,7 @@ DEG 接受以下确定性坐标，顺序从最精确到最宽：
 
 ## 4. 保守回退的准确含义
 
-DEG 的核心裁决规则是：
+AG2C 的核心裁决规则是：
 
 > 不确定性只能扩大读取和验证范围。
 
@@ -107,7 +107,7 @@ DEG 的核心裁决规则是：
 
 ## 5. 切片和正文装载必须分两步
 
-一份好的切片应该很小。DEG 返回：卡片身份、摘要、选中原因、下一步引用和检查计划，而不是把所有治理正文、源码符号和历史记录一次性塞进上下文。
+一份好的切片应该很小。AG2C 返回：卡片身份、摘要、选中原因、下一步引用和检查计划，而不是把所有治理正文、源码符号和历史记录一次性塞进上下文。
 
 正确工作方式是：
 
@@ -126,7 +126,7 @@ DEG 的核心裁决规则是：
 ### 修改已有文件
 
 ```bash
-deg slice --path api:src/http/orders.py --goal "增加取消原因"
+ag2c slice --path api:src/http/orders.py --goal "增加取消原因"
 ```
 
 ### 新增文件
@@ -134,13 +134,13 @@ deg slice --path api:src/http/orders.py --goal "增加取消原因"
 文件还不存在时，直接使用计划中的最终路径：
 
 ```bash
-deg slice --path api:src/http/cancellation.py
+ag2c slice --path api:src/http/cancellation.py
 ```
 
 ### 修改公开 API
 
 ```bash
-deg slice \
+ag2c slice \
   --path api:src/http/orders.py \
   --contract api:orders.cancel@2.0.0
 ```
@@ -148,7 +148,7 @@ deg slice \
 ### 同时修改两个仓库
 
 ```bash
-deg slice \
+ag2c slice \
   --path producer:src/package.py \
   --path consumer:src/install.go \
   --contract producer:package.install@1.2.0
@@ -157,7 +157,7 @@ deg slice \
 ### 做发布基线
 
 ```bash
-deg check --all
+ag2c check --all
 ```
 
 只有 `--all` 才有资格产生 `complete`，并且必须确保 Policy 中的所有 checker 都实际运行且通过。
@@ -166,7 +166,7 @@ deg check --all
 
 ### 只有目标描述，不知道文件
 
-不要伪造路径。先做只读调查，找出真实文件或合同，再运行切片。DEG 会拒绝只传 `--goal`，因为“听起来相关”不是责任证据。
+不要伪造路径。先做只读调查，找出真实文件或合同，再运行切片。AG2C 会拒绝只传 `--goal`，因为“听起来相关”不是责任证据。
 
 ## 7. 怎么阅读切片结果
 
@@ -242,6 +242,6 @@ Floor 不是目录美化，也不是把每个文件夹都变成一层。一个 F
 - [ ] 最后一次源码变化后重新构建索引。
 - [ ] 使用相同入口重新编译切片。
 - [ ] 执行切片选中的检查。
-- [ ] 需要完整验收时运行 `deg check --all`。
+- [ ] 需要完整验收时运行 `ag2c check --all`。
 - [ ] 验证 Ledger 哈希链。
 - [ ] 报告每个未运行阶段，不把 `not-run` 写成通过。

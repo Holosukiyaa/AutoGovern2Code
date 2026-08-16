@@ -11,7 +11,7 @@ from typing import Any
 from .checks import run_checks
 from .config import load_manifest, load_policy
 from .enrollment import AGENTS_BLOCK, IGNORE_BLOCK, activation_status
-from .errors import DEGError
+from .errors import AG2CError
 from .gitops import (
     change_digest,
     changed_paths,
@@ -25,7 +25,7 @@ from .index import build_index, index_path
 from .ledger import append_event, read_events, verify_ledger
 from .slicer import compile_slice
 
-TASK_SCHEMA = "deg.task.v1"
+TASK_SCHEMA = "ag2c.task.v1"
 
 
 def _now() -> str:
@@ -40,7 +40,7 @@ def _atomic_json(path: Path, value: dict[str, Any]) -> None:
 
 
 def _task_path(canonical: Path, task_id: str) -> Path:
-    return canonical / ".deg" / "state" / "tasks" / f"{task_id}.json"
+    return canonical / ".ag2c" / "state" / "tasks" / f"{task_id}.json"
 
 
 def _load_task(canonical: Path, task_id: str) -> dict[str, Any]:
@@ -48,11 +48,11 @@ def _load_task(canonical: Path, task_id: str) -> dict[str, Any]:
     try:
         task = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
-        raise DEGError(f"unknown DEG task: {task_id}") from exc
+        raise AG2CError(f"unknown AG2C task: {task_id}") from exc
     except (OSError, json.JSONDecodeError) as exc:
-        raise DEGError(f"cannot read DEG task {task_id}: {exc}") from exc
+        raise AG2CError(f"cannot read AG2C task {task_id}: {exc}") from exc
     if not isinstance(task, dict) or task.get("schema") != TASK_SCHEMA:
-        raise DEGError(f"invalid DEG task record: {path}")
+        raise AG2CError(f"invalid AG2C task record: {path}")
     return task
 
 
@@ -77,7 +77,7 @@ def _record_intervention(
 
 
 def _canonical_manifest(canonical: Path):
-    manifest = load_manifest(canonical / ".deg" / "manifest.json")
+    manifest = load_manifest(canonical / ".ag2c" / "manifest.json")
     return manifest, load_policy(manifest)
 
 
@@ -166,17 +166,17 @@ def start_task(
     status = activation_status(root)
     canonical = Path(status["canonical_root"])
     if root != canonical:
-        raise DEGError(f"start DEG tasks from the canonical worktree: {canonical}")
+        raise AG2CError(f"start AG2C tasks from the canonical worktree: {canonical}")
     if not status["managed"]:
-        raise DEGError("DEG is not active:\n- " + "\n- ".join(status["issues"]))
+        raise AG2CError("AG2C is not active:\n- " + "\n- ".join(status["issues"]))
     goal = goal.strip()
     if not goal:
-        raise DEGError("DEG requires a concrete task goal")
+        raise AG2CError("AG2C requires a concrete task goal")
     dirty = status_entries(canonical)
     if dirty:
-        raise DEGError("canonical worktree is dirty; DEG will not start: " + ", ".join(dirty))
+        raise AG2CError("canonical worktree is dirty; AG2C will not start: " + ", ".join(dirty))
     if not path_specs and not contract_specs and not all_mode:
-        raise DEGError("DEG requires exact paths/contracts or conservative --all before work begins")
+        raise AG2CError("AG2C requires exact paths/contracts or conservative --all before work begins")
     manifest, policy = _canonical_manifest(canonical)
     build_index(manifest, policy, index_path(manifest))
     entry_slice = compile_slice(
@@ -191,22 +191,22 @@ def start_task(
     source_branch = current_branch(canonical)
     task_id = task_id or _task_id(goal)
     if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", task_id):
-        raise DEGError("task id must contain only lowercase letters, digits, dots, underscores, and hyphens")
+        raise AG2CError("task id must contain only lowercase letters, digits, dots, underscores, and hyphens")
     record_path = _task_path(canonical, task_id)
     if record_path.exists():
-        raise DEGError(f"DEG task already exists: {task_id}")
-    configured_root = os.environ.get("DEG_WORKTREE_ROOT")
-    base = worktree_root or (Path(configured_root) if configured_root else canonical.parent / ".deg-worktrees")
+        raise AG2CError(f"AG2C task already exists: {task_id}")
+    configured_root = os.environ.get("AG2C_WORKTREE_ROOT")
+    base = worktree_root or (Path(configured_root) if configured_root else canonical.parent / ".ag2c-worktrees")
     worktree = (base.resolve() / manifest.project_id / task_id).resolve()
     try:
         worktree.relative_to(canonical)
     except ValueError:
         pass
     else:
-        raise DEGError("DEG task worktree must be outside the canonical project")
+        raise AG2CError("AG2C task worktree must be outside the canonical project")
     if worktree.exists():
-        raise DEGError(f"task worktree already exists: {worktree}")
-    branch = f"deg/{task_id}"
+        raise AG2CError(f"task worktree already exists: {worktree}")
+    branch = f"ag2c/{task_id}"
     worktree.parent.mkdir(parents=True, exist_ok=True)
     git(canonical, "worktree", "add", "-b", branch, str(worktree), source_head)
     task: dict[str, Any] = {
@@ -228,7 +228,7 @@ def start_task(
         "verifications": [],
     }
     _atomic_json(record_path, task)
-    marker = worktree / ".deg" / "state" / "active-task.json"
+    marker = worktree / ".ag2c" / "state" / "active-task.json"
     _atomic_json(marker, {"schema": TASK_SCHEMA, "task_id": task_id, "canonical_root": str(canonical)})
     event = append_event(
         manifest.ledger_path,
@@ -251,17 +251,17 @@ def start_task(
 
 def _task_from_worktree(start: Path) -> tuple[Path, dict[str, Any]]:
     root = repository_root(start)
-    marker_path = root / ".deg" / "state" / "active-task.json"
+    marker_path = root / ".ag2c" / "state" / "active-task.json"
     try:
         marker = json.loads(marker_path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
-        raise DEGError("this is not an active DEG task worktree") from exc
+        raise AG2CError("this is not an active AG2C task worktree") from exc
     canonical = Path(str(marker.get("canonical_root", ""))).resolve()
     task = _load_task(canonical, str(marker.get("task_id", "")))
     if Path(task["worktree"]["path"]).resolve() != root:
-        raise DEGError("task record does not own this worktree")
+        raise AG2CError("task record does not own this worktree")
     if current_branch(root) != task["worktree"]["branch"]:
-        raise DEGError("task worktree is on a different branch than its DEG record")
+        raise AG2CError("task worktree is on a different branch than its AG2C record")
     return canonical, task
 
 
@@ -298,12 +298,12 @@ def verify_task(start: Path) -> dict[str, Any]:
     worktree = repository_root(start)
     canonical, task = _task_from_worktree(worktree)
     if task["state"] != "active":
-        raise DEGError(f"task is not active: {task['id']} ({task['state']})")
+        raise AG2CError(f"task is not active: {task['id']} ({task['state']})")
     canonical_manifest, _ = _canonical_manifest(canonical)
     formal_dirty = status_entries(canonical)
     if formal_dirty:
         _record_intervention(canonical, canonical_manifest, task, "canonical-write-blocked", {"paths": formal_dirty})
-        raise DEGError("canonical worktree changed during the task; refusing verification")
+        raise AG2CError("canonical worktree changed during the task; refusing verification")
     if head(canonical) != task["source"]["head"]:
         _record_intervention(
             canonical,
@@ -312,11 +312,11 @@ def verify_task(start: Path) -> dict[str, Any]:
             "canonical-head-diverged",
             {"expected": task["source"]["head"], "actual": head(canonical)},
         )
-        raise DEGError("canonical HEAD changed during the task; start a new task from the current branch")
+        raise AG2CError("canonical HEAD changed during the task; start a new task from the current branch")
     actual_paths = changed_paths(worktree, task["source"]["head"])
     if not actual_paths:
-        raise DEGError("task worktree has no changes to verify")
-    protected = [path for path in actual_paths if path.startswith(".deg/")]
+        raise AG2CError("task worktree has no changes to verify")
+    protected = [path for path in actual_paths if path.startswith(".ag2c/")]
     agents = worktree / "AGENTS.md"
     if not agents.is_file() or AGENTS_BLOCK.rstrip() not in agents.read_text(encoding="utf-8"):
         protected.append("AGENTS.md")
@@ -325,13 +325,13 @@ def verify_task(start: Path) -> dict[str, Any]:
         protected.append(".gitignore")
     if protected:
         _record_intervention(canonical, canonical_manifest, task, "governance-mutation-blocked", {"paths": protected})
-        raise DEGError("ordinary tasks cannot modify DEG governance controls: " + ", ".join(protected))
-    manifest = load_manifest(worktree / ".deg" / "manifest.json")
+        raise AG2CError("ordinary tasks cannot modify AG2C governance controls: " + ", ".join(protected))
+    manifest = load_manifest(worktree / ".ag2c" / "manifest.json")
     policy = load_policy(manifest)
     path_specs, unmanaged = _changed_specs(manifest, actual_paths)
     if unmanaged:
         _record_intervention(canonical, canonical_manifest, task, "ungoverned-change-blocked", {"paths": unmanaged})
-        raise DEGError("changed paths are outside the governed project: " + ", ".join(unmanaged))
+        raise AG2CError("changed paths are outside the governed project: " + ", ".join(unmanaged))
     build_index(manifest, policy, index_path(manifest))
     actual_slice = compile_slice(
         manifest,
@@ -420,42 +420,42 @@ def finish_task(start: Path, task_id: str, *, message: str) -> dict[str, Any]:
     status = activation_status(root)
     canonical = Path(status["canonical_root"])
     if root != canonical:
-        raise DEGError(f"finish DEG tasks from the canonical worktree: {canonical}")
+        raise AG2CError(f"finish AG2C tasks from the canonical worktree: {canonical}")
     if not status["managed"]:
-        raise DEGError("DEG is not active")
+        raise AG2CError("AG2C is not active")
     task = _load_task(canonical, task_id)
     if task["state"] != "active":
-        raise DEGError(f"task is not active: {task_id} ({task['state']})")
+        raise AG2CError(f"task is not active: {task_id} ({task['state']})")
     manifest, _ = _canonical_manifest(canonical)
     if not _start_evidence_valid(manifest, task):
-        raise DEGError("task start evidence is missing or inconsistent")
+        raise AG2CError("task start evidence is missing or inconsistent")
     if not task["verifications"] or not task["verifications"][-1]["passed"]:
-        raise DEGError("task has no passing final verification")
+        raise AG2CError("task has no passing final verification")
     if not _verification_evidence_valid(manifest, task, task["verifications"][-1]):
-        raise DEGError("passing verification evidence is missing or inconsistent")
+        raise AG2CError("passing verification evidence is missing or inconsistent")
     worktree = Path(task["worktree"]["path"]).resolve()
     if not worktree.is_dir():
-        raise DEGError(f"task worktree is missing: {worktree}")
+        raise AG2CError(f"task worktree is missing: {worktree}")
     if repository_root(worktree) != worktree or current_branch(worktree) != task["worktree"]["branch"]:
-        raise DEGError("task worktree identity no longer matches its DEG record")
+        raise AG2CError("task worktree identity no longer matches its AG2C record")
     dirty = status_entries(canonical)
     if dirty:
         manifest, _ = _canonical_manifest(canonical)
         _record_intervention(canonical, manifest, task, "merge-blocked-canonical-dirty", {"paths": dirty})
-        raise DEGError("canonical worktree is dirty; refusing merge")
+        raise AG2CError("canonical worktree is dirty; refusing merge")
     if head(canonical) != task["source"]["head"] or current_branch(canonical) != task["source"]["branch"]:
-        raise DEGError("canonical branch or HEAD changed; refusing merge")
+        raise AG2CError("canonical branch or HEAD changed; refusing merge")
     current_digest = change_digest(worktree, task["source"]["head"])
     if current_digest != task["verifications"][-1]["change_digest"]:
-        raise DEGError("task changed after verification; run `deg task verify` again")
+        raise AG2CError("task changed after verification; run `ag2c task verify` again")
     if status_entries(worktree):
         git(worktree, "add", "--all")
         git(worktree, "commit", "-m", message)
     elif head(worktree) == task["source"]["head"]:
-        raise DEGError("task worktree has no commit or changes to integrate")
+        raise AG2CError("task worktree has no commit or changes to integrate")
     task_commit = head(worktree)
     if status_entries(worktree):
-        raise DEGError("task worktree is not clean after commit")
+        raise AG2CError("task worktree is not clean after commit")
     committed_digest = change_digest(worktree, task["source"]["head"])
     if committed_digest != current_digest:
         _record_intervention(
@@ -465,7 +465,7 @@ def finish_task(start: Path, task_id: str, *, message: str) -> dict[str, Any]:
             "commit-hook-mutated-change",
             {"verified_change_digest": current_digest, "committed_change_digest": committed_digest},
         )
-        raise DEGError("commit hooks changed the verified bytes; run `deg task verify` again")
+        raise AG2CError("commit hooks changed the verified bytes; run `ag2c task verify` again")
     git(canonical, "merge", "--ff-only", task["worktree"]["branch"])
     manifest, policy = _canonical_manifest(canonical)
     build_index(manifest, policy, index_path(manifest))
@@ -488,7 +488,7 @@ def finish_task(start: Path, task_id: str, *, message: str) -> dict[str, Any]:
     try:
         git(canonical, "worktree", "remove", str(worktree))
         git(canonical, "branch", "-d", task["worktree"]["branch"])
-    except DEGError as exc:
+    except AG2CError as exc:
         cleanup = f"pending: {exc}"
     task["cleanup"] = cleanup
     _atomic_json(_task_path(canonical, task_id), task)
@@ -502,7 +502,7 @@ def task_record(start: Path, task_id: str) -> dict[str, Any]:
 
 def task_records(start: Path) -> list[dict[str, Any]]:
     canonical = Path(activation_status(start)["canonical_root"])
-    directory = canonical / ".deg" / "state" / "tasks"
+    directory = canonical / ".ag2c" / "state" / "tasks"
     records = [_load_task(canonical, path.stem) for path in directory.glob("*.json")] if directory.is_dir() else []
     return sorted(records, key=lambda item: str(item.get("created_at", "")), reverse=True)
 

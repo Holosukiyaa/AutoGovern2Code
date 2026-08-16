@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from deg.config import load_manifest, load_policy
+from ag2c.config import load_manifest, load_policy
 
 
 def _git(root: Path, *args: str) -> str:
@@ -35,15 +35,15 @@ def git_project(root: Path) -> Path:
     )
     (root / ".gitignore").write_text("__pycache__/\n*.pyc\n", encoding="utf-8")
     _git(root, "init", "-b", "main")
-    _git(root, "config", "user.name", "DEG Test")
-    _git(root, "config", "user.email", "deg-test@example.invalid")
+    _git(root, "config", "user.name", "AG2C Test")
+    _git(root, "config", "user.email", "ag2c-test@example.invalid")
     _git(root, "add", "--all")
     _git(root, "commit", "-m", "initial")
     return root.resolve()
 
 
 def write_project(root: Path, *, extra_file: bool = False):
-    (root / ".deg").mkdir(parents=True)
+    (root / ".ag2c").mkdir(parents=True)
     (root / "src" / "api").mkdir(parents=True)
     (root / "src" / "worker").mkdir(parents=True)
     (root / "src" / "api" / "service.py").write_text("VALUE = 'api'\n", encoding="utf-8")
@@ -51,18 +51,18 @@ def write_project(root: Path, *, extra_file: bool = False):
     if extra_file:
         (root / "src" / "other.py").write_text("VALUE = 'other'\n", encoding="utf-8")
     manifest = {
-        "schema": "deg.manifest.v1",
+        "schema": "ag2c.manifest.v1",
         "project": {"id": "test-project"},
-        "policy": ".deg/policy.json",
-        "state_dir": ".deg/state",
-        "ledger": ".deg/ledger.jsonl",
+        "policy": ".ag2c/policy.json",
+        "state_dir": ".ag2c/state",
+        "ledger": ".ag2c/ledger.jsonl",
         "targets": [
             {"id": "app", "path": ".", "governed_roots": ["src"], "exclude": []}
         ],
     }
     success = [sys.executable, "-c", "print('checker passed')"]
     policy = {
-        "schema": "deg.policy.v1",
+        "schema": "ag2c.policy.v1",
         "cards": [
             {
                 "id": "constitution.project",
@@ -130,8 +130,8 @@ def write_project(root: Path, *, extra_file: bool = False):
             {"id": "check.scenario", "stage": "scenario", "target": "app", "command": success},
         ],
     }
-    manifest_path = root / ".deg" / "manifest.json"
+    manifest_path = root / ".ag2c" / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    (root / ".deg" / "policy.json").write_text(json.dumps(policy, indent=2), encoding="utf-8")
+    (root / ".ag2c" / "policy.json").write_text(json.dumps(policy, indent=2), encoding="utf-8")
     loaded_manifest = load_manifest(manifest_path)
     return loaded_manifest, load_policy(loaded_manifest)

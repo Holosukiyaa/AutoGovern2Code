@@ -9,7 +9,7 @@ python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0
 ag2c setup
 ```
 
-For a local source checkout, use `python -m pip install -e .`. When PyPI publishing is enabled, `python -m pip install autogovern2code` installs the same CLI and packaged Skill.
+GitHub Releases are the only distribution channel. The command above installs the tagged GitHub source; each release page also provides a wheel and source archive. For a local source checkout, use `python -m pip install -e .`.
 
 `ag2c setup` installs the packaged Skill in Codex, Claude Code, and generic Agent Skills user locations. Limit it with a repeatable `--harness` option, or use `ag2c skill install --destination <directory>` for an intentionally isolated harness setup.
 

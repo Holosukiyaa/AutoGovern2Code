@@ -8,7 +8,7 @@
 - Added tracked, self-digesting task receipts that bind source commit, exact Git bytes, route, policy objects, trusted checks, correction, and blocked-action evidence.
 - Added `ag2c ci verify` to validate portable receipts from Git objects and optionally recompute routing and rerun trusted checks in a clean checkout.
 - Added a reusable GitHub composite Action and documented required-check integration for protected branches.
-- Added a gated PyPI Trusted Publishing release job; GitHub releases remain the installation fallback until the PyPI publisher is enabled.
+- Kept GitHub Releases as the sole distribution channel, with wheel and source archives attached to each tagged release.
 - Improved native Node test detection for npm, pnpm, Yarn, and Bun projects.
 - Kept the product focused on invisible single-user governance: no desktop application, configuration dashboard, or mandatory user input was added.
 

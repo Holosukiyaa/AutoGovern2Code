@@ -9,7 +9,7 @@ python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0
 ag2c setup
 ```
 
-本地源码开发使用 `python -m pip install -e .`。发布到 PyPI 后可改用 `python -m pip install autogovern2code`。
+AG2C 只通过 GitHub Releases 发布。上面的命令直接安装指定 GitHub 标签；每个 Release 页面也会提供 wheel 安装包和源码包。本地源码开发使用 `python -m pip install -e .`。
 
 `ag2c setup` 会把同一份 Skill 安装到 Codex、Claude Code 和通用 Agent Skills 的用户目录；可以重复使用 `--harness` 只选择需要的入口。
 

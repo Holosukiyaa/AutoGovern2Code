@@ -11,11 +11,53 @@ $testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ag2c-installer-smoke-"
 $installRoot = Join-Path $testRoot 'program'
 $profileRoot = Join-Path $testRoot 'profile'
 $projectRoot = Join-Path $testRoot 'project'
+$installLog = Join-Path $testRoot 'install.log'
 $oldHome = $env:HOME
 $oldUserProfile = $env:USERPROFILE
 $oldCodexHome = $env:CODEX_HOME
-$userPathBefore = [Environment]::GetEnvironmentVariable('Path', 'User')
 $uninstalled = $false
+
+function Get-UserPathState {
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
+    if ($null -eq $key) {
+        return @{ Exists = $false; Value = $null; Kind = $null }
+    }
+    try {
+        $pathName = $key.GetValueNames() | Where-Object { $_ -ieq 'Path' } | Select-Object -First 1
+        if ($null -eq $pathName) {
+            return @{ Exists = $false; Value = $null; Kind = $null }
+        }
+        return @{
+            Exists = $true
+            Value = [string]$key.GetValue(
+                $pathName,
+                $null,
+                [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames
+            )
+            Kind = $key.GetValueKind($pathName)
+        }
+    }
+    finally {
+        $key.Dispose()
+    }
+}
+
+function Restore-UserPathState([hashtable]$State) {
+    $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+    try {
+        if ($State.Exists) {
+            $key.SetValue('Path', $State.Value, $State.Kind)
+        }
+        else {
+            $key.DeleteValue('Path', $false)
+        }
+    }
+    finally {
+        $key.Dispose()
+    }
+}
+
+$userPathBefore = Get-UserPathState
 
 try {
     New-Item -ItemType Directory -Path $profileRoot -Force | Out-Null
@@ -26,13 +68,14 @@ try {
         '/VERYSILENT',
         '/SUPPRESSMSGBOXES',
         '/NORESTART',
-        "/DIR=`"$installRoot`""
+        "/DIR=`"$installRoot`"",
+        "/LOG=`"$installLog`""
     ) -Wait -PassThru
     if ($install.ExitCode -ne 0) {
         throw "Installer exited with code $($install.ExitCode)."
     }
     $expectedPath = (Join-Path $installRoot 'ag2c').TrimEnd('\').ToLowerInvariant()
-    $installedPathEntries = [Environment]::GetEnvironmentVariable('Path', 'User') -split ';'
+    $installedPathEntries = (Get-UserPathState).Value -split ';'
     if (-not ($installedPathEntries | Where-Object { $_.Trim().TrimEnd('\').ToLowerInvariant() -eq $expectedPath })) {
         throw 'Installer did not add the AG2C runtime to the user PATH.'
     }
@@ -95,10 +138,21 @@ try {
             throw "Uninstaller left the unchanged $skillRoot Skill behind."
         }
     }
-    $userPathAfter = [Environment]::GetEnvironmentVariable('Path', 'User')
-    if ($userPathAfter -ne $userPathBefore) {
+    $userPathAfter = Get-UserPathState
+    if (
+        $userPathAfter.Exists -ne $userPathBefore.Exists -or
+        $userPathAfter.Value -ne $userPathBefore.Value -or
+        ($userPathBefore.Exists -and $userPathAfter.Kind -ne $userPathBefore.Kind)
+    ) {
         throw 'Uninstaller did not restore the original user PATH exactly.'
     }
+}
+catch {
+    if (Test-Path -LiteralPath $installLog) {
+        Write-Host '--- Inno Setup install log (last 120 lines) ---'
+        Get-Content -LiteralPath $installLog -Tail 120 | Write-Host
+    }
+    throw
 }
 finally {
     $uninstaller = Join-Path $installRoot 'unins000.exe'
@@ -112,7 +166,7 @@ finally {
             Write-Warning "Cleanup uninstaller exited with code $($cleanup.ExitCode)."
         }
     }
-    [Environment]::SetEnvironmentVariable('Path', $userPathBefore, 'User')
+    Restore-UserPathState $userPathBefore
     $env:HOME = $oldHome
     $env:USERPROFILE = $oldUserProfile
     $env:CODEX_HOME = $oldCodexHome

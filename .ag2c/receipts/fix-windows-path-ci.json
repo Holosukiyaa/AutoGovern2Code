@@ -1,0 +1,76 @@
+{
+  "acceptance": {
+    "boundary": "not-applicable",
+    "complete": "not-run",
+    "floor": "passed",
+    "scenario": "not-applicable",
+    "static": "not-applicable"
+  },
+  "blocked_actions": [],
+  "change_digest": "76b5257baca82116cc8cfd8c20509112df2f9ff84ca7043875a19a9ef13179de",
+  "changed_paths": [
+    "packaging/windows/AutoGovern2Code.iss",
+    "scripts/test_windows_installer.ps1"
+  ],
+  "checks": [
+    {
+      "exit_code": 0,
+      "id": "check.diff",
+      "stage": "floor",
+      "status": "passed"
+    },
+    {
+      "exit_code": 0,
+      "id": "check.python",
+      "stage": "floor",
+      "status": "passed"
+    }
+  ],
+  "correction_proven": false,
+  "entry": {
+    "all": false,
+    "contracts": [],
+    "paths": [
+      "app:packaging/windows/AutoGovern2Code.iss",
+      "app:scripts/test_windows_installer.ps1",
+      "app:.github/workflows/ci.yml"
+    ]
+  },
+  "failed_attempts": 0,
+  "goal": "Make Windows installer PATH registration reliable and diagnosable across PowerShell and GitHub hosted Windows",
+  "local_evidence": {
+    "check_run": "5ac164cb22827926e5548f90f3483e6bd5b86dba6eeb5f9c9c27e33fcb162612",
+    "task_started": "1ada744bcae491657afd5a7ec032db21409535620b01df0f6563f1a842bace96",
+    "verification": "2148bb3480eb5d419ac72ca6e1de6fcdcf9b431772ba863521db8fd7e708b957"
+  },
+  "manifest_blob": "bd5737b4e2ac9bd906117d060fb38fc42d05f143",
+  "policy_blob": "cdc49ab6d36084a98705f73a193099ad0405d6b9",
+  "project": "autogovern2code",
+  "receipt_digest": "c495d7f59b122401978e2ef58d73fd833faecdd88ff624662e30dcc87494d999",
+  "route": {
+    "cards": [
+      "constitution.project",
+      "floor.docs",
+      "floor.examples",
+      "floor.github",
+      "floor.root",
+      "floor.src",
+      "floor.tests"
+    ],
+    "fallback_reasons": [
+      "unowned-entry:app:packaging/windows/AutoGovern2Code.iss",
+      "unowned-entry:app:scripts/test_windows_installer.ps1"
+    ],
+    "fallback_targets": [
+      "app"
+    ],
+    "slice_digest": "f3fe6f8bd625765cdda699b982ec4d4d02978c953adcd38d533d1b91e507a82e",
+    "state": "conservative"
+  },
+  "schema": "ag2c.receipt.v1",
+  "source_branch": "main",
+  "source_commit": "a795e6b3b7bb9512678d5aa7c48c32eb88a16575",
+  "task_id": "fix-windows-path-ci",
+  "verification_attempts": 2,
+  "verified_at": "2026-08-16T10:20:24.216147+00:00"
+}

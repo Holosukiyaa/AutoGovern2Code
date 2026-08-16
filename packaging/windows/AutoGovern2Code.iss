@@ -96,7 +96,7 @@ end;
 
 procedure AddInstallPath;
 var
-  CurrentPath, InstallPath: String;
+  CurrentPath, InstallPath, UpdatedPath: String;
 begin
   InstallPath := ExpandConstant('{app}\ag2c');
   if not RegQueryStringValue(HKEY_CURRENT_USER, UserEnvironmentKey, 'Path', CurrentPath) then
@@ -105,7 +105,14 @@ begin
   begin
     if (CurrentPath <> '') and (CurrentPath[Length(CurrentPath)] <> ';') then
       CurrentPath := CurrentPath + ';';
-    RegWriteExpandStringValue(HKEY_CURRENT_USER, UserEnvironmentKey, 'Path', CurrentPath + InstallPath);
+    UpdatedPath := CurrentPath + InstallPath;
+    { RegWriteStringValue preserves an existing REG_EXPAND_SZ value type. }
+    if not RegWriteStringValue(HKEY_CURRENT_USER, UserEnvironmentKey, 'Path', UpdatedPath) then
+      RaiseException('Could not add AutoGovern2Code to the user PATH.');
+    if not RegQueryStringValue(HKEY_CURRENT_USER, UserEnvironmentKey, 'Path', CurrentPath) then
+      RaiseException('Could not read the user PATH after updating it.');
+    if not HasPathEntry(CurrentPath, InstallPath) then
+      RaiseException('AutoGovern2Code was not present in the user PATH after updating it.');
   end;
 end;
 
@@ -131,9 +138,12 @@ begin
     end;
   until not HasMore;
   if not KeptEntry then
-    RegDeleteValue(HKEY_CURRENT_USER, UserEnvironmentKey, 'Path')
-  else
-    RegWriteExpandStringValue(HKEY_CURRENT_USER, UserEnvironmentKey, 'Path', NewPath);
+  begin
+    if not RegDeleteValue(HKEY_CURRENT_USER, UserEnvironmentKey, 'Path') then
+      RaiseException('Could not remove the AutoGovern2Code user PATH value.');
+  end
+  else if not RegWriteStringValue(HKEY_CURRENT_USER, UserEnvironmentKey, 'Path', NewPath) then
+    RaiseException('Could not remove AutoGovern2Code from the user PATH.');
 end;
 
 procedure InstallSkills;

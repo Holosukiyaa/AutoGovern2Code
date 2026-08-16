@@ -26,6 +26,9 @@ class CLITests(unittest.TestCase):
                     os.chdir(previous)
             self.assertTrue((root / ".ag2c" / "enrollment.json").is_file())
             self.assertIn("$ag2c-governed-development", (root / "AGENTS.md").read_text(encoding="utf-8"))
+            self.assertIn("/ag2c-governed-development", (root / "CLAUDE.md").read_text(encoding="utf-8"))
+            self.assertTrue((workspace / ".codex" / "skills" / "ag2c-governed-development" / "SKILL.md").is_file())
+            self.assertTrue((workspace / ".claude" / "skills" / "ag2c-governed-development" / "SKILL.md").is_file())
             self.assertTrue((workspace / ".agents" / "skills" / "ag2c-governed-development" / "SKILL.md").is_file())
 
 

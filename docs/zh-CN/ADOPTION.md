@@ -5,13 +5,13 @@
 ## 安装
 
 ```bash
-python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.3.0"
+python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.4.0"
 ag2c setup
 ```
 
 本地源码开发使用 `python -m pip install -e .`。发布到 PyPI 后可改用 `python -m pip install autogovern2code`。
 
-`ag2c setup` 会把 Skill 安装到 `~/.agents/skills`。
+`ag2c setup` 会把同一份 Skill 安装到 Codex、Claude Code 和通用 Agent Skills 的用户目录；可以重复使用 `--harness` 只选择需要的入口。
 
 ## 纳管一次
 
@@ -21,7 +21,7 @@ ag2c setup
 $ag2c-governed-development 把这个工程纳入 AutoGovern2Code
 ```
 
-AG2C 会生成并提交可审查的根级 `AGENTS.md` 门禁和 `.ag2c` 配置，保留已有 `AGENTS.md`、`.gitignore` 与 pre-commit hook，并完成本机激活。
+AG2C 会生成并提交可审查的根级 `AGENTS.md`、`CLAUDE.md` 门禁和 `.ag2c` 配置，保留已有内容、`.gitignore` 与 pre-commit hook，并完成本机激活。
 
 Skill 内部只调用 `ag2c setup --project .`。这个入口会自动判断应该首次纳管、迁移旧 `.deg`，还是升级已有工程，不要求用户分辨。
 
@@ -38,6 +38,8 @@ ag2c evidence --format json
 ```
 
 默认输出只展示文件数、检查结果、AI 是否在失败后完成纠正、阻止过的危险操作、最终提交和证据完整性。只有任务从首次写入前就被接管、最终内容通过验证、相同内容进入提交、合并为 fast-forward 且 Ledger 完整时，治理结果才是成功。
+
+每个成功任务还会提交一份可移植凭证。可以运行 `ag2c ci verify --commit HEAD --rerun`，或使用公开 GitHub Action，在不依赖本机忽略证据的情况下独立复核。
 
 ## 换电脑或重新克隆
 

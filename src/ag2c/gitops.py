@@ -70,7 +70,7 @@ def status_entries(root: Path) -> list[str]:
     return sorted(set(paths))
 
 
-def changed_paths(root: Path, base: str) -> list[str]:
+def changed_paths(root: Path, base: str, *, exclude_prefixes: tuple[str, ...] = ()) -> list[str]:
     raw = git(root, "diff", "--name-only", "--no-renames", "-z", "--diff-filter=ACMRD", base, binary=True)
     assert isinstance(raw, bytes)
     paths = {
@@ -85,13 +85,15 @@ def changed_paths(root: Path, base: str) -> list[str]:
         for item in untracked.split(b"\0")
         if item
     )
-    return sorted(paths)
+    normalized_excludes = tuple(prefix.replace("\\", "/").rstrip("/") + "/" for prefix in exclude_prefixes)
+    return sorted(path for path in paths if not path.startswith(normalized_excludes))
 
 
-def change_digest(root: Path, base: str) -> str:
+def change_digest(root: Path, base: str, *, exclude_prefixes: tuple[str, ...] = ()) -> str:
     digest = hashlib.sha256()
     digest.update(base.encode("ascii"))
-    for relative in changed_paths(root, base):
+    file_mode_enabled = str(git(root, "config", "--bool", "core.fileMode", check=False)).strip() == "true"
+    for relative in changed_paths(root, base, exclude_prefixes=exclude_prefixes):
         path = root / relative
         digest.update(b"\0")
         digest.update(relative.encode("utf-8"))
@@ -99,11 +101,68 @@ def change_digest(root: Path, base: str) -> str:
             digest.update(b"\0symlink\0")
             digest.update(path.readlink().as_posix().encode("utf-8"))
         elif path.is_file():
-            executable = bool(path.stat().st_mode & stat.S_IXUSR)
+            staged = git(root, "ls-files", "--stage", "-z", "--", relative, binary=True)
+            assert isinstance(staged, bytes)
+            if file_mode_enabled or not staged:
+                executable = bool(path.stat().st_mode & stat.S_IXUSR)
+            else:
+                executable = staged.startswith(b"100755 ")
             digest.update(b"\0file+x\0" if executable else b"\0file\0")
-            digest.update(path.read_bytes())
+            object_id = str(git(root, "hash-object", f"--path={relative}", "--", relative)).strip()
+            digest.update(object_id.encode("ascii"))
         elif path.exists():
             digest.update(b"\0other\0")
         else:
             digest.update(b"\0deleted\0")
+    return digest.hexdigest()
+
+
+def commit_changed_paths(
+    root: Path,
+    base: str,
+    commit: str,
+    *,
+    exclude_prefixes: tuple[str, ...] = (),
+) -> list[str]:
+    raw = git(root, "diff", "--name-only", "--no-renames", "-z", "--diff-filter=ACMRD", base, commit, binary=True)
+    assert isinstance(raw, bytes)
+    excludes = tuple(prefix.replace("\\", "/").rstrip("/") + "/" for prefix in exclude_prefixes)
+    return sorted(
+        path
+        for item in raw.split(b"\0")
+        if item
+        for path in [item.decode("utf-8", errors="replace").replace("\\", "/")]
+        if not path.startswith(excludes)
+    )
+
+
+def commit_change_digest(
+    root: Path,
+    base: str,
+    commit: str,
+    *,
+    exclude_prefixes: tuple[str, ...] = (),
+) -> str:
+    digest = hashlib.sha256()
+    digest.update(base.encode("ascii"))
+    for relative in commit_changed_paths(root, base, commit, exclude_prefixes=exclude_prefixes):
+        digest.update(b"\0")
+        digest.update(relative.encode("utf-8"))
+        entry = git(root, "ls-tree", "-z", commit, "--", relative, binary=True)
+        assert isinstance(entry, bytes)
+        if not entry:
+            digest.update(b"\0deleted\0")
+            continue
+        metadata, _, _ = entry.partition(b"\t")
+        mode, object_type, object_id = metadata.split(b" ", 2)
+        if mode == b"120000":
+            digest.update(b"\0symlink\0")
+            content = git(root, "cat-file", "blob", object_id.decode("ascii"), binary=True)
+            assert isinstance(content, bytes)
+            digest.update(content)
+        elif object_type == b"blob":
+            digest.update(b"\0file+x\0" if mode == b"100755" else b"\0file\0")
+            digest.update(object_id)
+        else:
+            digest.update(b"\0other\0")
     return digest.hexdigest()

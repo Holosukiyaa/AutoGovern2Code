@@ -1,11 +1,11 @@
 # Architecture and evidence model
 
-AutoGovern2Code (AG2C) separates the user experience from its enforcement internals. The user talks to Codex normally. The enrolled repository and installed Skill make governance automatic.
+AutoGovern2Code (AG2C) separates the user experience from its enforcement internals. The user talks to a supported coding agent normally. Enrolled repository instructions and the installed Skill make governance automatic.
 
 ```text
 normal coding request
         |
-root AGENTS.md + installed Skill       automatic entry before writes
+AGENTS.md / CLAUDE.md + Skill          automatic entry before writes
         |
 task record + external Git worktree    isolated construction
         |
@@ -14,6 +14,8 @@ Policy + SQLite index + slicer         deterministic responsibility route
 trusted argv-only checkers             repository-native proof
         |
 verified change digest                 binds proof to exact bytes
+        |
+tracked portable receipt               independently verifiable commit proof
         |
 fast-forward integration               controlled delivery
         |
@@ -26,13 +28,13 @@ The Skill uses `ag2c setup --project .` on a clean Git repository. Setup selects
 
 1. detects the current tracked project roots;
 2. creates a conservative baseline Policy split by detected top-level project areas and a Manifest;
-3. adds a managed `AGENTS.md` block;
+3. adds managed `AGENTS.md` and `CLAUDE.md` blocks;
 4. commits those reviewable enrollment files;
 5. installs the packaged `ag2c-governed-development` Skill;
 6. activates a machine-local pre-commit guard;
 7. builds the initial index and records enrollment evidence.
 
-The tracked enrollment is portable. Machine paths, generated indexes, local hooks, active task records, and Ledger data live under ignored `.ag2c/state` or other ignored files.
+The tracked enrollment and completed task receipts are portable. Machine paths, generated indexes, local hooks, active task records, and Ledger data live under ignored `.ag2c/state` or other ignored files.
 
 ## Coverage maturity
 
@@ -45,7 +47,7 @@ Policy records one of two user-visible coverage levels:
 
 ## Local recovery
 
-The Skill checks `ag2c guard status` before the first write. `ag2c doctor --repair` restores the packaged Skill, exact Python hook, prior hook delegation, activation record, and index. It validates but does not rewrite the evidence Ledger. Tracked upgrades require a clean canonical checkout and produce a narrow maintenance commit plus Ledger event.
+The Skill checks `ag2c guard status` before the first write. `ag2c doctor --repair` restores the packaged Skill, exact Python hook, prior hook delegation, activation record, and index. It validates but does not rewrite the evidence Ledger. Enrollment, upgrade, and legacy migration journal their file and hook state under the Git common directory. A failure before commit rolls back automatically; a later lifecycle command recovers an interrupted journal. Tracked upgrades require a clean canonical checkout and produce a narrow maintenance commit plus Ledger event.
 
 ## Automatic task state
 
@@ -74,7 +76,9 @@ The task record links every intervention to a Ledger event digest. A later passi
 
 ## Exact-byte binding
 
-Before checks, AG2C rebuilds the index and compiles a route from the actual diff. The verification stores a digest of the full binary Git diff plus untracked file content in a dedicated hash-chained Ledger event. `task finish` validates that event, recomputes the digest before commit, then recomputes it from the resulting commit. Any source edit or pre-commit-hook mutation requires another verification.
+Before checks, AG2C rebuilds the index and compiles a route from the actual diff. The verification digest binds the source commit, normalized paths, Git file modes, symlink targets, deletions, and the clean-filtered Git object identity of every file. This remains stable across checkout line-ending conventions while identifying the exact bytes stored by Git. `task finish` validates the Ledger event, recomputes the digest before commit, writes a self-digesting receipt, and reconstructs the same digest from final Git objects. Any source edit or pre-commit-hook mutation requires another verification.
+
+The tracked receipt also binds the route, checks, acceptance, and exact Manifest and Policy objects. `ag2c ci verify` validates these facts without local task state; `--rerun` recomputes the route and executes the same trusted checker plan. See [Portable receipts and CI verification](CI_VERIFICATION.md).
 
 ## Git guard
 
@@ -92,4 +96,4 @@ AG2C may inspect and test a governed repository. Product code must not import AG
 
 ## Current limits
 
-Version `0.3` governs one local Git repository per enrollment and one integrator at a time. The local guard is not an operating-system write ACL. A hostile process with filesystem and Git-configuration access can bypass local controls; remote enforcement requires protected branches and required CI checks, planned for the team version.
+Version `0.4` governs one local Git repository per enrollment and one integrator at a time. The local guard is not an operating-system write ACL. A hostile process with filesystem and Git-configuration access can bypass local controls. The published CI Action can enforce portable proof as a required remote check, but team task coordination and multi-integrator locking remain future work.

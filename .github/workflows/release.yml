@@ -20,9 +20,30 @@ jobs:
       - run: python -m pip install -e .
       - run: python -m unittest discover -s tests -v
       - run: python -m build
+      - uses: actions/upload-artifact@v6
+        with:
+          name: python-distributions
+          path: dist/
       - run: python -m pip install --force-reinstall --no-deps dist/*.whl
       - run: ag2c --version
       - name: Create GitHub Release
         run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --title "AutoGovern2Code $GITHUB_REF_NAME"
         env:
           GH_TOKEN: ${{ github.token }}
+
+  publish-pypi:
+    if: ${{ vars.PYPI_PUBLISH_ENABLED == 'true' }}
+    needs: release
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/autogovern2code
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: python-distributions
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

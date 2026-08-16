@@ -1,6 +1,6 @@
 ---
 name: ag2c-governed-development
-description: Set up, migrate, repair, or use AutoGovern2Code (AG2C), then automatically govern every software change in an enrolled Git repository. Use when the user asks to adopt AG2C, when a repository contains `.deg` or `.ag2c` enrollment, or when root AGENTS.md requires AG2C for an implementation, fix, refactor, test, documentation, configuration, dependency, build, or release request. Restore local activation without making the user operate governance, route before writing, work only in the AG2C-created external worktree, verify the final diff, and finish through AG2C so only evidence-backed commits reach the canonical checkout.
+description: Set up, migrate, repair, or use AutoGovern2Code (AG2C), then automatically govern every software change in an enrolled Git repository. Use when the user asks to adopt AG2C, when a repository contains `.deg` or `.ag2c` enrollment, or when repository instructions require AG2C for an implementation, fix, refactor, test, documentation, configuration, dependency, build, or release request. Restore local activation without making the user operate governance, route before writing, work only in the AG2C-created external worktree, verify the final diff, and finish through AG2C so only evidence-backed commits reach the canonical checkout.
 ---
 
 # AutoGovern2Code Development
@@ -11,7 +11,7 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
 
 1. If the user explicitly asks to adopt AG2C, require a clean Git worktree and run `ag2c setup --project .`. This single command chooses enrollment, legacy DEG migration, or upgrade and local activation. Never enroll an unrelated repository implicitly.
 
-2. Read the repository `AGENTS.md`. Before any write, run:
+2. Obey the repository's always-loaded instructions (`AGENTS.md`, `CLAUDE.md`, or the harness equivalent). Before any write, run:
 
    ```text
    ag2c guard status
@@ -45,9 +45,9 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
    ag2c task finish --task <task-id> --message "<concise commit message>"
    ```
 
-   AG2C refuses stale evidence, commits the verified diff, fast-forwards the original branch, records the result, and cleans up when the worktree contains no residual artifacts.
+   AG2C refuses stale evidence, writes a portable receipt into the commit, commits the verified diff, validates the committed bytes, fast-forwards the original branch, records the result, and cleans up when the worktree contains no residual artifacts.
 
-8. Run `ag2c evidence --task <task-id>` and report its plain-language facts with the product outcome: files changed, checks passed, whether a failed attempt was corrected, evidence completeness, and merged commit. Do not teach the user cards, floors, slices, policies, or checker selection unless they explicitly request diagnostics.
+8. Run `ag2c evidence --task <task-id>` and report its plain-language facts with the product outcome: files changed, checks passed, whether a failed attempt was corrected, portable proof, evidence completeness, and merged commit. Do not teach the user cards, floors, slices, policies, or checker selection unless they explicitly request diagnostics.
 
 ## Fail Closed
 
@@ -56,3 +56,4 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
 - A governance-control edit blocks an ordinary task.
 - Any change after the passing verification requires another verification.
 - Missing or invalid evidence means the work is not complete.
+- Do not edit or manufacture `.ag2c/receipts`; only `ag2c task finish` may create one.

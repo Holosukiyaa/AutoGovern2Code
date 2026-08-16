@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autogovern2code"
-version = "0.3.0"
+version = "0.4.0"
 description = "Zero-touch, evidence-backed governance for AI coding changes"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 authors = [
   { name = "AutoGovern2Code contributors" }
 ]
-keywords = ["governance", "developer-tools", "ai-agents", "codex", "git-worktree", "verification"]
+keywords = ["governance", "developer-tools", "ai-agents", "codex", "claude-code", "git-worktree", "verification"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",

@@ -1,0 +1,99 @@
+from __future__ import annotations
+
+import hashlib
+import os
+import secrets
+import shutil
+from pathlib import Path
+from typing import Iterable
+
+from .errors import AG2CError
+
+SKILL_NAME = "ag2c-governed-development"
+SUPPORTED_HARNESSES = ("codex", "claude", "agents")
+
+
+def skill_source() -> Path:
+    source = Path(__file__).with_name("skills") / SKILL_NAME
+    if not (source / "SKILL.md").is_file():
+        raise AG2CError("packaged AG2C Skill is missing")
+    return source
+
+
+def skill_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    for file in sorted((item for item in path.rglob("*") if item.is_file()), key=lambda item: item.as_posix()):
+        digest.update(file.relative_to(path).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(file.read_bytes())
+    return digest.hexdigest()
+
+
+def default_skill_roots() -> dict[str, Path]:
+    codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+    return {
+        "codex": codex_home / "skills",
+        "claude": Path.home() / ".claude" / "skills",
+        "agents": Path.home() / ".agents" / "skills",
+    }
+
+
+def _install_at(destination_root: Path) -> Path:
+    destination = destination_root.resolve() / SKILL_NAME
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.is_symlink():
+        raise AG2CError(f"refusing to replace a symlinked Skill directory: {destination}")
+    if destination.exists() and not destination.is_dir():
+        raise AG2CError(f"refusing to replace a non-directory Skill path: {destination}")
+    staging = destination.parent / f".{SKILL_NAME}-{secrets.token_hex(4)}.tmp"
+    backup = destination.parent / f".{SKILL_NAME}-{secrets.token_hex(4)}.backup"
+    replaced = False
+    installed = False
+    try:
+        shutil.copytree(skill_source(), staging)
+        if destination.exists():
+            os.replace(destination, backup)
+            replaced = True
+        os.replace(staging, destination)
+        installed = True
+    except Exception:
+        if replaced and not destination.exists() and backup.exists():
+            os.replace(backup, destination)
+        raise
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+        if installed and backup.exists():
+            shutil.rmtree(backup)
+    return destination
+
+
+def install_skills(
+    destination_root: Path | None = None,
+    harnesses: Iterable[str] | None = None,
+) -> list[dict[str, str]]:
+    selected = tuple(dict.fromkeys(harnesses or SUPPORTED_HARNESSES))
+    unknown = sorted(set(selected) - set(SUPPORTED_HARNESSES))
+    if unknown:
+        raise AG2CError("unsupported AI harness: " + ", ".join(unknown))
+    if destination_root is not None:
+        destinations = [("custom", destination_root)]
+    else:
+        roots = default_skill_roots()
+        destinations = [(name, roots[name]) for name in selected]
+    installed: list[dict[str, str]] = []
+    seen: set[Path] = set()
+    for harness, root in destinations:
+        resolved = root.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        path = _install_at(resolved)
+        installed.append({"harness": harness, "path": str(path), "digest": skill_digest(path)})
+    if not installed:
+        raise AG2CError("no AI harness Skill destination was selected")
+    return installed
+
+
+def install_skill(destination_root: Path | None = None) -> Path:
+    return Path(install_skills(destination_root, ("codex",))[0]["path"])

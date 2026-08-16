@@ -60,6 +60,16 @@ def _add_slice_arguments(parser: argparse.ArgumentParser, *, goal_required: bool
     parser.add_argument("--all", action="store_true", help="select all policy areas and checkers")
 
 
+def _add_harness_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--harness",
+        dest="harnesses",
+        action="append",
+        choices=("codex", "claude", "agents"),
+        help="install for one AI harness; repeat to select several (default: all)",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ag2c",
@@ -73,21 +83,26 @@ def build_parser() -> argparse.ArgumentParser:
     setup.add_argument("--project", type=Path)
     setup.add_argument("--project-id")
     setup.add_argument("--skill-destination", type=Path)
+    _add_harness_arguments(setup)
 
     enroll = subparsers.add_parser("enroll", help="enroll a clean Git project in AutoGovern2Code")
     enroll.add_argument("path", type=Path, nargs="?", default=Path.cwd())
     enroll.add_argument("--project-id")
+    _add_harness_arguments(enroll)
 
     activate = subparsers.add_parser("activate", help="restore the local Skill and Git guard after cloning")
     activate.add_argument("path", type=Path, nargs="?", default=Path.cwd())
+    _add_harness_arguments(activate)
 
     upgrade = subparsers.add_parser("upgrade", help="upgrade tracked AG2C files and restore local activation")
     upgrade.add_argument("path", type=Path, nargs="?", default=Path.cwd())
     upgrade.add_argument("--skill-destination", type=Path)
+    _add_harness_arguments(upgrade)
 
     migrate = subparsers.add_parser("migrate", help="migrate a clean legacy DEG enrollment to AG2C")
     migrate.add_argument("path", type=Path, nargs="?", default=Path.cwd())
     migrate.add_argument("--skill-destination", type=Path)
+    _add_harness_arguments(migrate)
 
     skill = subparsers.add_parser("skill", help="install the packaged AG2C Skill")
     skill_commands = skill.add_subparsers(dest="skill_command", required=True)
@@ -95,8 +110,9 @@ def build_parser() -> argparse.ArgumentParser:
     skill_install.add_argument(
         "--destination",
         type=Path,
-        help="skills directory; defaults to ~/.agents/skills",
+        help="custom skills directory; defaults to all supported harness locations",
     )
+    _add_harness_arguments(skill_install)
 
     guard = subparsers.add_parser("guard", help="internal activation and Git enforcement")
     guard_commands = guard.add_subparsers(dest="guard_command", required=True)
@@ -123,6 +139,13 @@ def build_parser() -> argparse.ArgumentParser:
     coverage = subparsers.add_parser("coverage", help="show the current conservative governance coverage")
     coverage.add_argument("--format", choices=("text", "json"), default="text")
 
+    ci = subparsers.add_parser("ci", help="verify a portable AG2C receipt and optionally rerun trusted checks")
+    ci_commands = ci.add_subparsers(dest="ci_command", required=True)
+    ci_verify = ci_commands.add_parser("verify")
+    ci_verify.add_argument("--commit", default="HEAD")
+    ci_verify.add_argument("--rerun", action="store_true")
+    ci_verify.add_argument("--format", choices=("text", "json"), default="text")
+
     index = subparsers.add_parser("index", help="build and inspect the repository index")
     index_commands = index.add_subparsers(dest="index_command", required=True)
     index_commands.add_parser("build")
@@ -148,6 +171,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = subparsers.add_parser("doctor", help="check configuration, activation, tools, index, and ledger")
     doctor.add_argument("--repair", action="store_true", help="restore the Skill, Git guard, activation, and index")
     doctor.add_argument("--skill-destination", type=Path)
+    _add_harness_arguments(doctor)
     return parser
 
 
@@ -199,6 +223,7 @@ def _print_evidence(report: dict[str, Any]) -> None:
         else:
             print("AI correction: not required")
         print(f"Blocked unsafe actions: {len(task['blocked_actions'])}")
+        print(f"Portable proof: {task['portable_receipt']['status']}")
         if task["result"]:
             print(f"Merged commit: {task['result']['commit']}")
         print(f"Evidence: {'complete' if task['evidence_complete'] else 'incomplete'}")
@@ -217,6 +242,7 @@ def main(argv: list[str] | None = None) -> int:
                         args.project,
                         project_id=args.project_id,
                         skill_root=args.skill_destination,
+                        harnesses=tuple(args.harnesses) if args.harnesses else None,
                     )
                 )
             )
@@ -224,27 +250,58 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "enroll":
             from .enrollment import enroll_project
 
-            print(_json(enroll_project(args.path, project_id=args.project_id)))
+            print(
+                _json(
+                    enroll_project(
+                        args.path,
+                        project_id=args.project_id,
+                        harnesses=tuple(args.harnesses) if args.harnesses else None,
+                    )
+                )
+            )
             return 0
         if args.command == "activate":
             from .enrollment import activate_project
 
-            print(_json(activate_project(args.path)))
+            print(_json(activate_project(args.path, harnesses=tuple(args.harnesses) if args.harnesses else None)))
             return 0
         if args.command == "upgrade":
             from .enrollment import upgrade_project
 
-            print(_json(upgrade_project(args.path, skill_root=args.skill_destination)))
+            print(
+                _json(
+                    upgrade_project(
+                        args.path,
+                        skill_root=args.skill_destination,
+                        harnesses=tuple(args.harnesses) if args.harnesses else None,
+                    )
+                )
+            )
             return 0
         if args.command == "migrate":
             from .enrollment import migrate_project
 
-            print(_json(migrate_project(args.path, skill_root=args.skill_destination)))
+            print(
+                _json(
+                    migrate_project(
+                        args.path,
+                        skill_root=args.skill_destination,
+                        harnesses=tuple(args.harnesses) if args.harnesses else None,
+                    )
+                )
+            )
             return 0
         if args.command == "skill":
-            from .enrollment import install_skill
+            from .harnesses import install_skills
 
-            print(f"Installed AG2C Skill: {install_skill(args.destination)}")
+            print(
+                _json(
+                    install_skills(
+                        args.destination,
+                        tuple(args.harnesses) if args.harnesses else None,
+                    )
+                )
+            )
             return 0
         if args.command == "guard":
             from .enrollment import activation_status, guard_pre_commit
@@ -294,7 +351,23 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "doctor" and args.repair:
             from .enrollment import repair_project
 
-            repair_project(Path.cwd(), skill_root=args.skill_destination)
+            repair_project(
+                Path.cwd(),
+                skill_root=args.skill_destination,
+                harnesses=tuple(args.harnesses) if args.harnesses else None,
+            )
+        if args.command == "ci":
+            from .receipts import verify_commit_receipt
+
+            report = verify_commit_receipt(Path.cwd(), args.commit, rerun=bool(args.rerun))
+            if args.format == "json":
+                print(_json(report))
+            else:
+                print(f"Portable receipt: {report['portable_receipt']}")
+                print(f"Commit: {report['commit']}")
+                print(f"Trusted checks recorded: {report['checks']}")
+                print(f"CI rerun: {report['rerun']}")
+            return 0
         manifest, policy = _loaded(args)
         if args.command == "coverage":
             value = {

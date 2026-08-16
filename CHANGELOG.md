@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0 - 2026-08-16
+
+- Added Codex, Claude Code, and generic Agent Skills installation adapters while keeping one harness-neutral governance engine.
+- Added a managed `CLAUDE.md` entry gate alongside `AGENTS.md` so enrolled projects enter governance automatically in either supported harness.
+- Added recoverable lifecycle transactions for enrollment, upgrade, and legacy migration, including file, staging, and Git-hook restoration after pre-commit failure or process interruption.
+- Added tracked, self-digesting task receipts that bind source commit, exact Git bytes, route, policy objects, trusted checks, correction, and blocked-action evidence.
+- Added `ag2c ci verify` to validate portable receipts from Git objects and optionally recompute routing and rerun trusted checks in a clean checkout.
+- Added a reusable GitHub composite Action and documented required-check integration for protected branches.
+- Added a gated PyPI Trusted Publishing release job; GitHub releases remain the installation fallback until the PyPI publisher is enabled.
+- Improved native Node test detection for npm, pnpm, Yarn, and Bun projects.
+- Kept the product focused on invisible single-user governance: no desktop application, configuration dashboard, or mandatory user input was added.
+
 ## 0.3.0 - 2026-08-16
 
 - Established the public AutoGovern2Code (AG2C) product identity.

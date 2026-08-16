@@ -98,12 +98,16 @@ class UserJourneyTests(unittest.TestCase):
             self.assertIn("Management: successful", plain)
             self.assertIn("Files changed: 2", plain)
             self.assertIn("AI correction: proven after 1 failed attempt(s)", plain)
+            self.assertIn("Portable proof: valid", plain)
             self.assertIn("Evidence: complete", plain)
             report = json.loads(
                 self.run_cli(root, "evidence", "--task", "user-value-change", "--format", "json").stdout
             )
             self.assertTrue(report["tasks"][0]["correction_proven"])
             self.assertEqual(2, report["tasks"][0]["checks_run"])
+            portable = self.run_cli(root, "ci", "verify", "--commit", "HEAD", "--rerun").stdout
+            self.assertIn("Portable receipt: valid", portable)
+            self.assertIn("CI rerun: passed", portable)
 
 
 if __name__ == "__main__":

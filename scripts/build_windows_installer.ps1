@@ -65,7 +65,7 @@ $isccCandidates = @(
 if (-not $isccCandidates) {
     throw 'Inno Setup 6 was not found. Install it before building the Windows installer.'
 }
-$iscc = $isccCandidates[0]
+$iscc = $isccCandidates | Select-Object -First 1
 
 & $iscc "/DMyAppVersion=$Version" "/DSourceRoot=$repoRoot" "/DBuildRoot=$buildRoot" $installerScript
 if ($LASTEXITCODE -ne 0) {

@@ -15,6 +15,7 @@ $oldHome = $env:HOME
 $oldUserProfile = $env:USERPROFILE
 $oldCodexHome = $env:CODEX_HOME
 $userPathBefore = [Environment]::GetEnvironmentVariable('Path', 'User')
+$uninstalled = $false
 
 try {
     New-Item -ItemType Directory -Path $profileRoot -Force | Out-Null
@@ -56,7 +57,8 @@ try {
     & git -C $projectRoot config user.name 'AG2C Installer Smoke Test'
     & git -C $projectRoot config user.email 'installer-smoke@example.invalid'
     New-Item -ItemType Directory -Path (Join-Path $projectRoot 'src') | Out-Null
-    Set-Content -LiteralPath (Join-Path $projectRoot 'src\value.txt') -Value 'installed runtime' -Encoding utf8NoBOM
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText((Join-Path $projectRoot 'src\value.txt'), "installed runtime`n", $utf8NoBom)
     & git -C $projectRoot add .
     & git -C $projectRoot commit -m 'test: initialize installer project' | Out-Null
     & $runtime setup --project $projectRoot --project-id installer-smoke | Out-Null
@@ -87,6 +89,7 @@ try {
     if ($uninstall.ExitCode -ne 0) {
         throw "Uninstaller exited with code $($uninstall.ExitCode)."
     }
+    $uninstalled = $true
     foreach ($skillRoot in @('.codex', '.claude', '.agents')) {
         if (Test-Path -LiteralPath (Join-Path $profileRoot "$skillRoot\skills\ag2c-governed-development")) {
             throw "Uninstaller left the unchanged $skillRoot Skill behind."
@@ -98,6 +101,18 @@ try {
     }
 }
 finally {
+    $uninstaller = Join-Path $installRoot 'unins000.exe'
+    if (-not $uninstalled -and (Test-Path -LiteralPath $uninstaller)) {
+        $cleanup = Start-Process -FilePath $uninstaller -ArgumentList @(
+            '/VERYSILENT',
+            '/SUPPRESSMSGBOXES',
+            '/NORESTART'
+        ) -Wait -PassThru
+        if ($cleanup.ExitCode -ne 0) {
+            Write-Warning "Cleanup uninstaller exited with code $($cleanup.ExitCode)."
+        }
+    }
+    [Environment]::SetEnvironmentVariable('Path', $userPathBefore, 'User')
     $env:HOME = $oldHome
     $env:USERPROFILE = $oldUserProfile
     $env:CODEX_HOME = $oldCodexHome

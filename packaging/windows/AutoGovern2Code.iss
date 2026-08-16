@@ -59,19 +59,39 @@ begin
   Result := Lowercase(Value);
 end;
 
+function PopPathEntry(var Remaining: String; var HasMore: Boolean): String;
+var
+  Separator: Integer;
+begin
+  Separator := Pos(';', Remaining);
+  HasMore := Separator > 0;
+  if HasMore then
+  begin
+    Result := Copy(Remaining, 1, Separator - 1);
+    Delete(Remaining, 1, Separator);
+  end
+  else
+  begin
+    Result := Remaining;
+    Remaining := '';
+  end;
+end;
+
 function HasPathEntry(PathValue, Entry: String): Boolean;
 var
-  Entries: TArrayOfString;
-  Index: Integer;
+  Current, Remaining: String;
+  HasMore: Boolean;
 begin
   Result := False;
-  Entries := SplitString(PathValue, ';');
-  for Index := 0 to GetArrayLength(Entries) - 1 do
-    if NormalizePathEntry(Entries[Index]) = NormalizePathEntry(Entry) then
+  Remaining := PathValue;
+  repeat
+    Current := PopPathEntry(Remaining, HasMore);
+    if NormalizePathEntry(Current) = NormalizePathEntry(Entry) then
     begin
       Result := True;
       Exit;
     end;
+  until not HasMore;
 end;
 
 procedure AddInstallPath;
@@ -91,25 +111,25 @@ end;
 
 procedure RemoveInstallPath;
 var
-  CurrentPath, InstallPath, NewPath: String;
-  Entries: TArrayOfString;
-  Index: Integer;
-  KeptEntry: Boolean;
+  Current, CurrentPath, InstallPath, NewPath, Remaining: String;
+  HasMore, KeptEntry: Boolean;
 begin
   InstallPath := ExpandConstant('{app}\ag2c');
   if not RegQueryStringValue(HKEY_CURRENT_USER, UserEnvironmentKey, 'Path', CurrentPath) then
     Exit;
-  Entries := SplitString(CurrentPath, ';');
+  Remaining := CurrentPath;
   NewPath := '';
   KeptEntry := False;
-  for Index := 0 to GetArrayLength(Entries) - 1 do
-    if NormalizePathEntry(Entries[Index]) <> NormalizePathEntry(InstallPath) then
+  repeat
+    Current := PopPathEntry(Remaining, HasMore);
+    if NormalizePathEntry(Current) <> NormalizePathEntry(InstallPath) then
     begin
       if KeptEntry then
         NewPath := NewPath + ';';
-      NewPath := NewPath + Entries[Index];
+      NewPath := NewPath + Current;
       KeptEntry := True;
     end;
+  until not HasMore;
   if not KeptEntry then
     RegDeleteValue(HKEY_CURRENT_USER, UserEnvironmentKey, 'Path')
   else
@@ -123,7 +143,7 @@ begin
   if not Exec(ExpandConstant('{app}\ag2c\ag2c.exe'), 'setup', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
     RaiseException('Could not start the AutoGovern2Code setup: ' + SysErrorMessage(ResultCode));
   if ResultCode <> 0 then
-    RaiseException(Fmt('AutoGovern2Code setup failed with exit code %d.', [ResultCode]));
+    RaiseException('AutoGovern2Code setup failed with exit code ' + IntToStr(ResultCode) + '.');
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

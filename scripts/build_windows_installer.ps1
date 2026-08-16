@@ -11,6 +11,12 @@ $runtimeRoot = Join-Path $buildRoot 'runtime'
 $installerRoot = Join-Path $buildRoot 'installer'
 $launcher = Join-Path $repoRoot 'packaging\windows\launcher.py'
 $installerScript = Join-Path $repoRoot 'packaging\windows\AutoGovern2Code.iss'
+$skillSource = Join-Path $repoRoot 'src\ag2c\skills'
+$skillData = "${skillSource}:ag2c\skills"
+
+if (-not (Test-Path -LiteralPath (Join-Path $skillSource 'ag2c-governed-development\SKILL.md'))) {
+    throw "Packaged AG2C Skill source is missing from $skillSource."
+}
 
 $previousPythonPath = $env:PYTHONPATH
 try {
@@ -41,7 +47,7 @@ New-Item -ItemType Directory -Path $installerRoot -Force | Out-Null
     --console `
     --name ag2c `
     --paths (Join-Path $repoRoot 'src') `
-    --collect-data ag2c `
+    --add-data $skillData `
     --distpath $runtimeRoot `
     --workpath (Join-Path $buildRoot 'pyinstaller') `
     --specpath (Join-Path $buildRoot 'spec') `
@@ -55,6 +61,15 @@ $runtimeVersion = (& $runtime --version 2>&1 | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or $runtimeVersion -ne "AutoGovern2Code $Version") {
     throw "Frozen runtime smoke test failed: $runtimeVersion"
 }
+
+$skillProbeRoot = Join-Path $buildRoot 'skill-probe'
+& $runtime skill install --destination $skillProbeRoot | Out-Null
+$skillProbeExitCode = $LASTEXITCODE
+$skillProbe = Join-Path $skillProbeRoot 'ag2c-governed-development\SKILL.md'
+if ($skillProbeExitCode -ne 0 -or -not (Test-Path -LiteralPath $skillProbe)) {
+    throw "Frozen runtime could not install its packaged Skill (exit code $skillProbeExitCode)."
+}
+Remove-Item -LiteralPath $skillProbeRoot -Recurse -Force
 
 $isccCandidates = @(
     (Get-Command iscc.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),

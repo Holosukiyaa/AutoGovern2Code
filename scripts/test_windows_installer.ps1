@@ -74,6 +74,10 @@ try {
     if ($install.ExitCode -ne 0) {
         throw "Installer exited with code $($install.ExitCode)."
     }
+    $installLogText = Get-Content -Raw -LiteralPath $installLog
+    if ($installLogText -match '(?m)CurStepChanged raised an exception|Runtime error \(at ') {
+        throw 'Installer reported an internal setup error despite returning exit code 0.'
+    }
     $expectedPath = (Join-Path $installRoot 'ag2c').TrimEnd('\').ToLowerInvariant()
     $installedPathEntries = (Get-UserPathState).Value -split ';'
     if (-not ($installedPathEntries | Where-Object { $_.Trim().TrimEnd('\').ToLowerInvariant() -eq $expectedPath })) {

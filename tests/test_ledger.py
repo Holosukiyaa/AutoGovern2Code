@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import bootstrap
+
 from ag2c.errors import LedgerError
 from ag2c.ledger import append_event, ledger_summary, verify_ledger
 

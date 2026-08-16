@@ -48,7 +48,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
-      - uses: Holosukiyaa/AutoGovern2Code/.github/actions/verify@v0.4.0
+      - uses: Holosukiyaa/AutoGovern2Code/.github/actions/verify@v0.5.0
 ```
 
 公开 Action 会安装对应版本的 AG2C、核对凭证并默认重跑检查。只有其他 Job 已经运行完全相同的可信命令时，才应设置 `rerun: "false"`。

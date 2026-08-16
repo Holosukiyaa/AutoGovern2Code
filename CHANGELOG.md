@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 - 2026-08-16
+
+- Added a per-user Windows 10/11 x64 installer that bundles the AG2C runtime, requires no Python or administrator access, installs supported harness Skills, and creates no desktop application or background service.
+- Made local Git guards invoke either the exact source interpreter or the frozen AG2C executable, so enrolled projects remain enforceable with the self-contained Windows runtime.
+- Added safe Skill removal that preserves locally modified Skill directories during uninstall.
+- Added Windows CI and Release smoke tests covering installation, Skill discovery, real Git-project enrollment, guard activation, and uninstall.
+- Made tagged GitHub source the only CI installation source and added SHA-256 checksums to Release assets.
+- Reframed the Windows entry documentation around downloading and double-clicking the single clearly named installer; wheel and source archives are documented as developer artifacts.
+
 ## 0.4.0 - 2026-08-16
 
 - Added Codex, Claude Code, and generic Agent Skills installation adapters while keeping one harness-neutral governance engine.

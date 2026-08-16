@@ -13,7 +13,7 @@ inputs:
   version:
     description: AutoGovern2Code release tag or installed package version
     required: false
-    default: v0.4.0
+    default: v0.5.0
 
 runs:
   using: composite
@@ -24,10 +24,7 @@ runs:
     - name: Install AutoGovern2Code
       shell: bash
       run: |
-        package_version="${{ inputs.version }}"
-        package_version="${package_version#v}"
-        python -m pip install "autogovern2code==${package_version}" || \
-          python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@${{ inputs.version }}"
+        python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@${{ inputs.version }}"
     - name: Verify governed commit
       shell: bash
       run: |

@@ -2,6 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import bootstrap
+
 from ag2c.errors import SliceError
 from ag2c.index import build_index
 from ag2c.slicer import compile_slice

@@ -4,14 +4,22 @@
 
 ## 安装
 
+Windows 10 或 11（x64）用户从[最新 GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)下载 `AutoGovern2Code-Setup-Windows-x64.exe`，然后双击即可。安装器只写入当前用户目录，不需要管理员权限，自带 Python 运行环境，会把 `ag2c` 加入用户 PATH，并安装所需 Skill；它不是桌面应用，也不会常驻后台。
+
+目前社区安装器还没有代码签名。如果 Windows SmartScreen 拦截，先用 Release 同页的 `SHA256SUMS.txt` 核对下载文件，再选择“更多信息 > 仍要运行”；不要运行从其他网站取得的副本。
+
+macOS 或 Linux 用户需要 Python 3.11 或更高版本：
+
 ```bash
-python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.4.0"
+python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.5.0"
 ag2c setup
 ```
 
-AG2C 只通过 GitHub Releases 发布。上面的命令直接安装指定 GitHub 标签；每个 Release 页面也会提供 wheel 安装包和源码包。本地源码开发使用 `python -m pip install -e .`。
+AG2C 只通过 GitHub Releases 发布。Release 里的 wheel 和源码包是开发者产物。本地源码开发使用 `python -m pip install -e .`。
 
 `ag2c setup` 会把同一份 Skill 安装到 Codex、Claude Code 和通用 Agent Skills 的用户目录；可以重复使用 `--harness` 只选择需要的入口。
+
+Windows 卸载程序会删除自带运行环境、用户 PATH 项，以及安装后没有被用户修改过的 Skill。它不会改写已经纳管的工程，也不会删除工程证据；以后还要修改这些工程时，重新双击安装 AG2C 即可。
 
 ## 纳管一次
 

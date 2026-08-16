@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import bootstrap
+
 from ag2c.cli import main
 
 from support import git_project

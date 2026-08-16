@@ -30,14 +30,25 @@ Ask an AI to change the project
 
 The user still says things like "fix this bug" or "add this feature." Governance stays in the background. Failures and proof remain visible.
 
-## Install once
+## Install once on Windows
 
-Requirements: Python 3.11 or newer, Git, and Codex, Claude Code, or another Agent Skills-compatible coding harness.
+Requirements: Windows 10 or 11 (x64), Git, and Codex, Claude Code, or another Agent Skills-compatible coding harness. Python is not required.
 
-Install from GitHub:
+1. Open the [latest GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest) and download `AutoGovern2Code-Setup-Windows-x64.exe`.
+2. Double-click it. The per-user installation needs no administrator access, terminal command, desktop application, or background service.
+
+The installer adds the self-contained `ag2c` runtime to the user PATH and installs the same packaged Skill for Codex (`~/.codex/skills`), Claude Code (`~/.claude/skills`), and generic harnesses (`~/.agents/skills`). The wheel and source archive on the Release page are developer artifacts; Windows users do not need them.
+
+The current community installer is not code-signed, so Windows SmartScreen may show a warning. Download only from this repository's Release page, compare the file against the attached `SHA256SUMS.txt`, then use **More info > Run anyway**. Code signing will remove this warning once the project has a publisher certificate.
+
+After installation, open a clean Git project in your coding agent and ask it to enroll the project. There is no AG2C application to open.
+
+## macOS, Linux, and source development
+
+Python 3.11 or newer is required outside the Windows installer:
 
 ```bash
-python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.4.0"
+python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.5.0"
 ag2c setup
 ```
 
@@ -48,7 +59,7 @@ python -m pip install -e .
 ag2c setup
 ```
 
-`ag2c setup` installs one Agent Skills-standard Skill for Codex (`~/.codex/skills`), Claude Code (`~/.claude/skills`), and generic harnesses (`~/.agents/skills`). Use `--harness codex`, `--harness claude`, or `--harness agents` to limit installation. It does not enroll the current directory unless the Skill explicitly calls `ag2c setup --project .`.
+`ag2c setup` installs one Agent Skills-standard Skill. Use `--harness codex`, `--harness claude`, or `--harness agents` to limit installation. It does not enroll the current directory unless the Skill explicitly calls `ag2c setup --project .`.
 
 ## Enroll one project
 
@@ -104,7 +115,7 @@ steps:
     with:
       ref: ${{ github.event.pull_request.head.sha || github.sha }}
       fetch-depth: 0
-  - uses: Holosukiyaa/AutoGovern2Code/.github/actions/verify@v0.4.0
+  - uses: Holosukiyaa/AutoGovern2Code/.github/actions/verify@v0.5.0
 ```
 
 The Action validates the receipt against Git objects and reruns the same trusted checker plan by default. See [portable receipts and CI](docs/CI_VERIFICATION.md).

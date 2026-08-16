@@ -5,7 +5,11 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import bootstrap
+
+import ag2c.enrollment as enrollment_module
 from ag2c.enrollment import activate_project, activation_status, enroll_project, guard_pre_commit
 from ag2c.errors import AG2CError
 from ag2c.gitops import git, head
@@ -37,6 +41,26 @@ class AutomaticGovernanceTests(unittest.TestCase):
                 python_checker["command"],
             )
             self.assertEqual("chore: enroll project in AG2C", str(git(root, "log", "-1", "--pretty=%s")).strip())
+
+    def test_frozen_runtime_is_written_directly_into_git_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            root = git_project(workspace / "project")
+            executable = workspace / "runtime" / "ag2c.exe"
+            executable.parent.mkdir()
+            executable.write_bytes(b"frozen runtime placeholder")
+            with patch.object(enrollment_module.sys, "frozen", True, create=True), patch.object(
+                enrollment_module.sys, "executable", str(executable)
+            ):
+                enroll_project(root, project_id="frozen-runtime", skill_root=workspace / "skills")
+                status = activation_status(root)
+
+            self.assertTrue(status["managed"], status)
+            activation = status["activation"]
+            self.assertEqual([str(executable.resolve())], activation["runtime_command"])
+            hook = (root / ".ag2c" / "state" / "hooks" / "pre-commit").read_text(encoding="utf-8")
+            self.assertIn(executable.resolve().as_posix(), hook)
+            self.assertNotIn(" -m ag2c", hook)
 
     def test_canonical_commit_is_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

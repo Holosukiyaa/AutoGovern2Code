@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import bootstrap
+
 from ag2c.config import load_manifest, load_policy
 
 

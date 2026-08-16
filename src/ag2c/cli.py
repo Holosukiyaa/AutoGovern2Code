@@ -104,7 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
     migrate.add_argument("--skill-destination", type=Path)
     _add_harness_arguments(migrate)
 
-    skill = subparsers.add_parser("skill", help="install the packaged AG2C Skill")
+    skill = subparsers.add_parser("skill", help="install or remove the packaged AG2C Skill")
     skill_commands = skill.add_subparsers(dest="skill_command", required=True)
     skill_install = skill_commands.add_parser("install")
     skill_install.add_argument(
@@ -113,6 +113,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="custom skills directory; defaults to all supported harness locations",
     )
     _add_harness_arguments(skill_install)
+    skill_uninstall = skill_commands.add_parser("uninstall")
+    skill_uninstall.add_argument(
+        "--destination",
+        type=Path,
+        help="custom skills directory; defaults to all supported harness locations",
+    )
+    _add_harness_arguments(skill_uninstall)
 
     guard = subparsers.add_parser("guard", help="internal activation and Git enforcement")
     guard_commands = guard.add_subparsers(dest="guard_command", required=True)
@@ -292,13 +299,20 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         if args.command == "skill":
-            from .harnesses import install_skills
+            from .harnesses import install_skills, remove_skills
 
             print(
                 _json(
-                    install_skills(
-                        args.destination,
-                        tuple(args.harnesses) if args.harnesses else None,
+                    (
+                        install_skills(
+                            args.destination,
+                            tuple(args.harnesses) if args.harnesses else None,
+                        )
+                        if args.skill_command == "install"
+                        else remove_skills(
+                            args.destination,
+                            tuple(args.harnesses) if args.harnesses else None,
+                        )
                     )
                 )
             )

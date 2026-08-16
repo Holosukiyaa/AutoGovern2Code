@@ -30,14 +30,25 @@ AutoGovern2Code 是给 AI 编程使用的本地开源治理层。它不是另一
 
 用户仍然只需要说“修复这个问题”或“实现这个功能”。治理留在后台，但失败原因和成功证据不会被隐藏。
 
-## 安装一次
+## 在 Windows 上安装一次
 
-需要 Python 3.11 或更高版本、Git，以及 Codex、Claude Code 或兼容 Agent Skills 的编程工具。
+需要 Windows 10 或 11（x64）、Git，以及 Codex、Claude Code 或兼容 Agent Skills 的编程工具；不需要 Python。
 
-从 GitHub 安装：
+1. 打开[最新 GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)，下载 `AutoGovern2Code-Setup-Windows-x64.exe`。
+2. 双击安装。它只安装到当前用户，不需要管理员权限，不需要输入命令，也不会安装桌面管理程序或后台常驻服务。
+
+安装器会把自带运行环境的 `ag2c` 加入用户 PATH，并自动把同一份 Skill 安装到 Codex（`~/.codex/skills`）、Claude Code（`~/.claude/skills`）和通用位置（`~/.agents/skills`）。Release 页面里的 wheel 和源码包是给开发者准备的，Windows 普通用户不用下载。
+
+目前这个社区安装器还没有代码签名，Windows SmartScreen 可能会提示风险。只从本仓库 Release 页面下载，按同页的 `SHA256SUMS.txt` 核对文件后，选择“更多信息 > 仍要运行”。项目取得发布者证书后才能消除这个系统提示。
+
+安装完成后，在干净的 Git 工程里正常打开编程 AI，让它“把这个工程纳入 AG2C 管理”即可；没有需要启动的 AG2C 应用。
+
+## macOS、Linux 与源码开发
+
+Windows 安装器以外的方式需要 Python 3.11 或更高版本：
 
 ```bash
-python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.4.0"
+python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.5.0"
 ag2c setup
 ```
 
@@ -48,7 +59,7 @@ python -m pip install -e .
 ag2c setup
 ```
 
-`ag2c setup` 会把同一份标准 Skill 安装到 Codex 的 `~/.codex/skills`、Claude Code 的 `~/.claude/skills` 和通用位置 `~/.agents/skills`。也可以用 `--harness codex`、`--harness claude` 或 `--harness agents` 只装所需入口。只有 Skill 明确执行 `ag2c setup --project .` 时才会纳管当前工程。
+`ag2c setup` 会安装同一份标准 Skill。也可以用 `--harness codex`、`--harness claude` 或 `--harness agents` 只装所需入口。只有 Skill 明确执行 `ag2c setup --project .` 时才会纳管当前工程。
 
 ## 纳管一个工程
 
@@ -104,7 +115,7 @@ steps:
     with:
       ref: ${{ github.event.pull_request.head.sha || github.sha }}
       fetch-depth: 0
-  - uses: Holosukiyaa/AutoGovern2Code/.github/actions/verify@v0.4.0
+  - uses: Holosukiyaa/AutoGovern2Code/.github/actions/verify@v0.5.0
 ```
 
 它会先按 Git 对象核对凭证，默认再重跑同一组可信检查。详见[可移植凭证与 CI](docs/zh-CN/CI_VERIFICATION.md)。

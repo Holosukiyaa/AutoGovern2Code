@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import bootstrap
+
 from ag2c.enrollment import enroll_project
 from ag2c.errors import AG2CError
 from ag2c.gitops import git

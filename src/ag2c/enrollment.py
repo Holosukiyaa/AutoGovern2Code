@@ -274,6 +274,13 @@ def _shell_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
+def _runtime_command() -> list[str]:
+    executable = str(Path(sys.executable).resolve())
+    if getattr(sys, "frozen", False):
+        return [executable]
+    return [executable, "-m", "ag2c"]
+
+
 def activate_project(
     start: Path,
     *,
@@ -311,7 +318,9 @@ def activate_project(
         candidate = delegate_root / "pre-commit"
         if candidate.is_file() and candidate.resolve() != hook.resolve():
             delegate = candidate.resolve()
-    script = f"#!/bin/sh\n{_shell_quote(Path(sys.executable).resolve().as_posix())} -m ag2c guard pre-commit || exit $?\n"
+    runtime_command = _runtime_command()
+    rendered_runtime = " ".join(_shell_quote(Path(item).as_posix() if index == 0 else item) for index, item in enumerate(runtime_command))
+    script = f"#!/bin/sh\n{rendered_runtime} guard pre-commit || exit $?\n"
     if delegate is not None:
         script += f"{_shell_quote(delegate.as_posix())} \"$@\"\n"
     _write_text(hook, script)
@@ -327,6 +336,7 @@ def activate_project(
         "activated_at": _now(),
         "canonical_root": str(canonical),
         "python_path": str(Path(sys.executable).resolve()),
+        "runtime_command": runtime_command,
         "previous_hooks_path": previous,
         "guard_digest": digest_file(hook),
         "skill_path": primary_skill["path"],
@@ -762,9 +772,17 @@ def activation_status(start: Path) -> dict[str, Any]:
     activation: dict[str, Any] = {}
     if activation_path.is_file():
         activation = json.loads(activation_path.read_text(encoding="utf-8"))
-        configured_python = Path(str(activation.get("python_path", "")))
-        if not configured_python.is_file() or configured_python.resolve() != Path(sys.executable).resolve():
-            issues.append("AG2C Git guard uses a missing or different Python interpreter")
+        configured_runtime = activation.get("runtime_command")
+        if not isinstance(configured_runtime, list) or not all(isinstance(item, str) for item in configured_runtime):
+            configured_runtime = [str(activation.get("python_path", "")), "-m", "ag2c"]
+        expected_runtime = _runtime_command()
+        configured_executable = Path(configured_runtime[0]) if configured_runtime and configured_runtime[0] else Path()
+        if (
+            not configured_executable.is_file()
+            or configured_executable.resolve() != Path(expected_runtime[0]).resolve()
+            or configured_runtime[1:] != expected_runtime[1:]
+        ):
+            issues.append("AG2C Git guard uses a missing or different runtime")
         installed_skills = activation.get("skills")
         if not isinstance(installed_skills, list) or not installed_skills:
             installed_skills = [{

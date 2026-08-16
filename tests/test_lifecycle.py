@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import bootstrap
+
 import ag2c.enrollment as enrollment_module
 from ag2c.enrollment import activation_status, enroll_project, migrate_project, upgrade_project
 from ag2c.errors import AG2CError
@@ -58,7 +60,7 @@ class LifecycleTests(unittest.TestCase):
             self.assertIn("docs", policy["coverage"]["areas"])
             self.assertIn("floor.docs", {card["id"] for card in policy["cards"]})
             self.assertEqual([], status_entries(root))
-            self.assertEqual("chore: upgrade AG2C to 0.4.0", str(git(root, "log", "-1", "--pretty=%s")).strip())
+            self.assertEqual("chore: upgrade AG2C to 0.5.0", str(git(root, "log", "-1", "--pretty=%s")).strip())
 
     def test_upgrade_failure_restores_files_staging_and_head(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

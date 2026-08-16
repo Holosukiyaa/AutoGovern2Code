@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import bootstrap
+
 from ag2c.config import load_manifest, load_policy
 from ag2c.errors import ConfigurationError
 from ag2c.util import path_matches

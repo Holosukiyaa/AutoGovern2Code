@@ -49,7 +49,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
-      - uses: Holosukiyaa/AutoGovern2Code/.github/actions/verify@v0.4.0
+      - uses: Holosukiyaa/AutoGovern2Code/.github/actions/verify@v0.5.0
 ```
 
 The Action installs the matching AG2C release, validates the receipt, and reruns checks. Set `rerun: "false"` only when another job already runs the exact trusted commands.

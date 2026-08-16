@@ -95,5 +95,39 @@ def install_skills(
     return installed
 
 
+def remove_skills(
+    destination_root: Path | None = None,
+    harnesses: Iterable[str] | None = None,
+) -> list[dict[str, str]]:
+    selected = tuple(dict.fromkeys(harnesses or SUPPORTED_HARNESSES))
+    unknown = sorted(set(selected) - set(SUPPORTED_HARNESSES))
+    if unknown:
+        raise AG2CError("unsupported AI harness: " + ", ".join(unknown))
+    if destination_root is not None:
+        destinations = [("custom", destination_root)]
+    else:
+        roots = default_skill_roots()
+        destinations = [(name, roots[name]) for name in selected]
+    packaged_digest = skill_digest(skill_source())
+    removed: list[dict[str, str]] = []
+    seen: set[Path] = set()
+    for harness, root in destinations:
+        destination = root.resolve() / SKILL_NAME
+        if destination in seen:
+            continue
+        seen.add(destination)
+        status = "absent"
+        if destination.is_symlink() or (destination.exists() and not destination.is_dir()):
+            status = "preserved-non-directory"
+        elif destination.is_dir():
+            if skill_digest(destination) == packaged_digest:
+                shutil.rmtree(destination)
+                status = "removed"
+            else:
+                status = "preserved-modified"
+        removed.append({"harness": harness, "path": str(destination), "status": status})
+    return removed
+
+
 def install_skill(destination_root: Path | None = None) -> Path:
     return Path(install_skills(destination_root, ("codex",))[0]["path"])

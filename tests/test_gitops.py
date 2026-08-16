@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import bootstrap
+
 from ag2c.gitops import change_digest, commit_change_digest, git, head
 
 from support import git_project

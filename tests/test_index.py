@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import bootstrap
+
 from ag2c.index import build_index, findings, index_path, summary, verify_freshness, verify_index
 
 from support import write_project

@@ -82,7 +82,7 @@ The tracked receipt also binds the route, checks, acceptance, and exact Manifest
 
 ## Git guard
 
-The local pre-commit guard rejects commits from the canonical checkout and from worktree branches not created under `ag2c/`. Activation uses the exact Python interpreter that installed AG2C and delegates an existing user pre-commit hook after the AG2C checks pass.
+The local pre-commit guard rejects commits from the canonical checkout and from worktree branches not created under `ag2c/`. Activation records the exact AG2C runtime command: the installing Python interpreter for source installations, or the self-contained executable for the Windows installer. It delegates an existing user pre-commit hook after the AG2C checks pass.
 
 The guard is one layer, not the only trust boundary. The Skill, task state machine, clean-checkout checks, exact diff digest, trusted checkers, fast-forward-only integration, and Ledger verification must all agree before completion.
 

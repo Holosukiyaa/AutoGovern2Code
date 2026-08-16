@@ -4,14 +4,22 @@ Users should not hand-author AG2C governance before receiving value. One tool se
 
 ## Install
 
+On Windows 10 or 11 (x64), download `AutoGovern2Code-Setup-Windows-x64.exe` from the [latest GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest) and double-click it. It installs per user without administrator access, bundles its own Python runtime, adds `ag2c` to the user PATH, and installs the packaged Skills. It does not create a desktop application or background service.
+
+The current community installer is unsigned. If Windows SmartScreen intervenes, verify the download against the Release's `SHA256SUMS.txt`, then use **More info > Run anyway**. Do not run copies obtained from another site.
+
+On macOS or Linux, install the tagged GitHub source with Python 3.11 or newer:
+
 ```bash
-python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.4.0"
+python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.5.0"
 ag2c setup
 ```
 
-GitHub Releases are the only distribution channel. The command above installs the tagged GitHub source; each release page also provides a wheel and source archive. For a local source checkout, use `python -m pip install -e .`.
+GitHub Releases are the only distribution channel. The wheel and source archive attached to a Release are developer artifacts. For a local source checkout, use `python -m pip install -e .`.
 
 `ag2c setup` installs the packaged Skill in Codex, Claude Code, and generic Agent Skills user locations. Limit it with a repeatable `--harness` option, or use `ag2c skill install --destination <directory>` for an intentionally isolated harness setup.
+
+The Windows uninstaller removes the bundled runtime, its user PATH entry, and packaged Skills that were not modified after installation. It deliberately does not rewrite enrolled repositories or erase their evidence. Reinstall AG2C before asking an enrolled project to make further governed changes.
 
 ## Enroll once
 

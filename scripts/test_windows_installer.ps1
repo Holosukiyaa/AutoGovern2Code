@@ -1,0 +1,107 @@
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$InstallerPath,
+    [Parameter(Mandatory = $true)]
+    [string]$Version
+)
+
+$ErrorActionPreference = 'Stop'
+$installer = (Resolve-Path -LiteralPath $InstallerPath).Path
+$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ag2c-installer-smoke-" + [guid]::NewGuid().ToString('N'))
+$installRoot = Join-Path $testRoot 'program'
+$profileRoot = Join-Path $testRoot 'profile'
+$projectRoot = Join-Path $testRoot 'project'
+$oldHome = $env:HOME
+$oldUserProfile = $env:USERPROFILE
+$oldCodexHome = $env:CODEX_HOME
+$userPathBefore = [Environment]::GetEnvironmentVariable('Path', 'User')
+
+try {
+    New-Item -ItemType Directory -Path $profileRoot -Force | Out-Null
+    $env:HOME = $profileRoot
+    $env:USERPROFILE = $profileRoot
+    $env:CODEX_HOME = Join-Path $profileRoot '.codex'
+    $install = Start-Process -FilePath $installer -ArgumentList @(
+        '/VERYSILENT',
+        '/SUPPRESSMSGBOXES',
+        '/NORESTART',
+        "/DIR=`"$installRoot`""
+    ) -Wait -PassThru
+    if ($install.ExitCode -ne 0) {
+        throw "Installer exited with code $($install.ExitCode)."
+    }
+    $expectedPath = (Join-Path $installRoot 'ag2c').TrimEnd('\').ToLowerInvariant()
+    $installedPathEntries = [Environment]::GetEnvironmentVariable('Path', 'User') -split ';'
+    if (-not ($installedPathEntries | Where-Object { $_.Trim().TrimEnd('\').ToLowerInvariant() -eq $expectedPath })) {
+        throw 'Installer did not add the AG2C runtime to the user PATH.'
+    }
+
+    $runtime = Join-Path $installRoot 'ag2c\ag2c.exe'
+    $runtimeVersion = (& $runtime --version 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $runtimeVersion -ne "AutoGovern2Code $Version") {
+        throw "Installed runtime smoke test failed: $runtimeVersion"
+    }
+    foreach ($skill in @(
+        (Join-Path $profileRoot '.codex\skills\ag2c-governed-development\SKILL.md'),
+        (Join-Path $profileRoot '.claude\skills\ag2c-governed-development\SKILL.md'),
+        (Join-Path $profileRoot '.agents\skills\ag2c-governed-development\SKILL.md')
+    )) {
+        if (-not (Test-Path -LiteralPath $skill)) {
+            throw "Installer did not install the expected Skill: $skill"
+        }
+    }
+
+    New-Item -ItemType Directory -Path $projectRoot -Force | Out-Null
+    & git -C $projectRoot init | Out-Null
+    & git -C $projectRoot config user.name 'AG2C Installer Smoke Test'
+    & git -C $projectRoot config user.email 'installer-smoke@example.invalid'
+    New-Item -ItemType Directory -Path (Join-Path $projectRoot 'src') | Out-Null
+    Set-Content -LiteralPath (Join-Path $projectRoot 'src\value.txt') -Value 'installed runtime' -Encoding utf8NoBOM
+    & git -C $projectRoot add .
+    & git -C $projectRoot commit -m 'test: initialize installer project' | Out-Null
+    & $runtime setup --project $projectRoot --project-id installer-smoke | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw 'The installed runtime could not enroll a Git project.'
+    }
+    Push-Location $projectRoot
+    try {
+        & $runtime guard status | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw 'The installed runtime did not activate the enrolled project.'
+        }
+    }
+    finally {
+        Pop-Location
+    }
+    $hook = Get-Content -Raw (Join-Path $projectRoot '.ag2c\state\hooks\pre-commit')
+    if ($hook -notmatch [regex]::Escape($runtime.Replace('\', '/')) -or $hook -match ' -m ag2c') {
+        throw 'The installed runtime did not write a self-contained Git guard command.'
+    }
+
+    $uninstaller = Join-Path $installRoot 'unins000.exe'
+    $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @(
+        '/VERYSILENT',
+        '/SUPPRESSMSGBOXES',
+        '/NORESTART'
+    ) -Wait -PassThru
+    if ($uninstall.ExitCode -ne 0) {
+        throw "Uninstaller exited with code $($uninstall.ExitCode)."
+    }
+    foreach ($skillRoot in @('.codex', '.claude', '.agents')) {
+        if (Test-Path -LiteralPath (Join-Path $profileRoot "$skillRoot\skills\ag2c-governed-development")) {
+            throw "Uninstaller left the unchanged $skillRoot Skill behind."
+        }
+    }
+    $userPathAfter = [Environment]::GetEnvironmentVariable('Path', 'User')
+    if ($userPathAfter -ne $userPathBefore) {
+        throw 'Uninstaller did not restore the original user PATH exactly.'
+    }
+}
+finally {
+    $env:HOME = $oldHome
+    $env:USERPROFILE = $oldUserProfile
+    $env:CODEX_HOME = $oldCodexHome
+    if (Test-Path -LiteralPath $testRoot) {
+        Remove-Item -LiteralPath $testRoot -Recurse -Force
+    }
+}

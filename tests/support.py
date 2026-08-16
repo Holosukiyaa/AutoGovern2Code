@@ -7,7 +7,7 @@ from pathlib import Path
 
 import bootstrap
 
-from ag2c.config import load_manifest, load_policy
+from ag2c.config import discover_manifest, load_manifest, load_policy
 
 
 def _git(root: Path, *args: str) -> str:
@@ -42,6 +42,14 @@ def git_project(root: Path) -> Path:
     _git(root, "add", "--all")
     _git(root, "commit", "-m", "initial")
     return root.resolve()
+
+
+def external_manifest(root: Path):
+    return load_manifest(discover_manifest(root))
+
+
+def external_state(root: Path) -> Path:
+    return external_manifest(root).state_dir
 
 
 def write_project(root: Path, *, extra_file: bool = False):

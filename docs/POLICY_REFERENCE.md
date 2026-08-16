@@ -4,20 +4,22 @@
 > and consumed by the Skill and AG2C Core. Ordinary users are not expected to edit
 > or understand it.
 
-AG2C reads two versioned JSON documents from `.ag2c` by default. Unknown schema
-versions fail closed.
+AG2C reads two versioned JSON documents from the external per-project store.
+On Windows this is normally
+`%LOCALAPPDATA%\AutoGovern2Code\projects\<project-key>`. The repository's local
+Git config points to the Manifest. Unknown schema versions fail closed.
 
 ## Manifest
 
-Default location: `.ag2c/manifest.json`
+Generated location: `<project-store>/manifest.json`
 
 ```json
 {
   "schema": "ag2c.manifest.v1",
-  "project": {"id": "orders"},
-  "policy": ".ag2c/policy.json",
-  "state_dir": ".ag2c/state",
-  "ledger": ".ag2c/ledger.jsonl",
+  "project": {"id": "orders", "root": "C:/code/orders"},
+  "policy": "policy.json",
+  "state_dir": "state",
+  "ledger": "ledger.jsonl",
   "targets": [
     {
       "id": "api",
@@ -33,20 +35,22 @@ Default location: `.ag2c/manifest.json`
 | --- | --- |
 | `schema` | Must be `ag2c.manifest.v1`. |
 | `project.id` | Stable lowercase project identity. |
-| `policy` | Policy path relative to the project root. |
-| `state_dir` | Rebuildable state directory; normally ignored by Git. |
+| `project.root` | Absolute path of the locally managed Git clone. |
+| `policy` | Policy path relative to the external Manifest directory. |
+| `state_dir` | Rebuildable state directory relative to the external Manifest. |
 | `ledger` | Hash-chained evidence file. |
 | `targets[].id` | Stable id used in path and contract entries. |
 | `targets[].path` | Repository path relative to the project root; `.` is allowed. |
 | `targets[].governed_roots` | Files or directories that require ownership. |
 | `targets[].exclude` | Glob patterns removed from observation. |
 
-The project root is the parent of `.ag2c`. Target paths may point to sibling
-repositories when `.ag2c` is kept in a common workspace.
+Target paths remain relative to `project.root`; governance storage location does
+not change how project paths are routed. An explicit maintainer fixture may use
+a relative `project.root`, resolved from the Manifest directory.
 
 ## Policy
 
-Default location: `.ag2c/policy.json`
+Generated location: `<project-store>/policy.json`
 
 ```json
 {
@@ -184,10 +188,10 @@ card. AG2C executes the argv with `shell=False` and does not install checker too
 
 ## Generated state
 
-`.ag2c/state/index.sqlite` is rebuildable and contains target revisions, observed
+`<project-store>/state/index.sqlite` is rebuildable and contains target revisions, observed
 artifacts, ownership, findings, and an integrity digest over all indexed facts.
 
-`.ag2c/ledger.jsonl` is durable evidence. Each line contains a sequence number,
-previous event digest, payload, and event digest. Keep it in Git only when one
-protected writer owns append order; otherwise retain it as a CI artifact or use a
-single append service.
+`<project-store>/ledger.jsonl` is durable local evidence. Each line contains a
+sequence number, previous event digest, payload, and event digest. It is never
+placed in the governed repository. Task records, receipts, hooks, and worktrees
+live in the same project store.

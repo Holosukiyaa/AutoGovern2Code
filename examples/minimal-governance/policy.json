@@ -79,7 +79,7 @@
       "id": "check.unit",
       "stage": "floor",
       "target": "app",
-      "command": ["python", "-m", "unittest", "discover", "-s", "tests", "-v"],
+      "command": ["python", "-B", "-m", "unittest", "discover", "-s", "tests", "-v"],
       "cwd": ".",
       "timeout": 60
     },
@@ -87,7 +87,7 @@
       "id": "check.boundary",
       "stage": "boundary",
       "target": "app",
-      "command": ["python", "-m", "unittest", "tests.test_api", "-v"],
+      "command": ["python", "-B", "-m", "unittest", "tests.test_api", "-v"],
       "cwd": ".",
       "timeout": 60
     },
@@ -95,7 +95,7 @@
       "id": "check.api-contract",
       "stage": "scenario",
       "target": "app",
-      "command": ["python", "-m", "unittest", "tests.test_api", "-v"],
+      "command": ["python", "-B", "-m", "unittest", "tests.test_api", "-v"],
       "cwd": ".",
       "timeout": 60
     }

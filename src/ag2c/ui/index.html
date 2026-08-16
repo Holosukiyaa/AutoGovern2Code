@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>AutoGovern2Code</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-bar">
+      <div class="app-identity">
+        <span class="app-mark" aria-hidden="true">AG</span>
+        <div><strong>AutoGovern2Code</strong><span id="summary">正在检查项目</span></div>
+      </div>
+      <div class="app-actions">
+        <button id="refreshButton" class="icon-button" type="button" title="刷新" aria-label="刷新">&#x21BB;</button>
+        <button id="addButton" class="primary-button command-button" type="button"><span aria-hidden="true">+</span><span>添加项目</span></button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="project-pane" aria-label="治理项目">
+        <header class="pane-head"><div><span>项目</span><h1>治理列表</h1></div><strong id="projectCount">0</strong></header>
+        <div id="projectList" class="project-list"></div>
+        <section id="emptyState" class="empty-state" hidden>
+          <span class="empty-mark" aria-hidden="true">+</span>
+          <strong>还没有治理项目</strong>
+          <button id="emptyAddButton" class="primary-button" type="button">添加项目</button>
+        </section>
+      </section>
+
+      <section id="detailPane" class="detail-pane" aria-live="polite">
+        <div id="detailEmpty" class="detail-empty">
+          <span aria-hidden="true">&#x2022;</span>
+          <strong>选择一个项目</strong>
+        </div>
+        <div id="detailContent" class="detail-content" hidden>
+          <header class="detail-head">
+            <div class="detail-title"><span id="detailStateDot" class="state-dot"></span><div><h2 id="detailName"></h2><p id="detailPath"></p></div></div>
+            <div class="detail-actions">
+              <button id="openFolderButton" class="icon-button" type="button" title="打开项目文件夹" aria-label="打开项目文件夹">&#x2197;</button>
+              <button id="checkButton" class="secondary-button command-button" type="button" title="检查并自动修复" aria-label="检查并自动修复"><span aria-hidden="true">&#x21BB;</span><span>重新检查</span></button>
+            </div>
+          </header>
+
+          <section class="protection-strip">
+            <div><span>入口</span><strong id="entryState"></strong></div>
+            <div><span>交付</span><strong id="deliveryState"></strong></div>
+            <div><span>实际记录</span><strong id="observedState"></strong></div>
+          </section>
+
+          <div class="detail-scroll">
+            <section class="detail-section">
+              <header><h3>当前状态</h3><span id="stateLabel" class="status-label"></span></header>
+              <ul id="issueList" class="issue-list"></ul>
+              <div id="healthyState" class="healthy-state"><span aria-hidden="true">&#x2713;</span><span>治理检查已通过</span></div>
+            </section>
+
+            <section class="detail-section">
+              <header><h3>AI 入口</h3></header>
+              <div id="agentList" class="agent-list"></div>
+            </section>
+
+            <section class="detail-section">
+              <header><h3>最近证据</h3><button id="evidenceButton" class="quiet-button" type="button">查看记录</button></header>
+              <div id="evidenceSummary" class="evidence-summary"></div>
+            </section>
+
+            <section id="evidencePanel" class="detail-section evidence-panel" hidden>
+              <header><h3>治理记录</h3><button id="closeEvidenceButton" class="icon-button" type="button" title="关闭记录" aria-label="关闭记录">&#x00D7;</button></header>
+              <div id="evidenceList" class="evidence-list"></div>
+            </section>
+          </div>
+
+          <footer class="detail-footer">
+            <button id="removeButton" class="danger-button" type="button">停止治理</button>
+            <span>治理档案保留在项目外部</span>
+          </footer>
+        </div>
+      </section>
+    </main>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </div>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

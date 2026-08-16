@@ -129,5 +129,36 @@ def remove_skills(
     return removed
 
 
+def harness_status() -> list[dict[str, object]]:
+    roots = default_skill_roots()
+    packaged_digest = skill_digest(skill_source())
+    commands = {"codex": "codex", "claude": "claude", "agents": None}
+    result: list[dict[str, object]] = []
+    for harness in SUPPORTED_HARNESSES:
+        destination = roots[harness].resolve() / SKILL_NAME
+        executable = shutil.which(commands[harness]) if commands[harness] else None
+        detected = bool(executable) or (harness == "agents" and roots[harness].parent.exists())
+        installed = (destination / "SKILL.md").is_file()
+        integrated = installed and skill_digest(destination) == packaged_digest
+        if integrated:
+            state = "ready"
+        elif detected:
+            state = "skill-missing"
+        else:
+            state = "not-detected"
+        result.append(
+            {
+                "harness": harness,
+                "detected": detected,
+                "executable": executable,
+                "skill_path": str(destination),
+                "skill_installed": installed,
+                "integrated": integrated,
+                "state": state,
+            }
+        )
+    return result
+
+
 def install_skill(destination_root: Path | None = None) -> Path:
     return Path(install_skills(destination_root, ("codex",))[0]["path"])

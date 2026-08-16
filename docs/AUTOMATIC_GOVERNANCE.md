@@ -1,27 +1,33 @@
 # Automatic governance
 
-An enrolled project is governed by default. The human task request is the only task input; Codex translates it into deterministic AG2C coordinates internally.
+Once a local Git clone is added to AG2C, governance becomes the default construction path for compatible coding agents. The user's product request remains the only task input.
+
+## Entry
+
+The installed Skill checks `ag2c guard status` for file-changing work. AG2C discovers the external Manifest through local Git configuration; the agent does not search for governance files in the project. Missing activation is repaired before writing. An unknown or incompatible harness is reported honestly by the tray rather than treated as ready.
 
 ## Before the first write
 
-The Skill confirms activation, reads the canonical checkout without modifying it, identifies expected paths and exact contracts, then asks AG2C to start a task. Unknown scope uses conservative all-project routing rather than a guessed narrow route.
-
-AG2C records the original branch and HEAD, compiles the initial route, and creates an external `ag2c/<task-id>` Git worktree. The returned worktree is the only permitted write location.
+The Skill reads the canonical checkout without modifying it and identifies expected paths or exact public contracts. Unknown scope uses conservative all-project routing. AG2C captures the branch and HEAD, creates an external task record and external Git worktree, and returns the only permitted construction directory.
 
 ## During implementation
 
-The AI may inspect, edit, install dependencies, build, test, and generate artifacts inside the task worktree. The canonical checkout remains an integration target, not a workspace.
+The AI may inspect, edit, install dependencies, build, test, and generate artifacts inside the task worktree. The canonical checkout remains an integration target. Each project has independent external policy, worktrees, Ledger, and evidence.
 
 ## Verification
 
-`ag2c task verify` ignores the AI's claimed scope and recomputes from the actual Git diff. Newly touched governed paths expand the route and produce an intervention record. Ungoverned paths and changes to AG2C controls fail closed.
+`ag2c task verify` calculates scope again from the actual Git diff. Newly touched governed paths expand the route and leave an intervention record. Ungoverned paths fail closed.
 
-The current Policy selects trusted argv-only checkers. Failed checks remain in evidence. When a later attempt passes, AG2C records an `ai-correction-proven` intervention. If a checker itself changes governed bytes, verification fails and must be rerun against the new bytes.
+Only policy-declared argv checkers run. Failed attempts remain in evidence; a later pass records that the AI corrected a failure. If a checker changes governed bytes, verification becomes stale and must run again.
 
 ## Integration
 
-`ag2c task finish` requires the final diff digest to equal the passing verification event recorded in the Ledger. It commits that change in the task worktree, recomputes the committed diff so an existing pre-commit hook cannot substitute unverified bytes, confirms the canonical checkout is still clean and unchanged, and merges with `--ff-only`. Any mismatch preserves the worktree and blocks integration.
+`ag2c task finish` requires the final diff digest to equal the passing verification event. AG2C commits in the task worktree, validates the Git objects again, checks that the canonical checkout and source HEAD are unchanged, and integrates with `--ff-only`. The commit message receives only task and evidence digest trailers; the full receipt remains in the external project store.
 
-## What the user sees
+## Enforcement boundary
 
-Normal Codex output should focus on product work. AG2C details are reduced to evidence facts: whether management started before writes, interventions, failed and passing attempts, the final commit, merge mode, cleanup state, and Ledger integrity.
+The pre-commit guard rejects delivery from the canonical checkout or an unmanaged branch. It is deliberately independent from the tray window. It does not prevent arbitrary filesystem writes, so an agent that ignores the Skill may dirty the canonical checkout before the guard blocks its commit. AG2C reports that state instead of calling it successful.
+
+## User-visible result
+
+Normal agent output should focus on the product change. The tray and read-only evidence view explain what happened: changed files, checks, failed attempts and correction, blocked actions, final commit, merge mode, and evidence integrity. Cards, policies, slices, and checker selection remain maintainer internals.

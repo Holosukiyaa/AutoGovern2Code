@@ -32,14 +32,27 @@ SolidCompression=yes
 WizardStyle=modern
 OutputDir={#BuildRoot}\installer
 OutputBaseFilename=AutoGovern2Code-Setup-Windows-x64
-UninstallDisplayIcon={app}\ag2c\ag2c.exe
+UninstallDisplayIcon={app}\AutoGovern2Code.exe
 ChangesEnvironment=yes
 SetupLogging=yes
 RestartIfNeededByRun=no
+CloseApplications=yes
+RestartApplications=no
+AppMutex=Local\AutoGovern2Code.Desktop
 
 [Files]
 Source: "{#BuildRoot}\runtime\ag2c\*"; DestDir: "{app}\ag2c"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BuildRoot}\runtime\AutoGovern2Code.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+
+[Icons]
+Name: "{group}\AutoGovern2Code"; Filename: "{app}\AutoGovern2Code.exe"
+
+[Registry]
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "AutoGovern2Code"; ValueData: """{app}\AutoGovern2Code.exe"""; Flags: uninsdeletevalue
+
+[Run]
+Filename: "{app}\AutoGovern2Code.exe"; Description: "Launch AutoGovern2Code"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 Filename: "{app}\ag2c\ag2c.exe"; Parameters: "skill uninstall"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveAutoGovern2CodeSkills"

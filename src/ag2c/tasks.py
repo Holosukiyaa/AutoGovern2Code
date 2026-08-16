@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from .checks import run_checks
-from .config import load_manifest, load_policy
-from .enrollment import AGENTS_BLOCK, CLAUDE_BLOCK, IGNORE_BLOCK, activation_status
+from .config import discover_manifest, load_manifest, load_policy
+from .enrollment import activation_status
 from .errors import AG2CError
 from .gitops import (
     change_digest,
@@ -24,13 +24,13 @@ from .gitops import (
 from .index import build_index, index_path
 from .ledger import append_event, read_events, verify_ledger
 from .receipts import (
-    RECEIPT_DIRECTORY,
     build_receipt,
-    receipt_relative_path,
+    receipt_path,
     verify_commit_receipt,
     write_receipt,
 )
 from .slicer import compile_slice
+from .storage import git_private_path
 
 TASK_SCHEMA = "ag2c.task.v1"
 
@@ -47,7 +47,8 @@ def _atomic_json(path: Path, value: dict[str, Any]) -> None:
 
 
 def _task_path(canonical: Path, task_id: str) -> Path:
-    return canonical / ".ag2c" / "state" / "tasks" / f"{task_id}.json"
+    manifest = load_manifest(discover_manifest(canonical))
+    return manifest.state_dir / "tasks" / f"{task_id}.json"
 
 
 def _load_task(canonical: Path, task_id: str) -> dict[str, Any]:
@@ -84,7 +85,7 @@ def _record_intervention(
 
 
 def _canonical_manifest(canonical: Path):
-    manifest = load_manifest(canonical / ".ag2c" / "manifest.json")
+    manifest = load_manifest(discover_manifest(canonical))
     return manifest, load_policy(manifest)
 
 
@@ -205,8 +206,8 @@ def start_task(
     if record_path.exists():
         raise AG2CError(f"AG2C task already exists: {task_id}")
     configured_root = os.environ.get("AG2C_WORKTREE_ROOT")
-    base = worktree_root or (Path(configured_root) if configured_root else canonical.parent / ".ag2c-worktrees")
-    worktree = (base.resolve() / manifest.project_id / task_id).resolve()
+    base = worktree_root or (Path(configured_root) if configured_root else manifest.path.parent / "worktrees")
+    worktree = (base.resolve() / task_id).resolve()
     try:
         worktree.relative_to(canonical)
     except ValueError:
@@ -237,7 +238,7 @@ def start_task(
         "verifications": [],
     }
     _atomic_json(record_path, task)
-    marker = worktree / ".ag2c" / "state" / "active-task.json"
+    marker = git_private_path(worktree, "ag2c-task.json")
     _atomic_json(marker, {"schema": TASK_SCHEMA, "task_id": task_id, "canonical_root": str(canonical)})
     event = append_event(
         manifest.ledger_path,
@@ -260,7 +261,7 @@ def start_task(
 
 def _task_from_worktree(start: Path) -> tuple[Path, dict[str, Any]]:
     root = repository_root(start)
-    marker_path = root / ".ag2c" / "state" / "active-task.json"
+    marker_path = git_private_path(root, "ag2c-task.json")
     try:
         marker = json.loads(marker_path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
@@ -322,26 +323,13 @@ def verify_task(start: Path) -> dict[str, Any]:
             {"expected": task["source"]["head"], "actual": head(canonical)},
         )
         raise AG2CError("canonical HEAD changed during the task; start a new task from the current branch")
-    stale_receipt = worktree / receipt_relative_path(str(task["id"]))
+    stale_receipt = receipt_path(canonical_manifest, str(task["id"]))
     if stale_receipt.is_file():
         stale_receipt.unlink()
     actual_paths = changed_paths(worktree, task["source"]["head"])
     if not actual_paths:
         raise AG2CError("task worktree has no changes to verify")
-    protected = [path for path in actual_paths if path.startswith(".ag2c/")]
-    agents = worktree / "AGENTS.md"
-    if not agents.is_file() or AGENTS_BLOCK.rstrip() not in agents.read_text(encoding="utf-8"):
-        protected.append("AGENTS.md")
-    claude = worktree / "CLAUDE.md"
-    if not claude.is_file() or CLAUDE_BLOCK.rstrip() not in claude.read_text(encoding="utf-8"):
-        protected.append("CLAUDE.md")
-    ignore = worktree / ".gitignore"
-    if not ignore.is_file() or IGNORE_BLOCK.rstrip() not in ignore.read_text(encoding="utf-8"):
-        protected.append(".gitignore")
-    if protected:
-        _record_intervention(canonical, canonical_manifest, task, "governance-mutation-blocked", {"paths": protected})
-        raise AG2CError("ordinary tasks cannot modify AG2C governance controls: " + ", ".join(protected))
-    manifest = load_manifest(worktree / ".ag2c" / "manifest.json")
+    manifest = load_manifest(discover_manifest(worktree), project_root=worktree)
     policy = load_policy(manifest)
     path_specs, unmanaged = _changed_specs(manifest, actual_paths)
     if unmanaged:
@@ -462,26 +450,25 @@ def finish_task(start: Path, task_id: str, *, message: str) -> dict[str, Any]:
         raise AG2CError("canonical worktree is dirty; refusing merge")
     if head(canonical) != task["source"]["head"] or current_branch(canonical) != task["source"]["branch"]:
         raise AG2CError("canonical branch or HEAD changed; refusing merge")
-    current_digest = change_digest(worktree, task["source"]["head"], exclude_prefixes=(RECEIPT_DIRECTORY,))
+    current_digest = change_digest(worktree, task["source"]["head"])
     if current_digest != task["verifications"][-1]["change_digest"]:
         raise AG2CError("task changed after verification; run `ag2c task verify` again")
     receipt = build_receipt(manifest, policy, task)
-    receipt_path = write_receipt(worktree, receipt)
-    relative_receipt = receipt_path.relative_to(worktree).as_posix()
-    commit_message = message.rstrip() + f"\n\nAG2C-Receipt: {relative_receipt}"
+    evidence_path = write_receipt(manifest, receipt)
+    commit_message = (
+        message.rstrip()
+        + f"\n\nAG2C-Task: {task['id']}"
+        + f"\nAG2C-Evidence: {receipt['receipt_digest']}"
+    )
     if status_entries(worktree):
         git(worktree, "add", "--all")
-        git(worktree, "commit", "-m", commit_message)
     elif head(worktree) == task["source"]["head"]:
         raise AG2CError("task worktree has no commit or changes to integrate")
+    git(worktree, "commit", "--allow-empty", "-m", commit_message)
     task_commit = head(worktree)
     if status_entries(worktree):
         raise AG2CError("task worktree is not clean after commit")
-    committed_digest = change_digest(
-        worktree,
-        task["source"]["head"],
-        exclude_prefixes=(RECEIPT_DIRECTORY,),
-    )
+    committed_digest = change_digest(worktree, task["source"]["head"])
     if committed_digest != current_digest:
         _record_intervention(
             canonical,
@@ -491,7 +478,7 @@ def finish_task(start: Path, task_id: str, *, message: str) -> dict[str, Any]:
             {"verified_change_digest": current_digest, "committed_change_digest": committed_digest},
         )
         raise AG2CError("commit hooks changed the verified bytes; run `ag2c task verify` again")
-    portable = verify_commit_receipt(worktree, task_commit)
+    validated_evidence = verify_commit_receipt(worktree, task_commit)
     git(canonical, "merge", "--ff-only", task["worktree"]["branch"])
     manifest, policy = _canonical_manifest(canonical)
     build_index(manifest, policy, index_path(manifest))
@@ -502,8 +489,8 @@ def finish_task(start: Path, task_id: str, *, message: str) -> dict[str, Any]:
         "merged_head": head(canonical),
         "merge": "fast-forward",
         "verified_change_digest": current_digest,
-        "receipt_path": portable["receipt_path"],
-        "receipt_digest": portable["receipt_digest"],
+        "receipt_path": str(evidence_path),
+        "receipt_digest": validated_evidence["receipt_digest"],
     }
     event = append_event(
         manifest.ledger_path,
@@ -530,12 +517,12 @@ def task_record(start: Path, task_id: str) -> dict[str, Any]:
 
 def task_records(start: Path) -> list[dict[str, Any]]:
     canonical = Path(activation_status(start)["canonical_root"])
-    directory = canonical / ".ag2c" / "state" / "tasks"
+    directory = load_manifest(discover_manifest(canonical)).state_dir / "tasks"
     records = [_load_task(canonical, path.stem) for path in directory.glob("*.json")] if directory.is_dir() else []
     return sorted(records, key=lambda item: str(item.get("created_at", "")), reverse=True)
 
 
-def _portable_receipt(canonical: Path, task: dict[str, Any]) -> dict[str, Any]:
+def _local_evidence(canonical: Path, task: dict[str, Any]) -> dict[str, Any]:
     result = task.get("result")
     if not isinstance(result, dict) or not result.get("receipt_path") or not result.get("commit"):
         return {"status": "not-created"}
@@ -652,7 +639,7 @@ def evidence(start: Path, task_id: str | None = None) -> dict[str, Any]:
                 "failed_attempts": sum(not item.get("passed", False) for item in verifications),
                 "correction_proven": correction_proven,
                 "blocked_actions": blocked_actions,
-                "portable_receipt": _portable_receipt(canonical, task),
+                "local_evidence": _local_evidence(canonical, task),
                 "result": task.get("result"),
                 "cleanup": task.get("cleanup"),
             }

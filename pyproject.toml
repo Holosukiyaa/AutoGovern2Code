@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autogovern2code"
-version = "0.5.0"
+version = "0.6.0"
 description = "Zero-touch, evidence-backed governance for AI coding changes"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -37,4 +37,4 @@ ag2c = "ag2c.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-ag2c = ["py.typed", "skills/*/SKILL.md", "skills/*/agents/*.yaml"]
+ag2c = ["py.typed", "skills/*/SKILL.md", "skills/*/agents/*.yaml", "ui/*.html", "ui/*.css", "ui/*.js"]

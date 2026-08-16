@@ -15,6 +15,7 @@ $installLog = Join-Path $testRoot 'install.log'
 $oldHome = $env:HOME
 $oldUserProfile = $env:USERPROFILE
 $oldCodexHome = $env:CODEX_HOME
+$oldDataRoot = $env:AG2C_DATA_ROOT
 $uninstalled = $false
 
 function Get-UserPathState {
@@ -57,7 +58,43 @@ function Restore-UserPathState([hashtable]$State) {
     }
 }
 
+function Get-StartupState {
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Run')
+    if ($null -eq $key) {
+        return @{ Exists = $false; Value = $null; Kind = $null }
+    }
+    try {
+        if (-not ($key.GetValueNames() | Where-Object { $_ -eq 'AutoGovern2Code' })) {
+            return @{ Exists = $false; Value = $null; Kind = $null }
+        }
+        return @{
+            Exists = $true
+            Value = [string]$key.GetValue('AutoGovern2Code', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+            Kind = $key.GetValueKind('AutoGovern2Code')
+        }
+    }
+    finally {
+        $key.Dispose()
+    }
+}
+
+function Restore-StartupState([hashtable]$State) {
+    $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Software\Microsoft\Windows\CurrentVersion\Run')
+    try {
+        if ($State.Exists) {
+            $key.SetValue('AutoGovern2Code', $State.Value, $State.Kind)
+        }
+        else {
+            $key.DeleteValue('AutoGovern2Code', $false)
+        }
+    }
+    finally {
+        $key.Dispose()
+    }
+}
+
 $userPathBefore = Get-UserPathState
+$startupBefore = Get-StartupState
 $userPathFixture = @{
     Exists = $true
     Value = if ($userPathBefore.Exists) { $userPathBefore.Value + ';' } else { '' }
@@ -70,6 +107,7 @@ try {
     $env:HOME = $profileRoot
     $env:USERPROFILE = $profileRoot
     $env:CODEX_HOME = Join-Path $profileRoot '.codex'
+    $env:AG2C_DATA_ROOT = Join-Path $profileRoot 'AutoGovern2Code'
     $install = Start-Process -FilePath $installer -ArgumentList @(
         '/VERYSILENT',
         '/SUPPRESSMSGBOXES',
@@ -91,6 +129,14 @@ try {
     }
 
     $runtime = Join-Path $installRoot 'ag2c\ag2c.exe'
+    $desktop = Join-Path $installRoot 'AutoGovern2Code.exe'
+    if (-not (Test-Path -LiteralPath $desktop)) {
+        throw 'Installer did not install the desktop tray application.'
+    }
+    $startupInstalled = Get-StartupState
+    if (-not $startupInstalled.Exists -or $startupInstalled.Value -notmatch [regex]::Escape($desktop)) {
+        throw 'Installer did not register the desktop tray application for user startup.'
+    }
     $runtimeVersion = (& $runtime --version 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $runtimeVersion -ne "AutoGovern2Code $Version") {
         throw "Installed runtime smoke test failed: $runtimeVersion"
@@ -114,6 +160,7 @@ try {
     [System.IO.File]::WriteAllText((Join-Path $projectRoot 'src\value.txt'), "installed runtime`n", $utf8NoBom)
     & git -C $projectRoot add .
     & git -C $projectRoot commit -m 'test: initialize installer project' | Out-Null
+    $headBeforeSetup = (& git -C $projectRoot rev-parse HEAD | Out-String).Trim()
     & $runtime setup --project $projectRoot --project-id installer-smoke | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw 'The installed runtime could not enroll a Git project.'
@@ -128,7 +175,19 @@ try {
     finally {
         Pop-Location
     }
-    $hook = Get-Content -Raw (Join-Path $projectRoot '.ag2c\state\hooks\pre-commit')
+    if ((& git -C $projectRoot status --porcelain | Out-String).Trim()) {
+        throw 'Enrollment changed files in the user project.'
+    }
+    if ((& git -C $projectRoot rev-parse HEAD | Out-String).Trim() -ne $headBeforeSetup) {
+        throw 'Enrollment created a commit in the user project.'
+    }
+    foreach ($unexpected in @('.ag2c', 'AGENTS.md', 'CLAUDE.md')) {
+        if (Test-Path -LiteralPath (Join-Path $projectRoot $unexpected)) {
+            throw "Enrollment left governance content in the user project: $unexpected"
+        }
+    }
+    $hookRoot = (& git -C $projectRoot config --get core.hooksPath | Out-String).Trim()
+    $hook = Get-Content -Raw (Join-Path $hookRoot 'pre-commit')
     if ($hook -notmatch [regex]::Escape($runtime.Replace('\', '/')) -or $hook -match ' -m ag2c') {
         throw 'The installed runtime did not write a self-contained Git guard command.'
     }
@@ -183,9 +242,11 @@ finally {
         }
     }
     Restore-UserPathState $userPathBefore
+    Restore-StartupState $startupBefore
     $env:HOME = $oldHome
     $env:USERPROFILE = $oldUserProfile
     $env:CODEX_HOME = $oldCodexHome
+    $env:AG2C_DATA_ROOT = $oldDataRoot
     if (Test-Path -LiteralPath $testRoot) {
         Remove-Item -LiteralPath $testRoot -Recurse -Force
     }

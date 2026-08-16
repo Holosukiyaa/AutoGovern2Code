@@ -16,33 +16,27 @@ from ag2c.gitops import git, status_entries
 from ag2c.ledger import verify_ledger
 from ag2c.lifecycle import LifecycleTransaction, recover_lifecycle
 
+from ag2c.config import discover_manifest, load_manifest
+from ag2c.storage import configured_manifest, project_store
 from support import git_project
 
 
 class LifecycleTests(unittest.TestCase):
-    def test_enrollment_commit_failure_rolls_back_everything(self) -> None:
+    def test_enrollment_never_changes_project_files_or_history(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
             root = git_project(workspace / "project")
             before_head = str(git(root, "rev-parse", "HEAD")).strip()
-            before_ignore = (root / ".gitignore").read_bytes()
-            real_git = enrollment_module.git
-
-            def fail_commit(repository: Path, *args: str, **kwargs):
-                if args and args[0] == "commit":
-                    raise AG2CError("injected enrollment commit failure")
-                return real_git(repository, *args, **kwargs)
-
-            with patch("ag2c.enrollment.git", side_effect=fail_commit):
-                with self.assertRaisesRegex(AG2CError, "injected enrollment commit failure"):
-                    enroll_project(root, project_id="rollback-enrollment", skill_root=workspace / "skills")
+            (root / "src" / "value.py").write_text("VALUE = 2\n", encoding="utf-8")
+            before_status = status_entries(root)
+            enroll_project(root, project_id="pristine-enrollment", skill_root=workspace / "skills")
 
             self.assertEqual(before_head, str(git(root, "rev-parse", "HEAD")).strip())
-            self.assertEqual(before_ignore, (root / ".gitignore").read_bytes())
             self.assertFalse((root / "AGENTS.md").exists())
             self.assertFalse((root / "CLAUDE.md").exists())
             self.assertFalse((root / ".ag2c").exists())
-            self.assertEqual([], status_entries(root))
+            self.assertEqual(before_status, status_entries(root))
+            self.assertTrue(discover_manifest(root).is_file())
 
     def test_upgrade_refreshes_ag2c_managed_baseline_areas(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -55,32 +49,28 @@ class LifecycleTests(unittest.TestCase):
             git(root, "-c", "core.hooksPath=", "commit", "-m", "docs: add project area")
 
             result = upgrade_project(root, skill_root=workspace / "skills")
-            self.assertEqual("upgraded", result["action"])
-            policy = json.loads((root / ".ag2c" / "policy.json").read_text(encoding="utf-8"))
+            self.assertEqual("reactivated", result["action"])
+            manifest = load_manifest(discover_manifest(root))
+            policy = json.loads(manifest.policy_path.read_text(encoding="utf-8"))
             self.assertIn("docs", policy["coverage"]["areas"])
             self.assertIn("floor.docs", {card["id"] for card in policy["cards"]})
             self.assertEqual([], status_entries(root))
-            self.assertEqual("chore: upgrade AG2C to 0.5.0", str(git(root, "log", "-1", "--pretty=%s")).strip())
+            self.assertEqual("docs: add project area", str(git(root, "log", "-1", "--pretty=%s")).strip())
 
-    def test_upgrade_failure_restores_files_staging_and_head(self) -> None:
+    def test_enrollment_failure_removes_external_binding_and_store(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
             root = git_project(workspace / "project")
-            enroll_project(root, project_id="rollback-project", skill_root=workspace / "skills")
             before_head = str(git(root, "rev-parse", "HEAD")).strip()
-            before = {
-                path: (root / path).read_bytes()
-                for path in ("AGENTS.md", "CLAUDE.md", ".gitignore", ".ag2c/enrollment.json", ".ag2c/policy.json")
-            }
-
-            with patch("ag2c.enrollment._maintenance_commit", side_effect=AG2CError("injected failure")):
+            store = project_store(root)
+            with patch("ag2c.enrollment.activate_project", side_effect=AG2CError("injected failure")):
                 with self.assertRaisesRegex(AG2CError, "injected failure"):
-                    upgrade_project(root, skill_root=workspace / "skills")
+                    enroll_project(root, project_id="rollback-project", skill_root=workspace / "skills")
 
             self.assertEqual(before_head, str(git(root, "rev-parse", "HEAD")).strip())
             self.assertEqual([], status_entries(root))
-            for path, content in before.items():
-                self.assertEqual(content, (root / path).read_bytes(), path)
+            self.assertIsNone(configured_manifest(root))
+            self.assertFalse(store.exists())
 
     def test_interrupted_lifecycle_is_recovered_on_next_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -175,7 +165,8 @@ class LifecycleTests(unittest.TestCase):
             self.assertFalse(legacy.exists())
             self.assertTrue(activation_status(root)["managed"])
             self.assertEqual([], status_entries(root))
-            migrated_policy = json.loads((root / ".ag2c" / "policy.json").read_text(encoding="utf-8"))
+            manifest = load_manifest(discover_manifest(root))
+            migrated_policy = json.loads(manifest.policy_path.read_text(encoding="utf-8"))
             self.assertEqual("baseline", migrated_policy["coverage"]["level"])
             python_checker = next(item for item in migrated_policy["checkers"] if item["id"] == "check.python")
             self.assertEqual("-B", python_checker["command"][1])
@@ -184,8 +175,10 @@ class LifecycleTests(unittest.TestCase):
             self.assertEqual(legacy_notes, (Path(result["legacy_archive"]) / "notes.txt").read_bytes())
             self.assertTrue((Path(result["legacy_archive"]) / "manifest.json").is_file())
             self.assertEqual(hashlib.sha256(old_ledger).hexdigest(), result["legacy_ledger_digest"])
-            self.assertEqual([], verify_ledger(root / ".ag2c" / "ledger.jsonl"))
-            self.assertEqual("chore: migrate DEG to AutoGovern2Code", str(git(root, "log", "-1", "--pretty=%s")).strip())
+            self.assertEqual([], verify_ledger(manifest.ledger_path))
+            self.assertFalse((root / "AGENTS.md").exists())
+            self.assertFalse((root / ".ag2c").exists())
+            self.assertEqual("chore: move AG2C governance outside the project", str(git(root, "log", "-1", "--pretty=%s")).strip())
 
 
 if __name__ == "__main__":

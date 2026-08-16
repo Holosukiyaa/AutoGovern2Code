@@ -7,6 +7,7 @@ from typing import Any
 
 from .errors import ConfigurationError
 from .model import Card, Checker, ContractBinding, Coverage, Manifest, Policy, Relation, Scope, Target
+from .storage import configured_manifest
 from .util import relative_config_path
 
 MANIFEST_SCHEMA = "ag2c.manifest.v1"
@@ -53,16 +54,21 @@ def discover_manifest(start: Path | None = None, explicit: Path | None = None) -
     if explicit is not None:
         return explicit.resolve()
     current = (start or Path.cwd()).resolve()
+    external = configured_manifest(current)
+    if external is not None:
+        if external.is_file():
+            return external
+        raise ConfigurationError(f"configured AG2C manifest does not exist: {external}")
     for directory in (current, *current.parents):
         candidate = directory / ".ag2c" / "manifest.json"
         if candidate.is_file():
             return candidate
     raise ConfigurationError(
-        "cannot find .ag2c/manifest.json; enroll the project with $ag2c-governed-development or pass --manifest"
+        "this Git project is not managed by AG2C; add it from the AutoGovern2Code tray app or pass --manifest"
     )
 
 
-def load_manifest(path: Path) -> Manifest:
+def load_manifest(path: Path, *, project_root: Path | None = None) -> Manifest:
     path = path.resolve()
     raw = _load_json(path)
     if raw.get("schema") != MANIFEST_SCHEMA:
@@ -71,10 +77,22 @@ def load_manifest(path: Path) -> Manifest:
     if not isinstance(project, dict):
         raise ConfigurationError("manifest.project must be an object")
     project_id = _identifier(project.get("id", ""), "project.id")
-    project_root = path.parent.parent.resolve()
-    policy_rel = relative_config_path(str(raw.get("policy", ".ag2c/policy.json")), "manifest.policy")
-    state_rel = relative_config_path(str(raw.get("state_dir", ".ag2c/state")), "manifest.state_dir")
-    ledger_rel = relative_config_path(str(raw.get("ledger", ".ag2c/ledger.jsonl")), "manifest.ledger")
+    configured_root = project.get("root")
+    if project_root is not None:
+        resolved_project_root = project_root.resolve()
+    elif configured_root is not None:
+        candidate = Path(str(configured_root)).expanduser()
+        resolved_project_root = candidate.resolve() if candidate.is_absolute() else (path.parent / candidate).resolve()
+    else:
+        resolved_project_root = path.parent.parent.resolve()
+    external = configured_root is not None
+    config_root = path.parent if external else resolved_project_root
+    policy_default = "policy.json" if external else ".ag2c/policy.json"
+    state_default = "state" if external else ".ag2c/state"
+    ledger_default = "ledger.jsonl" if external else ".ag2c/ledger.jsonl"
+    policy_rel = relative_config_path(str(raw.get("policy", policy_default)), "manifest.policy")
+    state_rel = relative_config_path(str(raw.get("state_dir", state_default)), "manifest.state_dir")
+    ledger_rel = relative_config_path(str(raw.get("ledger", ledger_default)), "manifest.ledger")
     raw_targets = raw.get("targets")
     if not isinstance(raw_targets, list) or not raw_targets:
         raise ConfigurationError("manifest.targets must be a non-empty list")
@@ -92,11 +110,11 @@ def load_manifest(path: Path) -> Manifest:
         raise ConfigurationError("manifest target ids must be unique")
     return Manifest(
         path=path,
-        project_root=project_root,
+        project_root=resolved_project_root,
         project_id=project_id,
-        policy_path=(project_root / policy_rel).resolve(),
-        state_dir=(project_root / state_rel).resolve(),
-        ledger_path=(project_root / ledger_rel).resolve(),
+        policy_path=(config_root / policy_rel).resolve(),
+        state_dir=(config_root / state_rel).resolve(),
+        ledger_path=(config_root / ledger_rel).resolve(),
         targets=tuple(targets),
     )
 

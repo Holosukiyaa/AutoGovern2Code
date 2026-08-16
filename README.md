@@ -1,101 +1,87 @@
 # AutoGovern2Code (AG2C)
 
-**Use your coding agent normally. AG2C automatically keeps every project change isolated, checked, evidenced, and safely integrated.**
+**Keep using your coding agent normally. AG2C puts the engineering process behind it.**
 
-[中文](README.zh-CN.md) | [Adoption](docs/ADOPTION.md) | [How automatic governance works](docs/AUTOMATIC_GOVERNANCE.md) | [Architecture and evidence](docs/ARCHITECTURE.md)
+[中文](README.zh-CN.md) | [Adoption](docs/ADOPTION.md) | [Automatic governance](docs/AUTOMATIC_GOVERNANCE.md) | [Architecture](docs/ARCHITECTURE.md)
 
-AutoGovern2Code is a local, open-source governance layer for AI coding. It is not another project-management UI and it does not ask users to operate cards, policies, or approval screens. Once a Git project is enrolled, its root instructions and AG2C Skill put supported coding agents on the governed construction path before the first write.
+AutoGovern2Code is a local, open-source governance layer for AI coding. Once a Git project is added, a compatible coding agent can discover AG2C through its installed Skill. AG2C routes the change, creates an external worktree, runs project checks, integrates only verified bytes, and keeps the evidence outside the project.
 
-## What changes for the user
+The project itself receives no `.ag2c` directory, no AG2C-generated `AGENTS.md` or `CLAUDE.md`, and no evidence files. Product build and runtime never depend on AG2C.
 
-Before AG2C:
+## Windows: install and choose a project
+
+Requirements: Windows 10 or 11 x64 and Git. Python is not required.
+
+1. Download `AutoGovern2Code-Setup-Windows-x64.exe` from the [latest GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest).
+2. Double-click the installer. It installs for the current user and starts the AG2C tray application.
+3. Open AG2C from the system tray, click **Add project**, and choose any non-empty Git repository.
+4. Continue using Codex, Claude Code, or another compatible harness in that repository as usual.
+
+The tray application starts with Windows. It lists every managed project and answers only the questions users need: is the project protected, can a coding agent enter correctly, has delivery enforcement been installed, and is there successful evidence? It does not expose cards or ask users to configure governance.
+
+The unsigned community installer may trigger Windows SmartScreen. Download it only from this repository, compare it with `SHA256SUMS.txt`, and use **More info > Run anyway** after verification.
+
+## What happens in the background
 
 ```text
-Ask an AI to change the project -> hope the right files and checks were used
+normal coding request
+  -> Skill detects that this Git repository is managed
+  -> AG2C routes responsibility before writing
+  -> work happens in an external Git worktree
+  -> actual diff determines the final scope
+  -> repository-native checks run
+  -> evidence is bound to the exact committed bytes
+  -> verified commit fast-forwards into the original branch
+  -> the tray shows the result and local evidence
 ```
 
-After one-time enrollment:
+If the canonical checkout is dirty, the branch moves, checks fail, scope is not governed, or evidence becomes stale, AG2C refuses delivery. A failed check remains in the record even after the AI corrects it.
+
+## Where governance lives
+
+On Windows, AG2C stores its registry, policy, indexes, worktrees, Ledger, and receipts below:
 
 ```text
-Ask an AI to change the project
-  -> route responsibility before writing
-  -> create an external Git worktree
-  -> implement only there
-  -> recompute scope from the actual diff
-  -> run trusted project checks
-  -> bind passing evidence to the exact bytes
-  -> fast-forward the verified commit
-  -> retain a tamper-evident record
+%LOCALAPPDATA%\AutoGovern2Code\
+  projects.json
+  projects\<project-key>\
 ```
 
-The user still says things like "fix this bug" or "add this feature." Governance stays in the background. Failures and proof remain visible.
+The Git repository keeps only local, untracked Git configuration pointing to that store and an external `core.hooksPath`. These values are inside `.git/config`; they do not enter commits or travel to another clone.
 
-## Install once on Windows
+Removing a project from the tray disconnects local enforcement but keeps its evidence by default. Uninstalling AG2C does not rewrite user repositories or erase evidence.
 
-Requirements: Windows 10 or 11 (x64), Git, and Codex, Claude Code, or another Agent Skills-compatible coding harness. Python is not required.
+## Agent compatibility
 
-1. Open the [latest GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest) and download `AutoGovern2Code-Setup-Windows-x64.exe`.
-2. Double-click it. The per-user installation needs no administrator access, terminal command, desktop application, or background service.
+The installer places the same Agent Skills-compatible Skill in Codex, Claude Code, and the generic user Skill location. The tray reports each detected entry separately.
 
-The installer adds the self-contained `ag2c` runtime to the user PATH and installs the same packaged Skill for Codex (`~/.codex/skills`), Claude Code (`~/.claude/skills`), and generic harnesses (`~/.agents/skills`). The wheel and source archive on the Release page are developer artifacts; Windows users do not need them.
+- A harness that supports Agent Skills can enter the complete automatic workflow.
+- An unknown harness may still be stopped by the Git delivery guard, but AG2C cannot promise that it will select the Skill before editing.
+- The local guard is a Git delivery boundary, not an operating-system write ACL. A process that deliberately edits Git configuration can bypass it.
 
-The current community installer is not code-signed, so Windows SmartScreen may show a warning. Download only from this repository's Release page, compare the file against the attached `SHA256SUMS.txt`, then use **More info > Run anyway**. Code signing will remove this warning once the project has a publisher certificate.
-
-After installation, open a clean Git project in your coding agent and ask it to enroll the project. There is no AG2C application to open.
+This release is intentionally single-user. Multi-user coordination and remote evidence exchange remain future work.
 
 ## macOS, Linux, and source development
 
-Python 3.11 or newer is required outside the Windows installer:
+The desktop installer is currently Windows-only. Python 3.11 or newer can run AG2C from a tagged GitHub source release:
 
 ```bash
-python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.5.0"
+python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.6.0"
 ag2c setup
 ```
 
-For local development from a cloned checkout:
+For a local source checkout:
 
 ```bash
 python -m pip install -e .
 ag2c setup
 ```
 
-`ag2c setup` installs one Agent Skills-standard Skill. Use `--harness codex`, `--harness claude`, or `--harness agents` to limit installation. It does not enroll the current directory unless the Skill explicitly calls `ag2c setup --project .`.
+These command-line paths are for non-Windows users and contributors. The wheel and source archive attached to a Release are developer artifacts; ordinary Windows users need only the installer.
 
-## Enroll one project
+## Evidence and CI
 
-Open a supported coding agent in a clean, non-empty Git repository and invoke the installed Skill to enroll the project. For Codex:
-
-```text
-$ag2c-governed-development enroll this project in AutoGovern2Code
-```
-
-Enrollment creates and commits reviewable `AGENTS.md` and `CLAUDE.md` gates plus `.ag2c` policy files. It also installs a machine-local Git guard, detects common native tests, builds the initial responsibility index, and records enrollment evidence.
-
-That is the last governance workflow the user needs to start. Future development requests automatically use AG2C because the coding harness reads the enrolled repository instructions before working.
-
-AG2C starts with conservative baseline coverage split by detected top-level project areas. Unknown or new paths broaden the route and checks instead of being guessed into a narrow area. Maintainers can later declare structured responsibilities and public contracts without changing the user workflow.
-
-## Automatic recovery and upgrades
-
-The Skill runs `ag2c guard status` before a change. After a clone, interpreter move, missing hook, or Skill update it runs `ag2c doctor --repair` before writing. Enrollment, upgrade, and legacy migration are recoverable transactions: a pre-commit failure restores files, staging, and hook configuration, while the next lifecycle command recovers an interrupted run. `ag2c upgrade` refreshes AG2C-managed areas and native checkers in a clean project. `ag2c migrate` converts a clean pre-public `.deg` enrollment, archives the complete original `.deg` contents under ignored state, and links the old Ledger digest from the new evidence chain.
-
-## What AG2C proves
-
-- The canonical checkout was not used as a construction directory.
-- A task and external worktree existed before the first governed write.
-- The final route was calculated from the actual Git diff, not only the AI's plan.
-- Failed checks stayed in history and a later pass proved the correction.
-- The passing evidence covered the exact bytes that were committed.
-- The original branch was still clean and unchanged at integration time.
-- The verified commit entered through a fast-forward merge.
-- Task evidence still agrees with the hash-chained Ledger.
-- A tracked receipt lets another checkout or CI verify the exact committed bytes and rerun the recorded trusted checks.
-
-Any missing fact produces an incomplete management result, never a false success.
-
-## Read the evidence
-
-The evidence interface is read-only:
+The tray is the normal evidence interface. Advanced local inspection remains read-only:
 
 ```bash
 ag2c evidence
@@ -103,39 +89,16 @@ ag2c evidence --task <task-id>
 ag2c evidence --format json
 ```
 
-The default output stays in user language: files changed, checks passed, failed attempts corrected, blocked unsafe actions, final commit, and evidence completeness. `--format json` retains the complete machine-readable record.
-
-## Verify in CI
-
-Every finished task commits one portable receipt under `.ag2c/receipts/`. A repository can make that proof independent from the developer machine:
-
-```yaml
-steps:
-  - uses: actions/checkout@v6
-    with:
-      ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      fetch-depth: 0
-  - uses: Holosukiyaa/AutoGovern2Code/.github/actions/verify@v0.5.0
-```
-
-The Action validates the receipt against Git objects and reruns the same trusted checker plan by default. See [portable receipts and CI](docs/CI_VERIFICATION.md).
-
-## Safety boundary
-
-AG2C is detachable development-time infrastructure. Enrolled products do not import AG2C and do not require it to build, test, or run. Removing the local AG2C installation removes the governed construction path, not product functionality.
-
-Version `0.4` targets one local user and one Git repository per enrollment. The local guard is not an operating-system security boundary. Shared teams still need protected remote branches and should make the AG2C Action a required check.
-
-Codex, Claude Code, and generic Agent Skills locations use the same deterministic CLI and persisted contracts. Harness adapters only provide discovery and always-loaded instructions; governance behavior remains tool-independent.
+Full governance evidence stays local so the project remains free of governance files. Commits contain only `AG2C-Task` and `AG2C-Evidence` message trailers. Another machine cannot reconstruct the full local Ledger from those digests alone; normal CI should independently run the project's tests and use branch protection. See [local evidence and CI](docs/CI_VERIFICATION.md).
 
 ## Maintainer documentation
 
-- [Adoption and clone activation](docs/ADOPTION.md)
+- [Adoption and migration](docs/ADOPTION.md)
 - [Automatic governance contract](docs/AUTOMATIC_GOVERNANCE.md)
 - [Architecture and evidence model](docs/ARCHITECTURE.md)
 - [Entry slicing](docs/ENTRY_SLICING.md)
 - [Policy reference](docs/POLICY_REFERENCE.md)
-- [Portable receipts and CI](docs/CI_VERIFICATION.md)
+- [Local evidence and CI](docs/CI_VERIFICATION.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
 

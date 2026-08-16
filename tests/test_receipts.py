@@ -17,34 +17,35 @@ from ag2c.tasks import finish_task, start_task, verify_task
 from support import git_project
 
 
-class PortableReceiptTests(unittest.TestCase):
-    def test_receipt_survives_prior_task_commit_and_reruns_checks(self) -> None:
+class ExternalEvidenceTests(unittest.TestCase):
+    def test_external_evidence_survives_prior_task_commit_and_reruns_checks(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
             root = git_project(workspace / "项目 with spaces")
-            enroll_project(root, project_id="portable-project", skill_root=workspace / "skills")
+            enroll_project(root, project_id="local-evidence-project", skill_root=workspace / "skills")
             task = start_task(
                 root,
-                goal="add a portable note",
+                goal="add a locally evidenced note",
                 path_specs=["app:NOTE.md"],
                 contract_specs=[],
-                task_id="portable-note",
+                task_id="local-note",
                 worktree_root=workspace / "worktrees",
             )
             worktree = Path(task["worktree"]["path"])
-            (worktree / "NOTE.md").write_text("portable proof\n", encoding="utf-8")
+            (worktree / "NOTE.md").write_text("local proof\n", encoding="utf-8")
             git(worktree, "add", "NOTE.md")
             git(worktree, "commit", "-m", "docs: checkpoint note")
             self.assertTrue(verify_task(worktree)["passed"])
 
-            completed = finish_task(root, "portable-note", message="docs: add portable note")
-            receipt_path = root / completed["result"]["receipt_path"]
+            completed = finish_task(root, "local-note", message="docs: add local note")
+            receipt_path = Path(completed["result"]["receipt_path"])
             self.assertTrue(receipt_path.is_file())
+            self.assertFalse((root / ".ag2c").exists())
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-            self.assertEqual("ag2c.receipt.v1", receipt["schema"])
+            self.assertEqual("ag2c.receipt.v2", receipt["schema"])
             self.assertEqual(["NOTE.md"], receipt["changed_paths"])
             report = verify_commit_receipt(root, completed["result"]["commit"], rerun=True)
-            self.assertEqual("valid", report["portable_receipt"])
+            self.assertEqual("valid", report["local_evidence"])
             self.assertEqual("passed", report["rerun"])
 
     def test_tampered_receipt_is_rejected(self) -> None:
@@ -64,15 +65,12 @@ class PortableReceiptTests(unittest.TestCase):
             (worktree / "NOTE.md").write_text("proof\n", encoding="utf-8")
             self.assertTrue(verify_task(worktree)["passed"])
             completed = finish_task(root, "tamper-note", message="docs: add note")
-            receipt_path = root / completed["result"]["receipt_path"]
+            receipt_path = Path(completed["result"]["receipt_path"])
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
             receipt["goal"] = "forged goal"
             receipt_path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
-            git(root, "add", str(receipt_path.relative_to(root)))
-            git(root, "-c", "core.hooksPath=", "commit", "-m", "tamper receipt")
-
-            with self.assertRaisesRegex(AG2CError, "receipt digest mismatch"):
-                verify_commit_receipt(root)
+            with self.assertRaisesRegex(AG2CError, "evidence digest mismatch"):
+                verify_commit_receipt(root, completed["result"]["commit"])
 
     def test_ci_rerun_rejects_a_checker_that_mutates_governed_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

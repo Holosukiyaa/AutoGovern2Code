@@ -11,6 +11,7 @@ from . import __version__
 from .checks import run_checks
 from .config import discover_manifest, load_manifest, load_policy
 from .errors import AG2CError
+from .gitops import repository_root
 from .index import build_index, findings, index_path, summary, verify_freshness
 from .ledger import ledger_summary, verify_ledger
 from .render import render_slice_markdown
@@ -33,7 +34,13 @@ def _write_output(content: str, output: Path | None) -> None:
 
 def _loaded(args: argparse.Namespace):
     manifest_path = discover_manifest(explicit=args.manifest)
-    manifest = load_manifest(manifest_path)
+    project_root = None
+    if args.manifest is None:
+        try:
+            project_root = repository_root(Path.cwd())
+        except AG2CError:
+            pass
+    manifest = load_manifest(manifest_path, project_root=project_root)
     return manifest, load_policy(manifest)
 
 
@@ -76,7 +83,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="AutoGovern2Code: zero-touch governance for AI coding changes",
     )
     parser.add_argument("--version", action="version", version=f"AutoGovern2Code {__version__}")
-    parser.add_argument("--manifest", type=Path, help="path to .ag2c/manifest.json")
+    parser.add_argument("--manifest", type=Path, help="path to an AG2C manifest")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     setup = subparsers.add_parser("setup", help="install AG2C and optionally enroll, migrate, or upgrade one project")
@@ -85,7 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup.add_argument("--skill-destination", type=Path)
     _add_harness_arguments(setup)
 
-    enroll = subparsers.add_parser("enroll", help="enroll a clean Git project in AutoGovern2Code")
+    enroll = subparsers.add_parser("enroll", help="add a Git project to AutoGovern2Code")
     enroll.add_argument("path", type=Path, nargs="?", default=Path.cwd())
     enroll.add_argument("--project-id")
     _add_harness_arguments(enroll)
@@ -121,6 +128,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_harness_arguments(skill_uninstall)
 
+    project = subparsers.add_parser("project", help="manage externally governed projects")
+    project_commands = project.add_subparsers(dest="project_command", required=True)
+    project_list = project_commands.add_parser("list")
+    project_list.add_argument("--format", choices=("text", "json"), default="text")
+    project_add = project_commands.add_parser("add")
+    project_add.add_argument("path", type=Path)
+    project_status = project_commands.add_parser("status")
+    project_status.add_argument("path", type=Path, nargs="?", default=Path.cwd())
+    project_remove = project_commands.add_parser("remove")
+    project_remove.add_argument("path", type=Path)
+    project_remove.add_argument("--remove-data", action="store_true")
+
+    desktop = subparsers.add_parser("desktop", help="internal desktop management service")
+    desktop_commands = desktop.add_subparsers(dest="desktop_command", required=True)
+    desktop_serve = desktop_commands.add_parser("serve")
+    desktop_serve.add_argument("--port", type=int, default=18992)
+    desktop_serve.add_argument("--token", required=True)
+
     guard = subparsers.add_parser("guard", help="internal activation and Git enforcement")
     guard_commands = guard.add_subparsers(dest="guard_command", required=True)
     guard_commands.add_parser("status")
@@ -146,7 +171,7 @@ def build_parser() -> argparse.ArgumentParser:
     coverage = subparsers.add_parser("coverage", help="show the current conservative governance coverage")
     coverage.add_argument("--format", choices=("text", "json"), default="text")
 
-    ci = subparsers.add_parser("ci", help="verify a portable AG2C receipt and optionally rerun trusted checks")
+    ci = subparsers.add_parser("ci", help="verify local AG2C evidence and optionally rerun trusted checks")
     ci_commands = ci.add_subparsers(dest="ci_command", required=True)
     ci_verify = ci_commands.add_parser("verify")
     ci_verify.add_argument("--commit", default="HEAD")
@@ -230,7 +255,7 @@ def _print_evidence(report: dict[str, Any]) -> None:
         else:
             print("AI correction: not required")
         print(f"Blocked unsafe actions: {len(task['blocked_actions'])}")
-        print(f"Portable proof: {task['portable_receipt']['status']}")
+        print(f"Local evidence: {task['local_evidence']['status']}")
         if task["result"]:
             print(f"Merged commit: {task['result']['commit']}")
         print(f"Evidence: {'complete' if task['evidence_complete'] else 'incomplete'}")
@@ -317,6 +342,32 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             return 0
+        if args.command == "project":
+            from .management import add_project, managed_projects, project_status, stop_managing
+
+            if args.project_command == "list":
+                projects = managed_projects()
+                if args.format == "json":
+                    print(_json(projects))
+                else:
+                    if not projects:
+                        print("No projects are managed by AutoGovern2Code.")
+                    for item in projects:
+                        print(f"[{item['state']}] {item['name']} - {item['root']}")
+                return 0
+            if args.project_command == "add":
+                print(_json(add_project(args.path)))
+                return 0
+            if args.project_command == "status":
+                result = project_status(args.path)
+                print(_json(result))
+                return 0 if result["managed"] else 1
+            print(_json(stop_managing(args.path, remove_data=bool(args.remove_data))))
+            return 0
+        if args.command == "desktop":
+            from .desktop import serve_desktop
+
+            return serve_desktop(port=args.port, token=args.token)
         if args.command == "guard":
             from .enrollment import activation_status, guard_pre_commit
 
@@ -377,10 +428,10 @@ def main(argv: list[str] | None = None) -> int:
             if args.format == "json":
                 print(_json(report))
             else:
-                print(f"Portable receipt: {report['portable_receipt']}")
+                print(f"Local evidence: {report['local_evidence']}")
                 print(f"Commit: {report['commit']}")
                 print(f"Trusted checks recorded: {report['checks']}")
-                print(f"CI rerun: {report['rerun']}")
+                print(f"Check rerun: {report['rerun']}")
             return 0
         manifest, policy = _loaded(args)
         if args.command == "coverage":

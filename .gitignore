@@ -5,6 +5,9 @@ examples/**/.ag2c/ledger.jsonl.lock
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.playwright-cli/
+output/playwright/
+examples/minimal-governance/.state/
 .coverage
 htmlcov/
 build/

@@ -1,60 +1,56 @@
 # 接入 AutoGovern2Code
 
-用户不需要先学习 AG2C 的内部治理模型。安装一次、明确纳管一次，之后正常使用 Codex 即可。
+Windows 用户接入 AG2C 只有一个动作：在托盘程序里选择 Git 工程。用户不用创建治理文件，也不用输入纳管命令。
 
 ## 安装
 
-Windows 10 或 11（x64）用户从[最新 GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)下载 `AutoGovern2Code-Setup-Windows-x64.exe`，然后双击即可。安装器只写入当前用户目录，不需要管理员权限，自带 Python 运行环境，会把 `ag2c` 加入用户 PATH，并安装所需 Skill；它不是桌面应用，也不会常驻后台。
+从[最新 GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)下载 `AutoGovern2Code-Setup-Windows-x64.exe` 并双击。安装器会：
 
-目前社区安装器还没有代码签名。如果 Windows SmartScreen 拦截，先用 Release 同页的 `SHA256SUMS.txt` 核对下载文件，再选择“更多信息 > 仍要运行”；不要运行从其他网站取得的副本。
+- 给当前用户安装自带运行环境的 AG2C，不要求 Python、管理员权限；
+- 把同一份 Skill 安装到 Codex、Claude Code 和通用 Agent Skills 目录；
+- 把运行时加入用户 PATH，供 AI 自动调用；
+- 启动托盘程序，并让它随当前用户登录启动。
 
-macOS 或 Linux 用户需要 Python 3.11 或更高版本：
+托盘是本地桌面程序，不是 Web 管理台，也不是 Windows 服务。关闭窗口只是缩回托盘；已经纳管工程的 Git Guard 仍然独立生效。
 
-```bash
-python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.5.0"
-ag2c setup
-```
+## 加入现有工程
 
-AG2C 只通过 GitHub Releases 发布。Release 里的 wheel 和源码包是开发者产物。本地源码开发使用 `python -m pip install -e .`。
+从托盘打开 AG2C，点击“添加工程”，选择一个非空 Git 仓库的根目录。AG2C 会：
 
-`ag2c setup` 会把同一份 Skill 安装到 Codex、Claude Code 和通用 Agent Skills 的用户目录；可以重复使用 `--harness` 只选择需要的入口。
+1. 检测仓库的顶层区域和原生检查命令；
+2. 在外部目录建立 Manifest、Policy、索引、Ledger、Hook 和工程记录；
+3. 只向本机 `.git/config` 写入外部指针；
+4. 保留已有 `pre-commit` Hook，并在 AG2C 通过后继续调用它；
+5. 不改变工作区、暂存区和 HEAD。
 
-Windows 卸载程序会删除自带运行环境、用户 PATH 项，以及安装后没有被用户修改过的 Skill。它不会改写已经纳管的工程，也不会删除工程证据；以后还要修改这些工程时，重新双击安装 AG2C 即可。
+有未提交修改的工程也可以先加入列表，但托盘会显示“需要处理”，正式工作副本恢复干净前，AG2C 不会启动受治理施工。
 
-## 纳管一次
+工程里不会新增 `.ag2c`、AG2C 生成的 `AGENTS.md`、`CLAUDE.md` 或凭证，也不会为了纳管产生一次工程提交。
 
-在干净且非空的 Git 工程中打开 Codex，然后说：
+## 平时怎么用
 
-```text
-$ag2c-governed-development 把这个工程纳入 AutoGovern2Code
-```
+以后照常向编程 AI 提需求。兼容的 harness 会选择 `ag2c-governed-development` Skill，Skill 再通过本机 Git 配置识别这个工程已经纳管。路由、外部 worktree、验证、提交、fast-forward 合并和证据记录都由它完成。
 
-AG2C 会生成并提交可审查的根级 `AGENTS.md`、`CLAUDE.md` 门禁和 `.ag2c` 配置，保留已有内容、`.gitignore` 与 pre-commit hook，并完成本机激活。
+托盘把三个事实分开显示：
 
-Skill 内部只调用 `ag2c setup --project .`。这个入口会自动判断应该首次纳管、迁移旧 `.deg`，还是升级已有工程，不要求用户分辨。
+- **AI 入口就绪**：至少一个已支持的 harness 安装了当前 Skill；
+- **交付门禁生效**：外部治理数据有效，并已启用 Git Guard；
+- **已观察到 AI 治理**：至少有一个完成任务留下了成功证据。
 
-## 正常工作
+这样不会把“装过 Skill”冒充成“AI 已经被成功管理”。
 
-以后直接向 Codex 提出产品需求。根级门禁会要求 Codex 在首次写入前使用 Skill；Skill 会在后台完成路由、外部 worktree、验证、提交、fast-forward 合并和证据记录。
+## 换电脑或重新 clone
 
-## 查看证据
+纳管信息故意不跟 Git 传播。换电脑后重新安装 AG2C，在托盘里把新的 clone 再加入一次即可。不同 clone 可以有不同路径、工具和 worktree，所以各自保存治理状态更符合实际。
 
-```bash
-ag2c evidence
-ag2c evidence --task <task-id>
-ag2c evidence --format json
-```
+## 停止管理或卸载
 
-默认输出只展示文件数、检查结果、AI 是否在失败后完成纠正、阻止过的危险操作、最终提交和证据完整性。只有任务从首次写入前就被接管、最终内容通过验证、相同内容进入提交、合并为 fast-forward 且 Ledger 完整时，治理结果才是成功。
+托盘里的“停止管理”会恢复之前的 `core.hooksPath`，移除本机 Git 指针，并从工程列表中移除项目。历史证据默认保留。
 
-每个成功任务还会提交一份可移植凭证。可以运行 `ag2c ci verify --commit HEAD --rerun`，或使用公开 GitHub Action，在不依赖本机忽略证据的情况下独立复核。
+Windows 卸载程序会删除运行时、开机启动项、PATH 项和未被用户修改的 Skill，但不会改写用户工程，也不会删除外部证据。
 
-## 换电脑或重新克隆
+## 旧版本迁移
 
-仓库中的纳管门禁会随 Git 传播，本机 Skill 和 Git Guard 不会。先在新机器安装 AutoGovern2Code 并运行 `ag2c setup`，再正常用 Codex 打开工程。Skill 发现本机未激活时会先执行 `ag2c doctor --repair`，恢复 Skill、Guard、已有 Hook 委托、索引和激活证据，然后才允许写入。
+选择带有旧 `.ag2c` 或 `.deg` 的仓库时，AG2C 会把治理内容和历史证据搬到外部。由于这一步需要从仓库删除旧治理文件，它会在干净正式工作副本中创建一个范围很小的维护提交；只删除旧治理目录和 AG2C 管理的说明块，不碰用户自己的说明。
 
-## 升级与迁移
-
-- `ag2c upgrade` 在干净正式工作副本中刷新 AG2C 自动维护的基线区域、原生检查、工程门禁、Skill、Hook 和索引，只提交确实变化的治理文件。
-- `ag2c migrate` 迁移旧 `.deg` 工程。原 `.deg` 全部内容归档到 `.ag2c/state/legacy-deg`，新 Ledger 只记录旧 Ledger 摘要，不伪造历史。
-- `ag2c doctor --repair` 只修复本机激活；损坏的 Ledger 不会被冒充修好。
+给 AI 和维护者使用的等价命令是 `ag2c setup --project .`、`ag2c upgrade`、`ag2c migrate` 和 `ag2c doctor --repair`。

@@ -1,101 +1,87 @@
 # AutoGovern2Code（AG2C）
 
-**照常使用你的编程 AI。AG2C 会自动隔离、检查、证明并安全合并每一次工程修改。**
+**照常使用你的编程 AI，工程治理放在它背后自动完成。**
 
-[English](README.md) | [接入说明](docs/zh-CN/ADOPTION.md) | [自动治理原理](docs/zh-CN/AUTOMATIC_GOVERNANCE.md) | [架构与证据](docs/ARCHITECTURE.md)
+[English](README.md) | [接入说明](docs/zh-CN/ADOPTION.md) | [自动治理](docs/zh-CN/AUTOMATIC_GOVERNANCE.md) | [架构](docs/ARCHITECTURE.md)
 
-AutoGovern2Code 是给 AI 编程使用的本地开源治理层。它不是另一套项目管理台，也不会要求用户操作卡片、策略或审批页面。一个 Git 工程完成一次纳管后，根级说明和 AG2C Skill 会让受支持的编程 AI 在首次写入之前自动进入受治理施工流程。
+AutoGovern2Code 是一层本地、开源的 AI 编程治理工具。一个 Git 工程被加入管理后，兼容的编程 AI 会通过已安装的 Skill 发现 AG2C。之后，责任路由、外部 worktree、项目检查、验证后合并和证据记录都在后台完成。
 
-## 用户体验发生了什么变化
+用户工程里不会出现 `.ag2c` 目录，不会由 AG2C 生成 `AGENTS.md` 或 `CLAUDE.md`，也不会混入治理凭证。产品的构建和运行永远不依赖 AG2C。
 
-没有 AG2C 时：
+## Windows 用户怎么用
+
+只需要 Windows 10/11 x64 和 Git，不需要 Python。
+
+1. 从[最新 GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)下载 `AutoGovern2Code-Setup-Windows-x64.exe`。
+2. 双击安装。安装器只写入当前用户，并自动启动 AG2C 托盘程序。
+3. 从系统托盘打开 AG2C，点击“添加工程”，选择一个非空的 Git 工程目录。
+4. 回到 Codex、Claude Code 或其他兼容工具里，继续像以前一样提开发需求。
+
+托盘程序会随 Windows 启动。它只展示普通用户关心的结果：工程有没有管起来、AI 入口是否就绪、交付门禁是否生效、有没有成功治理的证据。用户不需要理解卡片、策略、切片或审批流程。
+
+社区安装器目前没有代码签名，Windows SmartScreen 可能会警告。请只从本仓库下载，先按 `SHA256SUMS.txt` 核对文件，再选择“更多信息 > 仍要运行”。
+
+## 后台实际做了什么
 
 ```text
-让 Codex 修改工程 -> 只能希望它找对文件、跑对检查
+用户正常提出开发需求
+  -> Skill 识别当前 Git 工程已被纳管
+  -> AG2C 在写入前确定责任范围
+  -> AI 只在工程外的 Git worktree 施工
+  -> 最终范围按实际 diff 重新计算
+  -> 运行工程自己的测试和检查
+  -> 把证据绑定到最终提交的精确内容
+  -> 只把验证过的提交 fast-forward 合回原分支
+  -> 托盘展示结果与本机证据
 ```
 
-完成一次纳管后：
+正式工作副本不干净、分支发生变化、检查失败、修改超出治理范围或证据过期，都会阻止交付。AI 先失败再修好的过程也会保留，不会只留下一个“成功”。
+
+## 治理数据放在哪里
+
+Windows 默认位置：
 
 ```text
-正常向 Codex 提开发需求
-  -> 写入前确定责任范围
-  -> 在工程外创建 Git worktree
-  -> AI 只在 worktree 施工
-  -> 按实际 diff 重新计算范围
-  -> 运行工程自己的可信检查
-  -> 把通过证据绑定到这份修改的精确字节
-  -> fast-forward 合并已验证提交
-  -> 留下可校验的治理记录
+%LOCALAPPDATA%\AutoGovern2Code\
+  projects.json
+  projects\<工程标识>\
 ```
 
-用户仍然只需要说“修复这个问题”或“实现这个功能”。治理留在后台，但失败原因和成功证据不会被隐藏。
+策略、索引、任务 worktree、Ledger 和凭证都在这里。用户工程只在本机 `.git/config` 中留下外部位置和 `core.hooksPath` 指针；它们不会被 Git 提交，也不会传播到别人的 clone。
 
-## 在 Windows 上安装一次
+从托盘停止管理某个工程时，默认只解除本机门禁，历史证据仍然保留。卸载 AG2C 也不会改写用户工程或删除证据。
 
-需要 Windows 10 或 11（x64）、Git，以及 Codex、Claude Code 或兼容 Agent Skills 的编程工具；不需要 Python。
+## 支持哪些 AI
 
-1. 打开[最新 GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)，下载 `AutoGovern2Code-Setup-Windows-x64.exe`。
-2. 双击安装。它只安装到当前用户，不需要管理员权限，不需要输入命令，也不会安装桌面管理程序或后台常驻服务。
+安装器会把同一份 Agent Skills 标准 Skill 安装到 Codex、Claude Code 和通用 Skill 目录，托盘会分别检测这些入口。
 
-安装器会把自带运行环境的 `ag2c` 加入用户 PATH，并自动把同一份 Skill 安装到 Codex（`~/.codex/skills`）、Claude Code（`~/.claude/skills`）和通用位置（`~/.agents/skills`）。Release 页面里的 wheel 和源码包是给开发者准备的，Windows 普通用户不用下载。
+- 支持 Agent Skills 的工具可以进入完整的无感流程。
+- 对没有 Skill 机制的未知工具，Git 交付门禁仍可能阻止不合规提交，但不能保证它在编辑前主动进入 AG2C。
+- 本机 Guard 是 Git 交付边界，不是操作系统文件权限。一个故意篡改 Git 配置的进程仍然可以绕过它。
 
-目前这个社区安装器还没有代码签名，Windows SmartScreen 可能会提示风险。只从本仓库 Release 页面下载，按同页的 `SHA256SUMS.txt` 核对文件后，选择“更多信息 > 仍要运行”。项目取得发布者证书后才能消除这个系统提示。
-
-安装完成后，在干净的 Git 工程里正常打开编程 AI，让它“把这个工程纳入 AG2C 管理”即可；没有需要启动的 AG2C 应用。
+当前版本先把单人、本地工作流打磨好；多人协调和跨机器证据交换属于后续能力。
 
 ## macOS、Linux 与源码开发
 
-Windows 安装器以外的方式需要 Python 3.11 或更高版本：
+桌面安装器目前只支持 Windows。macOS、Linux 和源码开发需要 Python 3.11 或更高版本：
 
 ```bash
-python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.5.0"
+python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.6.0"
 ag2c setup
 ```
 
-从本地源码参与开发：
+从本地源码运行：
 
 ```bash
 python -m pip install -e .
 ag2c setup
 ```
 
-`ag2c setup` 会安装同一份标准 Skill。也可以用 `--harness codex`、`--harness claude` 或 `--harness agents` 只装所需入口。只有 Skill 明确执行 `ag2c setup --project .` 时才会纳管当前工程。
+这些命令面向非 Windows 用户和开发者。Release 中的 wheel 与源码包也是开发产物；Windows 普通用户只下载安装器。
 
-## 纳管一个工程
+## 证据和 CI
 
-在一个干净且非空的 Git 工程中打开编程 AI，然后调用已安装的 Skill。以 Codex 为例：
-
-```text
-$ag2c-governed-development 把这个工程纳入 AutoGovern2Code
-```
-
-纳管会生成并提交可审查的根级 `AGENTS.md`、`CLAUDE.md` 门禁和 `.ag2c` 策略文件，同时安装本机 Git Guard、识别常见原生测试、建立初始责任索引并记录纳管证据。
-
-这是用户最后一次主动启动治理流程。以后只需要正常提出开发需求；Codex 开工前会读取已纳管工程的说明并自动使用 AG2C。
-
-首次纳管只声明“保守基线覆盖”：AG2C 按检测到的顶层工程区域拆分责任，遇到未知或新增路径时扩大路由和检查，不会假装已经理解全部业务架构。维护者以后可以继续补充结构化责任和公开合同，但用户工作流不变。
-
-## 自动恢复与升级
-
-Skill 每次开工前都会检查本机状态。重新克隆、Python 路径变化、Hook 缺失或 Skill 更新后，它会先运行 `ag2c doctor --repair` 再施工。纳管、升级和旧版迁移现在是可恢复事务：提交前失败会恢复文件、暂存区和 Hook；进程中断后，下次命令会自动恢复。`ag2c upgrade` 会刷新 AG2C 自动维护的区域和原生检查；`ag2c migrate` 会把旧 `.deg` 完整归档，原 Ledger 字节按摘要关联，不会被伪造重写。
-
-## AG2C 能证明什么
-
-- 正式工作副本没有被当成施工目录。
-- 首次受治理写入前已经存在任务记录和外部 worktree。
-- 最终责任范围来自实际 Git diff，而不只是 AI 自己的计划。
-- 检查失败不会被后续通过覆盖，修复后的通过可以证明纠正过程。
-- 通过证据对应的就是最终提交的精确内容。
-- 合并时原分支仍然干净且 HEAD 没有变化。
-- 已验证提交通过 fast-forward 进入原分支。
-- 任务证据与哈希链 Ledger 仍然相互一致。
-- 提交内的凭证可以让另一台机器或 CI 核对精确内容，并重跑同一组可信检查。
-
-缺少任何一项，只能得到“治理不完整”，不能冒充成功。
-
-## 查看证据
-
-证据入口只读：
+普通用户直接在托盘里看证据。高级用户仍可只读查询：
 
 ```bash
 ag2c evidence
@@ -103,39 +89,16 @@ ag2c evidence --task <task-id>
 ag2c evidence --format json
 ```
 
-默认输出只说用户关心的事实：改了几个文件、检查通过几项、失败后是否完成纠正、阻止过几次危险操作、最终提交和证据是否完整。`--format json` 保留完整机器记录。
-
-## 在 CI 中复核
-
-每个完成的任务都会在 `.ag2c/receipts/` 下提交一份可移植凭证。仓库可以直接使用公开 Action：
-
-```yaml
-steps:
-  - uses: actions/checkout@v6
-    with:
-      ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      fetch-depth: 0
-  - uses: Holosukiyaa/AutoGovern2Code/.github/actions/verify@v0.5.0
-```
-
-它会先按 Git 对象核对凭证，默认再重跑同一组可信检查。详见[可移植凭证与 CI](docs/zh-CN/CI_VERIFICATION.md)。
-
-## 技术边界
-
-AG2C 是可拆除的开发期基础设施。被纳管产品不导入 AG2C，也不依赖 AG2C 才能构建、测试或运行。移除本机 AG2C 只会移除受治理施工路径，不会改变产品功能。
-
-`0.4` 版本面向单人、本地 Git 工作流，每个工程独立纳管。本机 Guard 不是操作系统级安全边界；多人协作仍然需要远端受保护分支，并应把 AG2C Action 设为必需检查。
-
-Codex、Claude Code 和通用 Agent Skills 位置使用同一套确定性 CLI 与持久化合同。harness 适配层只负责发现 Skill 和读取工程入口，不改变治理行为。
+为了保持项目零治理文件，完整证据只保存在本机外部目录。提交消息只带 `AG2C-Task` 和 `AG2C-Evidence` 摘要。另一台机器不能只靠摘要还原本机 Ledger；远端 CI 应独立运行项目测试并配合分支保护。详见[本机证据与 CI](docs/zh-CN/CI_VERIFICATION.md)。
 
 ## 维护者文档
 
-- [接入与换机激活](docs/zh-CN/ADOPTION.md)
+- [接入、换机与旧版迁移](docs/zh-CN/ADOPTION.md)
 - [自动治理合同](docs/zh-CN/AUTOMATIC_GOVERNANCE.md)
 - [架构与证据模型](docs/ARCHITECTURE.md)
 - [入口切片](docs/zh-CN/ENTRY_SLICING.md)
 - [策略参考](docs/POLICY_REFERENCE.md)
-- [可移植凭证与 CI](docs/zh-CN/CI_VERIFICATION.md)
+- [本机证据与 CI](docs/zh-CN/CI_VERIFICATION.md)
 - [参与贡献](CONTRIBUTING.md)
 - [安全策略](SECURITY.md)
 

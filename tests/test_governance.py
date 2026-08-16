@@ -15,7 +15,7 @@ from ag2c.errors import AG2CError
 from ag2c.gitops import git, head
 from ag2c.tasks import evidence, finish_task, start_task, verify_task
 
-from support import git_project
+from support import external_manifest, external_state, git_project
 
 
 class AutomaticGovernanceTests(unittest.TestCase):
@@ -31,16 +31,19 @@ class AutomaticGovernanceTests(unittest.TestCase):
             status = activation_status(root)
             self.assertTrue(status["managed"], status)
             self.assertTrue((workspace / "skills" / "ag2c-governed-development" / "SKILL.md").is_file())
-            self.assertIn("Do not edit this canonical checkout", (root / "AGENTS.md").read_text(encoding="utf-8"))
-            enrollment = json.loads((root / ".ag2c" / "enrollment.json").read_text(encoding="utf-8"))
+            self.assertFalse((root / ".ag2c").exists())
+            self.assertFalse((root / "AGENTS.md").exists())
+            manifest = external_manifest(root)
+            self.assertNotEqual(root, manifest.path.parent)
+            enrollment = json.loads((manifest.path.parent / "enrollment.json").read_text(encoding="utf-8"))
             self.assertEqual("ag2c.enrollment.v1", enrollment["schema"])
-            policy = json.loads((root / ".ag2c" / "policy.json").read_text(encoding="utf-8"))
+            policy = json.loads(manifest.policy_path.read_text(encoding="utf-8"))
             python_checker = next(item for item in policy["checkers"] if item["id"] == "check.python")
             self.assertEqual(
                 ["python", "-B", "-m", "unittest", "discover", "-s", "tests"],
                 python_checker["command"],
             )
-            self.assertEqual("chore: enroll project in AG2C", str(git(root, "log", "-1", "--pretty=%s")).strip())
+            self.assertEqual("initial", str(git(root, "log", "-1", "--pretty=%s")).strip())
 
     def test_frozen_runtime_is_written_directly_into_git_guard(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -58,7 +61,7 @@ class AutomaticGovernanceTests(unittest.TestCase):
             self.assertTrue(status["managed"], status)
             activation = status["activation"]
             self.assertEqual([str(executable.resolve())], activation["runtime_command"])
-            hook = (root / ".ag2c" / "state" / "hooks" / "pre-commit").read_text(encoding="utf-8")
+            hook = (external_state(root) / "hooks" / "pre-commit").read_text(encoding="utf-8")
             self.assertIn(executable.resolve().as_posix(), hook)
             self.assertNotIn(" -m ag2c", hook)
 
@@ -89,7 +92,7 @@ class AutomaticGovernanceTests(unittest.TestCase):
             existing_hook.write_text(f"#!/bin/sh\nprintf delegated > '{proof}'\n", encoding="utf-8", newline="\n")
             existing_hook.chmod(0o755)
             enroll_project(root, project_id="managed-project", skill_root=workspace / "skills")
-            (workspace / "existing-hook-ran.txt").unlink()
+            (workspace / "existing-hook-ran.txt").unlink(missing_ok=True)
             task = start_task(
                 root,
                 goal="exercise the existing hook",
@@ -159,7 +162,7 @@ class AutomaticGovernanceTests(unittest.TestCase):
             test_file = worktree / "tests" / "test_value.py"
             test_file.write_text(test_file.read_text(encoding="utf-8") + "\n# evidence coverage\n", encoding="utf-8")
             self.assertTrue(verify_task(worktree)["passed"])
-            record_path = root / ".ag2c" / "state" / "tasks" / "tampered-verification.json"
+            record_path = external_state(root) / "tasks" / "tampered-verification.json"
             record = json.loads(record_path.read_text(encoding="utf-8"))
             record["verifications"][-1]["change_digest"] = "0" * 64
             record_path.write_text(json.dumps(record), encoding="utf-8")
@@ -168,22 +171,26 @@ class AutomaticGovernanceTests(unittest.TestCase):
                 finish_task(root, "tampered-verification", message="test: reject forged evidence")
             self.assertFalse(evidence(root, "tampered-verification")["tasks"][0]["evidence_complete"])
 
-    def test_deleting_agents_file_is_blocked(self) -> None:
+    def test_task_worktree_contains_no_governance_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
             root = self.enrolled(workspace)
             task = start_task(
                 root,
-                goal="attempt to delete the instructions",
-                path_specs=["app:AGENTS.md"],
+                goal="prove governance stays external",
+                path_specs=["app:tests/test_value.py"],
                 contract_specs=[],
-                task_id="delete-agents",
+                task_id="external-controls",
                 worktree_root=workspace / "worktrees",
             )
             worktree = Path(task["worktree"]["path"])
-            (worktree / "AGENTS.md").unlink()
-            with self.assertRaisesRegex(AG2CError, "governance controls"):
-                verify_task(worktree)
+            self.assertFalse((worktree / ".ag2c").exists())
+            self.assertFalse((worktree / "AGENTS.md").exists())
+            self.assertTrue((external_state(root) / "tasks" / "external-controls.json").is_file())
+            test_file = worktree / "tests" / "test_value.py"
+            test_file.write_text(test_file.read_text(encoding="utf-8") + "\n# external controls\n", encoding="utf-8")
+            self.assertTrue(verify_task(worktree)["passed"])
+            finish_task(root, "external-controls", message="test: prove external controls")
 
     def test_changed_skill_invalidates_activation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -286,7 +293,7 @@ class AutomaticGovernanceTests(unittest.TestCase):
             self.assertEqual("successful", report["tasks"][0]["management_result"])
             self.assertEqual(completed["result"]["commit"], report["tasks"][0]["result"]["commit"])
 
-            record_path = root / ".ag2c" / "state" / "tasks" / "value-change.json"
+            record_path = external_state(root) / "tasks" / "value-change.json"
             record = json.loads(record_path.read_text(encoding="utf-8"))
             record["start_ledger_event_digest"] = "0" * 64
             record_path.write_text(json.dumps(record), encoding="utf-8")

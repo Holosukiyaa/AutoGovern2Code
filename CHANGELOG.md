@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0 - 2026-08-16
+
+- Added a per-user Windows tray application, adapted from the CartridgeFlow Runtime Shell pattern, with native folder selection, managed-project status, harness readiness, recheck, evidence, and detach actions.
+- Moved Manifest, Policy, indexes, worktrees, Ledger, receipts, hooks, and project registry to the per-user external AG2C data directory.
+- Made new enrollment leave the project working tree, index, and history unchanged; only local Git configuration points to external governance.
+- Added transactional externalization for tracked `.ag2c` and legacy `.deg` projects while preserving evidence outside the project.
+- Replaced project instruction gates with Skill-based discovery and kept the external pre-commit guard as the delivery boundary.
+- Changed completed commits to carry only `AG2C-Task` and `AG2C-Evidence` trailers while retaining full receipts locally.
+- Removed the portable-receipt GitHub Action because remote runners cannot honestly reconstruct deliberately external local evidence.
+- Updated the one-click installer to start the tray application at user login and extended Windows smoke coverage for project cleanliness and startup registration.
+- Moved the routing example's governance fixture outside the example project and rewrote adoption, architecture, evidence, and entry-slicing documentation around low-learning-cost use.
+
 ## 0.5.0 - 2026-08-16
 
 - Added a per-user Windows 10/11 x64 installer that bundles the AG2C runtime, requires no Python or administrator access, installs supported harness Skills, and creates no desktop application or background service.

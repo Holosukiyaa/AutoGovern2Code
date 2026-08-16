@@ -1,99 +1,77 @@
 # Architecture and evidence model
 
-AutoGovern2Code (AG2C) separates the user experience from its enforcement internals. The user talks to a supported coding agent normally. Enrolled repository instructions and the installed Skill make governance automatic.
+AutoGovern2Code separates a small user interface from its deterministic enforcement engine. The tray chooses projects and reports results; it is not required for an active Git guard or an in-progress governed task.
 
 ```text
-normal coding request
+tray project selection
         |
-AGENTS.md / CLAUDE.md + Skill          automatic entry before writes
+external registry + Git-local pointer       enrollment without project files
         |
-task record + external Git worktree    isolated construction
+Agent Skill + guard status                  automatic agent entry
         |
-Policy + SQLite index + slicer         deterministic responsibility route
+external task record + Git worktree         isolated construction
         |
-trusted argv-only checkers             repository-native proof
+Policy + SQLite index + entry slicer        deterministic responsibility route
         |
-verified change digest                 binds proof to exact bytes
+repository-native argv checkers             product proof
         |
-tracked portable receipt               independently verifiable commit proof
+exact-byte digest + hash-chain Ledger       local governance proof
         |
-fast-forward integration               controlled delivery
+evidence trailers + fast-forward merge      controlled delivery
         |
-JSON task record + hash-chain Ledger   durable local evidence
+tray evidence view                          user-readable outcome
 ```
 
-## Enrollment
+## External project store
 
-The Skill uses `ag2c setup --project .` on a clean Git repository. Setup selects first enrollment, legacy migration, or an existing-project upgrade. First enrollment:
+`storage.py` owns a per-user registry and one directory per managed clone. The generated project key combines a readable repository name with a hash of its absolute path, so repositories with the same name remain independent.
 
-1. detects the current tracked project roots;
-2. creates a conservative baseline Policy split by detected top-level project areas and a Manifest;
-3. adds managed `AGENTS.md` and `CLAUDE.md` blocks;
-4. commits those reviewable enrollment files;
-5. installs the packaged `ag2c-governed-development` Skill;
-6. activates a machine-local pre-commit guard;
-7. builds the initial index and records enrollment evidence.
+On Windows the root is `%LOCALAPPDATA%\AutoGovern2Code`; `AG2C_DATA_ROOT` can isolate tests and development. Linux and macOS use `XDG_DATA_HOME` or the normal per-user data directory fallback.
 
-The tracked enrollment and completed task receipts are portable. Machine paths, generated indexes, local hooks, active task records, and Ledger data live under ignored `.ag2c/state` or other ignored files.
+The canonical repository stores only two local Git config values, `ag2c.manifest` and `ag2c.project-key`, plus an external `core.hooksPath`. Nothing is added to the working tree or index. External worktrees are stored below the matching project store.
+
+## Enrollment and migration
+
+New enrollment detects tracked top-level areas and native tests, writes a conservative Manifest and Policy externally, builds the index, installs Skills, creates the guard, and records an enrollment event. Dirty state is allowed at registration time but blocks task start.
+
+Legacy `.deg` and `.ag2c` projects are externalized transactionally. Existing evidence is archived in the project store, AG2C-managed instruction blocks are removed, and the tracked governance directories are deleted in one maintenance commit. Rollback restores files, staging, and hook configuration if the commit fails.
 
 ## Coverage maturity
 
-Policy records one of two user-visible coverage levels:
+- `baseline`: generated conservative ownership for detected project areas; unknown paths broaden routing and checks.
+- `structured`: maintainer-authored responsibilities, relationships, public contracts, and scenarios.
 
-- `baseline`: AG2C owns detected project areas and runs all detected native checks conservatively. Unknown paths expand routing rather than being guessed into a narrow owner.
-- `structured`: maintainers have declared finer responsibilities, relations, and optionally public contracts and scenarios.
+`ag2c upgrade` may refresh only a baseline marked `managed_by: ag2c`. It does not replace a maintainer-owned structured Policy.
 
-`ag2c upgrade` refreshes only a baseline marked `managed_by: ag2c`. It never overwrites a project-maintained structured Policy. `ag2c coverage` exposes the current level without requiring users to read cards or slices.
-
-## Local recovery
-
-The Skill checks `ag2c guard status` before the first write. `ag2c doctor --repair` restores the packaged Skill, exact Python hook, prior hook delegation, activation record, and index. It validates but does not rewrite the evidence Ledger. Enrollment, upgrade, and legacy migration journal their file and hook state under the Git common directory. A failure before commit rolls back automatically; a later lifecycle command recovers an interrupted journal. Tracked upgrades require a clean canonical checkout and produce a narrow maintenance commit plus Ledger event.
-
-## Automatic task state
-
-Each task moves through machine states:
+## Task state and correction evidence
 
 ```text
 active -- passing verification for current bytes --> completed
    |                                                ^
    +-- failed verification remains active           |
-   +-- changed bytes invalidate the passing proof ---+
+   +-- changed bytes invalidate passing evidence ----+
 ```
 
-The canonical checkout and source HEAD are captured at task start. AG2C creates a `ag2c/<task-id>` branch in an external sibling worktree. Writes in the canonical checkout, a changed source HEAD, ungoverned paths, governance-control mutations, failed checks, or stale evidence all block integration.
-
-## Correction evidence
-
-AG2C distinguishes participation from correction. A start record proves only that AG2C was present. A correction requires a machine-observed event, such as:
-
-- the actual diff expanding beyond the initial route;
-- a canonical-checkout write being detected and blocked;
-- a trusted checker failing before a later passing attempt;
-- a checker mutating governed bytes and forcing another verification;
-- integration being blocked because the canonical branch changed.
-
-The task record links every intervention to a Ledger event digest. A later passing verification does not erase earlier failures.
+The task captures the canonical branch and source HEAD before construction. Verification records actual-diff expansion, dirty-canonical detection, failed trusted checks, checker mutation, and integration conflicts. A later pass never erases an earlier failure.
 
 ## Exact-byte binding
 
-Before checks, AG2C rebuilds the index and compiles a route from the actual diff. The verification digest binds the source commit, normalized paths, Git file modes, symlink targets, deletions, and the clean-filtered Git object identity of every file. This remains stable across checkout line-ending conventions while identifying the exact bytes stored by Git. `task finish` validates the Ledger event, recomputes the digest before commit, writes a self-digesting receipt, and reconstructs the same digest from final Git objects. Any source edit or pre-commit-hook mutation requires another verification.
+Verification binds source commit, normalized paths, Git file modes, symlink targets, deletions, and clean-filtered Git object identities. `task finish` checks this digest before commit and reconstructs it from final Git objects after commit, so source edits or a mutating hook invalidate stale evidence.
 
-The tracked receipt also binds the route, checks, acceptance, and exact Manifest and Policy objects. `ag2c ci verify` validates these facts without local task state; `--rerun` recomputes the route and executes the same trusted checker plan. See [Portable receipts and CI verification](CI_VERIFICATION.md).
+The full self-digesting receipt binds route, checks, acceptance, Manifest, Policy, correction, and blocked actions. It is written under the external project store. Final commits contain only `AG2C-Task` and `AG2C-Evidence` trailers. Those trailers identify local evidence but do not make the full Ledger portable.
 
-## Git guard
+## Desktop boundary
 
-The local pre-commit guard rejects commits from the canonical checkout and from worktree branches not created under `ag2c/`. Activation records the exact AG2C runtime command: the installing Python interpreter for source installations, or the self-contained executable for the Windows installer. It delegates an existing user pre-commit hook after the AG2C checks pass.
+The WinForms tray host is adapted from the CartridgeFlow Runtime Shell pattern. It starts the frozen AG2C runtime as a child process on a random `127.0.0.1` port, uses a per-session token, and renders bundled HTML/CSS/JavaScript inside the native WebBrowser control. The server rejects non-local hosts and origins and sends a restrictive content security policy.
 
-The guard is one layer, not the only trust boundary. The Skill, task state machine, clean-checkout checks, exact diff digest, trusted checkers, fast-forward-only integration, and Ledger verification must all agree before completion.
+The UI can add, inspect, recheck, open, and stop managing projects. It cannot edit Policy or evidence. A native folder picker handles project selection, so users never type paths.
 
-## Internal routing model
+## Git guard and limits
 
-Manifest, Policy, cards, scopes, public contract bindings, SQLite index, and entry slicing remain internal deterministic machinery. They are documented for maintainers and integrations in [Entry Slicing](ENTRY_SLICING.md) and [Policy Reference](POLICY_REFERENCE.md), but are not part of ordinary user operation.
+The external pre-commit guard rejects commits from the canonical checkout and branches not created by AG2C, then delegates any previous hook. The Skill, task state, diff digest, trusted checks, fast-forward integration, and Ledger must all agree before success.
+
+This is a single-user local governance boundary, not an operating-system ACL. A hostile process with filesystem and Git-config access can bypass it. A harness without Agent Skills may be blocked at delivery without entering the full workflow before editing. Remote team coordination and portable evidence exchange are not implemented in this release.
 
 ## Detachability
 
-AG2C may inspect and test a governed repository. Product code must not import AG2C, read AG2C state, or require AG2C during build or runtime. Removing local AG2C state must not change product behavior; it only removes the governed development path and its evidence.
-
-## Current limits
-
-Version `0.4` governs one local Git repository per enrollment and one integrator at a time. The local guard is not an operating-system write ACL. A hostile process with filesystem and Git-configuration access can bypass local controls. The published CI Action can enforce portable proof as a required remote check, but team task coordination and multi-integrator locking remain future work.
+Product code must not import AG2C, read its external store, or require its tray or runtime during build and execution. Removing AG2C changes the development path only, never product behavior.

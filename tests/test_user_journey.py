@@ -9,6 +9,7 @@ from pathlib import Path
 
 import bootstrap
 
+from ag2c.config import discover_manifest, load_manifest
 from support import git_project
 
 
@@ -47,7 +48,8 @@ class UserJourneyTests(unittest.TestCase):
             self.assertGreaterEqual(coverage["area_count"], 2)
             self.assertEqual("conservative", coverage["strategy"])
 
-            (root / ".ag2c" / "state" / "hooks" / "pre-commit").unlink()
+            manifest = load_manifest(discover_manifest(root))
+            (manifest.state_dir / "hooks" / "pre-commit").unlink()
             self.run_cli(
                 root,
                 "doctor",
@@ -100,16 +102,16 @@ class UserJourneyTests(unittest.TestCase):
             self.assertIn("Management: successful", plain)
             self.assertIn("Files changed: 2", plain)
             self.assertIn("AI correction: proven after 1 failed attempt(s)", plain)
-            self.assertIn("Portable proof: valid", plain)
+            self.assertIn("Local evidence: valid", plain)
             self.assertIn("Evidence: complete", plain)
             report = json.loads(
                 self.run_cli(root, "evidence", "--task", "user-value-change", "--format", "json").stdout
             )
             self.assertTrue(report["tasks"][0]["correction_proven"])
             self.assertEqual(2, report["tasks"][0]["checks_run"])
-            portable = self.run_cli(root, "ci", "verify", "--commit", "HEAD", "--rerun").stdout
-            self.assertIn("Portable receipt: valid", portable)
-            self.assertIn("CI rerun: passed", portable)
+            local_verification = self.run_cli(root, "ci", "verify", "--commit", "HEAD", "--rerun").stdout
+            self.assertIn("Local evidence: valid", local_verification)
+            self.assertIn("Check rerun: passed", local_verification)
 
 
 if __name__ == "__main__":

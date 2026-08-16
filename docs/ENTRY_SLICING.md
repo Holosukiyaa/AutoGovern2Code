@@ -4,6 +4,10 @@
 > AG2C Skill derives these coordinates from a normal coding request before the
 > first write, and `ag2c task verify` recompiles them from the actual diff.
 
+The Manifest, Policy, index, and generated slice live in AG2C's external project
+store. Entry slicing never requires governance files in the product repository
+and is not exposed as a configuration screen in the tray application.
+
 [中文版本](zh-CN/ENTRY_SLICING.md)
 
 Entry slicing is the method AG2C uses to turn a proposed change into a bounded

@@ -1,61 +1,41 @@
-# Portable receipts and CI verification
+# Local evidence and CI
 
-Local evidence is useful for explaining what the AI did, but a different machine cannot trust a developer's ignored state directory. AG2C therefore writes one tracked receipt into every governed task commit.
+AG2C 0.6 keeps full governance evidence outside the project. This is the deliberate cost of leaving user repositories free of policy, Ledger, and receipt files.
 
-## What a receipt binds
+## What local evidence binds
 
-A receipt under `.ag2c/receipts/<task-id>.json` records:
+Each completed task stores a self-digesting receipt in the external project store. It binds:
 
-- the task's source commit and final changed paths;
-- a digest computed from Git modes, paths, and exact file bytes;
-- the selected responsibility route and acceptance state;
-- every trusted checker result;
-- the exact tracked Manifest and Policy objects used for verification;
-- failed attempts, proven correction, and blocked-action counts.
+- source commit, final paths, Git modes, and exact file bytes;
+- final responsibility route and acceptance state;
+- trusted checker commands and results;
+- exact Manifest and Policy objects;
+- failed attempts, proven correction, and blocked actions;
+- final commit and the hash-chain Ledger event.
 
-The receipt has its own canonical JSON digest. `ag2c ci verify` reconstructs the product change from Git objects, excluding the receipt itself, and rejects mismatched paths, content, policy, checks, or receipt identity.
+The commit message contains `AG2C-Task` and `AG2C-Evidence` trailers. They let the local store find and cross-check the matching receipt without adding a file to the project.
 
-## Verify locally
+## Local verification
 
-The checkout must contain the commit history back to the receipt's source commit:
+On the machine that manages the clone:
 
 ```bash
 ag2c ci verify --commit HEAD
 ag2c ci verify --commit HEAD --rerun
 ```
 
-`--rerun` additionally requires a clean checkout at that commit. AG2C rebuilds its index, recomputes the route from the committed diff, confirms that the checker plan is unchanged, and runs the trusted checks into temporary evidence state.
+The first form validates the commit against the local receipt. `--rerun` also requires a clean checkout at that commit, recomputes the route, confirms the checker plan, and runs those checks again.
 
-## GitHub Actions
+The tray is the normal read-only interface. `ag2c evidence` exposes the same facts for agents and maintainers.
 
-Add a workflow such as `.github/workflows/ag2c.yml`:
+## What remote CI can verify
 
-```yaml
-name: AG2C proof
+A fresh CI runner receives Git history but not a developer's external store. The evidence digest proves identity only when the matching receipt is available; it cannot reconstruct missing evidence. AG2C therefore does not publish a composite Action that pretends to verify local evidence from Git alone.
 
-on:
-  pull_request:
-  push:
-    branches: [main]
+Remote CI should independently run the repository's native tests, linters, builds, and security checks. Team repositories should protect their integration branch and require those checks. This proves the submitted product on the CI machine; it does not prove the developer's complete local construction history.
 
-permissions:
-  contents: read
+Portable, signed evidence export is a future team feature. It will require an explicit transport and trust model rather than silently putting governance internals back into every project.
 
-jobs:
-  verify:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 0
-      - uses: Holosukiyaa/AutoGovern2Code/.github/actions/verify@v0.5.0
-```
+## Trust boundary
 
-The Action installs the matching AG2C release, validates the receipt, and reruns checks. Set `rerun: "false"` only when another job already runs the exact trusted commands.
-
-For team repositories, make this job a required branch-protection check. The local Git guard controls a single-user construction path; remote branch protection controls what collaborators can push or merge.
-
-## Boundary
-
-The receipt proves that the committed bytes, declared route, and recorded checks agree. It does not prove that the checker commands are sufficient for the product, that the host operating system was uncompromised, or that a repository administrator cannot replace both policy and branch rules. Those are project and platform trust decisions.
+Local evidence proves that AG2C's recorded route, checks, bytes, and integration agree. It does not prove that the selected checks are sufficient, that the host is uncompromised, or that a repository administrator cannot bypass branch rules.

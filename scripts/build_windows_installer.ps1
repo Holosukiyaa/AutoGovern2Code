@@ -13,6 +13,10 @@ $launcher = Join-Path $repoRoot 'packaging\windows\launcher.py'
 $installerScript = Join-Path $repoRoot 'packaging\windows\AutoGovern2Code.iss'
 $skillSource = Join-Path $repoRoot 'src\ag2c\skills'
 $skillData = "${skillSource}:ag2c\skills"
+$uiSource = Join-Path $repoRoot 'src\ag2c\ui'
+$uiData = "${uiSource}:ag2c\ui"
+$desktopSource = Join-Path $repoRoot 'packaging\windows\desktop\AG2CDesktop.cs'
+$desktopManifest = Join-Path $repoRoot 'packaging\windows\desktop\app.manifest'
 
 if (-not (Test-Path -LiteralPath (Join-Path $skillSource 'ag2c-governed-development\SKILL.md'))) {
     throw "Packaged AG2C Skill source is missing from $skillSource."
@@ -48,6 +52,7 @@ New-Item -ItemType Directory -Path $installerRoot -Force | Out-Null
     --name ag2c `
     --paths (Join-Path $repoRoot 'src') `
     --add-data $skillData `
+    --add-data $uiData `
     --distpath $runtimeRoot `
     --workpath (Join-Path $buildRoot 'pyinstaller') `
     --specpath (Join-Path $buildRoot 'spec') `
@@ -70,6 +75,29 @@ if ($skillProbeExitCode -ne 0 -or -not (Test-Path -LiteralPath $skillProbe)) {
     throw "Frozen runtime could not install its packaged Skill (exit code $skillProbeExitCode)."
 }
 Remove-Item -LiteralPath $skillProbeRoot -Recurse -Force
+
+$cscCandidates = @(
+    (Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'),
+    (Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe')
+) | Where-Object { Test-Path -LiteralPath $_ }
+if (-not $cscCandidates) {
+    throw '.NET Framework csc.exe was not found; the desktop tray host cannot be built.'
+}
+$csc = $cscCandidates | Select-Object -First 1
+$desktop = Join-Path $runtimeRoot 'AutoGovern2Code.exe'
+& $csc `
+    /nologo `
+    /target:winexe `
+    "/out:$desktop" `
+    /reference:System.dll `
+    /reference:System.Drawing.dll `
+    /reference:System.Net.Http.dll `
+    /reference:System.Windows.Forms.dll `
+    "/win32manifest:$desktopManifest" `
+    $desktopSource
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $desktop)) {
+    throw "Desktop tray host build failed with exit code $LASTEXITCODE."
+}
 
 $isccCandidates = @(
     (Get-Command iscc.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),

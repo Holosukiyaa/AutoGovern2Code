@@ -141,9 +141,9 @@ def _native_checkers(root: Path) -> list[dict[str, Any]]:
             or (pyproject.is_file() and "pytest" in pyproject.read_text(encoding="utf-8", errors="ignore"))
         )
         command = (
-            ["python", "-m", "pytest"]
+            ["python", "-B", "-m", "pytest"]
             if uses_pytest
-            else ["python", "-m", "unittest", "discover", "-s", "tests"]
+            else ["python", "-B", "-m", "unittest", "discover", "-s", "tests"]
         )
         checkers.append(
             {"id": "check.python", "stage": "floor", "target": "app", "command": command, "cwd": ".", "timeout": 900}

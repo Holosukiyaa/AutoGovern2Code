@@ -30,6 +30,12 @@ class AutomaticGovernanceTests(unittest.TestCase):
             self.assertIn("Do not edit this canonical checkout", (root / "AGENTS.md").read_text(encoding="utf-8"))
             enrollment = json.loads((root / ".ag2c" / "enrollment.json").read_text(encoding="utf-8"))
             self.assertEqual("ag2c.enrollment.v1", enrollment["schema"])
+            policy = json.loads((root / ".ag2c" / "policy.json").read_text(encoding="utf-8"))
+            python_checker = next(item for item in policy["checkers"] if item["id"] == "check.python")
+            self.assertEqual(
+                ["python", "-B", "-m", "unittest", "discover", "-s", "tests"],
+                python_checker["command"],
+            )
             self.assertEqual("chore: enroll project in AG2C", str(git(root, "log", "-1", "--pretty=%s")).strip())
 
     def test_canonical_commit_is_blocked(self) -> None:

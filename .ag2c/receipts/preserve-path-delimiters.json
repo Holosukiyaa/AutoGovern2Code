@@ -1,0 +1,75 @@
+{
+  "acceptance": {
+    "boundary": "not-applicable",
+    "complete": "not-run",
+    "floor": "passed",
+    "scenario": "not-applicable",
+    "static": "not-applicable"
+  },
+  "blocked_actions": [],
+  "change_digest": "b83b1a4c94ca27f1b9248f8fc843dd8e29b7bcb65d9a86bcbdffd26e261e6571",
+  "changed_paths": [
+    "packaging/windows/AutoGovern2Code.iss",
+    "scripts/test_windows_installer.ps1"
+  ],
+  "checks": [
+    {
+      "exit_code": 0,
+      "id": "check.diff",
+      "stage": "floor",
+      "status": "passed"
+    },
+    {
+      "exit_code": 0,
+      "id": "check.python",
+      "stage": "floor",
+      "status": "passed"
+    }
+  ],
+  "correction_proven": false,
+  "entry": {
+    "all": false,
+    "contracts": [],
+    "paths": [
+      "app:packaging/windows/AutoGovern2Code.iss",
+      "app:scripts/test_windows_installer.ps1"
+    ]
+  },
+  "failed_attempts": 0,
+  "goal": "Preserve an existing Windows user PATH byte-for-byte across install and uninstall, including trailing delimiters and empty values",
+  "local_evidence": {
+    "check_run": "97edb373a0d8fd75198b68622c8a70d619f9fc2fc7279abbf462c5553a198b91",
+    "task_started": "e071ebad11643bef50e886d21c653f03b34d2655993a474644524bdce0f92e9e",
+    "verification": "59ea519f9dc2dceeaf0fb9041d60aa4802f1d95b4e5f6497d1a7f395f0d411ba"
+  },
+  "manifest_blob": "bd5737b4e2ac9bd906117d060fb38fc42d05f143",
+  "policy_blob": "cdc49ab6d36084a98705f73a193099ad0405d6b9",
+  "project": "autogovern2code",
+  "receipt_digest": "0f166cf611614cff073fce19b63b807dcd2b3c1cd0cd7e1de7b0a99aedec0f6c",
+  "route": {
+    "cards": [
+      "constitution.project",
+      "floor.docs",
+      "floor.examples",
+      "floor.github",
+      "floor.root",
+      "floor.src",
+      "floor.tests"
+    ],
+    "fallback_reasons": [
+      "unowned-entry:app:packaging/windows/AutoGovern2Code.iss",
+      "unowned-entry:app:scripts/test_windows_installer.ps1"
+    ],
+    "fallback_targets": [
+      "app"
+    ],
+    "slice_digest": "f3deb1f40a5d0f39586b7d9d0847db649a34792c648ff8222e5d6ad44d206ea3",
+    "state": "conservative"
+  },
+  "schema": "ag2c.receipt.v1",
+  "source_branch": "main",
+  "source_commit": "a6eff06e3ed24e0b268e328249463e8c8a7ec7cb",
+  "task_id": "preserve-path-delimiters",
+  "verification_attempts": 1,
+  "verified_at": "2026-08-16T10:35:03.530379+00:00"
+}

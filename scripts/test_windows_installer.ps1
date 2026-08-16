@@ -58,8 +58,14 @@ function Restore-UserPathState([hashtable]$State) {
 }
 
 $userPathBefore = Get-UserPathState
+$userPathFixture = @{
+    Exists = $true
+    Value = if ($userPathBefore.Exists) { $userPathBefore.Value + ';' } else { '' }
+    Kind = if ($userPathBefore.Exists) { $userPathBefore.Kind } else { [Microsoft.Win32.RegistryValueKind]::String }
+}
 
 try {
+    Restore-UserPathState $userPathFixture
     New-Item -ItemType Directory -Path $profileRoot -Force | Out-Null
     $env:HOME = $profileRoot
     $env:USERPROFILE = $profileRoot
@@ -143,12 +149,18 @@ try {
         }
     }
     $userPathAfter = Get-UserPathState
-    if (
-        $userPathAfter.Exists -ne $userPathBefore.Exists -or
-        $userPathAfter.Value -ne $userPathBefore.Value -or
-        ($userPathBefore.Exists -and $userPathAfter.Kind -ne $userPathBefore.Kind)
-    ) {
-        throw 'Uninstaller did not restore the original user PATH exactly.'
+    if ($userPathAfter.Exists -ne $userPathFixture.Exists -or
+        $userPathAfter.Value -ne $userPathFixture.Value -or
+        $userPathAfter.Kind -ne $userPathFixture.Kind) {
+        $pathState = @(
+            "before-exists=$($userPathFixture.Exists)",
+            "after-exists=$($userPathAfter.Exists)",
+            "before-kind=$($userPathFixture.Kind)",
+            "after-kind=$($userPathAfter.Kind)",
+            "before-length=$($userPathFixture.Value.Length)",
+            "after-length=$($userPathAfter.Value.Length)"
+        ) -join ', '
+        throw "Uninstaller did not restore the original user PATH exactly ($pathState)."
     }
 }
 catch {

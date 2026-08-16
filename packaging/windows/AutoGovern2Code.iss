@@ -97,15 +97,23 @@ end;
 procedure AddInstallPath;
 var
   CurrentPath, InstallPath, UpdatedPath: String;
+  PathExists: Boolean;
 begin
   InstallPath := ExpandConstant('{app}\ag2c');
-  if not RegQueryStringValue(HKEY_CURRENT_USER, UserEnvironmentKey, 'Path', CurrentPath) then
+  PathExists := RegValueExists(HKEY_CURRENT_USER, UserEnvironmentKey, 'Path');
+  if PathExists then
+  begin
+    if not RegQueryStringValue(HKEY_CURRENT_USER, UserEnvironmentKey, 'Path', CurrentPath) then
+      RaiseException('The existing user PATH is not a string value.');
+  end
+  else
     CurrentPath := '';
   if not HasPathEntry(CurrentPath, InstallPath) then
   begin
-    if (CurrentPath <> '') and (CurrentPath[Length(CurrentPath)] <> ';') then
-      CurrentPath := CurrentPath + ';';
-    UpdatedPath := CurrentPath + InstallPath;
+    if PathExists then
+      UpdatedPath := CurrentPath + ';' + InstallPath
+    else
+      UpdatedPath := InstallPath;
     { RegWriteStringValue preserves an existing REG_EXPAND_SZ value type. }
     if not RegWriteStringValue(HKEY_CURRENT_USER, UserEnvironmentKey, 'Path', UpdatedPath) then
       RaiseException('Could not add AutoGovern2Code to the user PATH.');

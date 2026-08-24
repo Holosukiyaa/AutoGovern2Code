@@ -46,13 +46,16 @@ Legacy `.deg` and `.ag2c` projects are externalized transactionally. Existing ev
 ## Task state and correction evidence
 
 ```text
-active -- passing verification for current bytes --> completed
-   |                                                ^
-   +-- failed verification remains active           |
-   +-- changed bytes invalidate passing evidence ----+
+active -- passing verification for current bytes --> verified
+   |                                                |
+   +-- failed verification remains active           +-- finish --> completed
+   +-- changed bytes return the task to active      |
+   +-- canonical HEAD moves --> refresh or abandon  +-- abandon --> abandoned
 ```
 
-The task captures the canonical branch and source HEAD before construction. Verification records actual-diff expansion, dirty-canonical detection, failed trusted checks, checker mutation, and integration conflicts. A later pass never erases an earlier failure.
+Open worktrees are tracked independently of the tray window. `ag2c task list` reports whether a worktree is constructing, verified but unmerged, diverged from the canonical HEAD, missing, completed, or abandoned.
+
+The task captures the canonical branch, source HEAD, and Policy/Manifest digests before construction. If the canonical branch later advances, `ag2c task refresh` rebases the task worktree onto the new HEAD and invalidates passing evidence. If history no longer contains the source commit, refresh refuses and the worktree must be abandoned. A large actual diff, or a changed Policy or Manifest, expands validation conservatively. Verification records actual-diff expansion, dirty-canonical detection, failed trusted checks, checker mutation, and integration conflicts. A later pass never erases an earlier failure.
 
 ## Exact-byte binding
 

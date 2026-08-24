@@ -14,9 +14,11 @@ The Skill reads the canonical checkout without modifying it and identifies expec
 
 The AI may inspect, edit, install dependencies, build, test, and generate artifacts inside the task worktree. The canonical checkout remains an integration target. Each project has independent external policy, worktrees, Ledger, and evidence.
 
+`ag2c task list` tracks each generated worktree. Passing verification marks the task verified but unmerged until `task finish`. If the work is obsolete, `ag2c task abandon` removes the worktree and records the discarded attempt. If the canonical branch moved, `ag2c task refresh` rebases the open worktree onto the current HEAD and requires another verification.
+
 ## Verification
 
-`ag2c task verify` calculates scope again from the actual Git diff. Newly touched governed paths expand the route and leave an intervention record. Ungoverned paths fail closed.
+`ag2c task verify` calculates scope again from the actual Git diff. Newly touched governed paths expand the route and leave an intervention record. Ungoverned paths fail closed. A change that spans most Floors in a target, or a Policy/Manifest change after the task started, expands validation conservatively.
 
 Only policy-declared argv checkers run. Failed attempts remain in evidence; a later pass records that the AI corrected a failure. If a checker changes governed bytes, verification becomes stale and must run again.
 

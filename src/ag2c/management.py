@@ -3,12 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .config import discover_manifest, load_manifest, load_policy
 from .enrollment import activation_status, setup_project
 from .errors import AG2CError
 from .gitops import git, repository_root, status_entries
 from .harnesses import harness_status
+from .index import findings as index_findings
+from .index import index_path, summary as index_summary, verify_freshness
+from .knowledge import knowledge_status
+from .ledger import ledger_summary
 from .storage import project_records, unregister_project
-from .tasks import evidence
+from .tasks import evidence, list_tasks
 
 
 def project_status(start: Path) -> dict[str, Any]:
@@ -24,6 +29,8 @@ def project_status(start: Path) -> dict[str, Any]:
     tasks = report.get("tasks", []) if report else []
     completed = [item for item in tasks if item.get("state") == "completed"]
     active = [item for item in tasks if item.get("state") == "active"]
+    verified = [item for item in tasks if item.get("state") == "verified"]
+    abandoned = [item for item in tasks if item.get("state") == "abandoned"]
     last = completed[0] if completed else (tasks[0] if tasks else None)
     dirty = status_entries(root)
     entry_ready = any(bool(item.get("integrated")) for item in agents)
@@ -34,9 +41,19 @@ def project_status(start: Path) -> dict[str, Any]:
         issues.append(f"evidence: {evidence_error}")
     if dirty:
         issues.append("canonical worktree has uncommitted changes")
+    diverged = [
+        item["id"]
+        for item in tasks
+        if item.get("state") in {"active", "verified"} and (item.get("worktree") or {}).get("lifecycle") == "diverged"
+    ]
+    if diverged:
+        issues.append("open task worktree has diverged from the canonical branch")
     if not entry_ready:
         issues.append("no supported AI harness has a current AG2C Skill")
-    if delivery_enforced and entry_ready and not dirty:
+    from .govern import stored_pending
+
+    pending_items = list((stored_pending(root) or {}).get("items") or [])
+    if delivery_enforced and entry_ready and not dirty and not diverged:
         state = "protected"
     elif delivery_enforced:
         state = "attention"
@@ -57,10 +74,15 @@ def project_status(start: Path) -> dict[str, Any]:
         "agent_observed": agent_observed,
         "agents": agents,
         "active_tasks": len(active),
+        "verified_tasks": len(verified),
+        "open_tasks": len(active) + len(verified),
+        "abandoned_tasks": len(abandoned),
         "completed_tasks": len(completed),
         "last_task": last,
         "ledger_valid": bool(report and report.get("ledger_valid")),
         "coverage": report.get("coverage") if report else None,
+        "pending_count": len(pending_items),
+        "pending": pending_items,
     }
 
 
@@ -81,6 +103,9 @@ def managed_projects() -> list[dict[str, Any]]:
                     "agent_observed": False,
                     "agents": harness_status(),
                     "active_tasks": 0,
+                    "verified_tasks": 0,
+                    "open_tasks": 0,
+                    "abandoned_tasks": 0,
                     "completed_tasks": 0,
                     "last_task": None,
                     "ledger_valid": False,
@@ -102,6 +127,9 @@ def managed_projects() -> list[dict[str, Any]]:
                 "agent_observed": False,
                 "agents": harness_status(),
                 "active_tasks": 0,
+                "verified_tasks": 0,
+                "open_tasks": 0,
+                "abandoned_tasks": 0,
                 "completed_tasks": 0,
                 "last_task": None,
                 "ledger_valid": False,
@@ -114,6 +142,106 @@ def managed_projects() -> list[dict[str, Any]]:
 def add_project(path: Path) -> dict[str, Any]:
     setup_project(path)
     return project_status(path)
+
+
+def project_details(path: Path) -> dict[str, Any]:
+    root = repository_root(path)
+    status = project_status(root)
+    result: dict[str, Any] = {
+        "project": status,
+        "available": bool(status.get("managed")),
+        "manifest": None,
+        "cards": [],
+        "relations": [],
+        "contracts": [],
+        "checkers": [],
+        "index": {"current": False, "errors": [], "summary": None, "findings": []},
+        "knowledge": [],
+        "pending": {"items": []},
+        "worktrees": [],
+        "ledger": None,
+    }
+    if not status.get("managed"):
+        return result
+    manifest = load_manifest(discover_manifest(root), project_root=root)
+    policy = load_policy(manifest)
+    result["manifest"] = {
+        "path": str(manifest.path),
+        "project_id": manifest.project_id,
+        "project_root": str(manifest.project_root),
+        "targets": [
+            {
+                "id": target.target_id,
+                "path": target.path,
+                "governed_roots": list(target.governed_roots),
+                "excludes": list(target.excludes),
+            }
+            for target in manifest.targets
+        ],
+    }
+    result["cards"] = [
+        {
+            "id": card.card_id,
+            "type": card.card_type,
+            "title": card.title,
+            "summary": card.summary,
+            "scopes": [
+                {
+                    "target": scope.target_id,
+                    "include": list(scope.includes),
+                    "exclude": list(scope.excludes),
+                    "ownership": scope.ownership,
+                }
+                for scope in card.scopes
+            ],
+            "checkers": list(card.checkers),
+            "references": list(card.references),
+        }
+        for card in policy.cards
+    ]
+    result["relations"] = [
+        {"source": relation.source, "type": relation.relation_type, "target": relation.target}
+        for relation in policy.relations
+    ]
+    result["contracts"] = [
+        {
+            "target": contract.target_id,
+            "id": contract.contract_id,
+            "version": contract.version,
+            "boundary": contract.boundary,
+            "scenarios": list(contract.scenarios),
+        }
+        for contract in policy.contracts
+    ]
+    result["checkers"] = [
+        {
+            "id": checker.checker_id,
+            "stage": checker.stage,
+            "target": checker.target_id,
+            "command": list(checker.command),
+            "cwd": checker.cwd,
+            "timeout": checker.timeout,
+        }
+        for checker in policy.checkers
+    ]
+    current_errors = verify_freshness(manifest, policy, index_path(manifest))
+    result["index"]["errors"] = current_errors
+    if not current_errors:
+        result["index"]["current"] = True
+        result["index"]["summary"] = index_summary(index_path(manifest))
+        result["index"]["findings"] = index_findings(index_path(manifest))
+    result["knowledge"] = knowledge_status(manifest, policy)
+    from .govern import pending_updates
+
+    result["pending"] = pending_updates(root)
+    result["project"]["pending_count"] = len(result["pending"].get("items") or [])
+    result["project"]["pending"] = result["pending"].get("items") or []
+    result["worktrees"] = list_tasks(root)
+    try:
+        result["ledger"] = ledger_summary(manifest.ledger_path)
+    except (AG2CError, OSError, ValueError) as exc:
+        result["ledger"] = {"error": str(exc)}
+    return result
 
 
 def repair_and_check_project(path: Path) -> dict[str, Any]:

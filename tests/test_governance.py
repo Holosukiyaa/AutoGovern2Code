@@ -232,7 +232,7 @@ class AutomaticGovernanceTests(unittest.TestCase):
             fake = workspace / "fake-worktree"
             git(root, "worktree", "add", "-b", "ag2c/fake", str(fake), head(root))
             (fake / "src" / "value.py").write_text("VALUE = 2\n", encoding="utf-8")
-            with self.assertRaisesRegex(AG2CError, "valid active task record"):
+            with self.assertRaisesRegex(AG2CError, "valid open task record"):
                 guard_pre_commit(fake)
 
     def test_new_top_level_file_is_governed(self) -> None:

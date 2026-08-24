@@ -9,7 +9,7 @@ import bootstrap
 
 from ag2c.enrollment import enroll_project
 from ag2c.gitops import git, head, status_entries
-from ag2c.management import managed_projects, project_status, stop_managing
+from ag2c.management import managed_projects, project_details, project_status, stop_managing
 from ag2c.storage import configured_manifest
 
 from support import git_project
@@ -29,6 +29,26 @@ READY_AGENTS = [
 
 
 class ManagementTests(unittest.TestCase):
+    def test_project_details_returns_real_governance_data(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            root = git_project(workspace / "project")
+            enroll_project(root, project_id="managed-project", skill_root=workspace / "skills")
+
+            with patch("ag2c.management.harness_status", return_value=READY_AGENTS):
+                details = project_details(root)
+
+            self.assertTrue(details["available"])
+            self.assertEqual("managed-project", details["manifest"]["project_id"])
+            self.assertTrue(details["manifest"]["targets"])
+            self.assertTrue(details["cards"])
+            self.assertTrue(details["index"]["current"])
+            self.assertIsNotNone(details["index"]["summary"])
+            self.assertEqual([], details["worktrees"])
+            self.assertGreaterEqual(details["ledger"]["events"], 1)
+            self.assertIn("items", details["pending"])
+            self.assertIn("pending_count", details["project"])
+
     def test_project_list_reports_enforcement_without_touching_project(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)

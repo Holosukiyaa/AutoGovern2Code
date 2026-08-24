@@ -48,6 +48,18 @@ class EntrySlicerTests(unittest.TestCase):
             self.assertTrue({"floor.api", "floor.worker"}.issubset(card_ids))
             self.assertIn("unowned-entry:app:src/new_area/file.py", value["route"]["fallback_reasons"])
 
+    def test_paths_covering_most_floors_expand_the_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest, policy = write_project(Path(directory))
+            build_index(manifest, policy)
+            value = compile_slice(
+                manifest,
+                policy,
+                path_specs=["app:src/api/service.py", "app:src/worker/job.py"],
+            )
+            self.assertEqual(value["route"]["state"], "conservative")
+            self.assertIn("broad-change:app", value["route"]["fallback_reasons"])
+
     def test_goal_alone_cannot_select_ownership(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             manifest, policy = write_project(Path(directory))

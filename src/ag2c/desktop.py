@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
+import string
+import subprocess
+import sys
 import threading
+from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
@@ -11,10 +16,306 @@ from urllib.parse import urlparse
 
 from . import __version__
 from .errors import AG2CError
-from .management import add_project, managed_projects, repair_and_check_project, stop_managing
+from .management import add_project, managed_projects, project_details, repair_and_check_project, stop_managing
 from .tasks import evidence
 
 MAX_BODY = 64 * 1024
+FOLDER_PICKER_TITLE = "选择要纳入 AutoGovern2Code 治理的 Git 项目"
+
+
+class _PickerCancelled(Exception):
+    pass
+
+
+class _PickerUnavailable(Exception):
+    pass
+
+
+def list_project_folders(path: Path | None = None) -> dict[str, object]:
+    if path is None:
+        roots = (
+            [Path(f"{letter}:\\") for letter in string.ascii_uppercase if Path(f"{letter}:\\").is_dir()]
+            if os.name == "nt"
+            else [Path("/")]
+        )
+        return {
+            "path": None,
+            "parent": None,
+            "is_git": False,
+            "directories": [
+                {"name": str(root), "path": str(root), "is_git": (root / ".git").exists()}
+                for root in roots
+            ],
+            "truncated": False,
+        }
+    resolved = path.expanduser().resolve()
+    if not resolved.is_dir():
+        raise AG2CError(f"folder is unavailable: {resolved}")
+    try:
+        children = [child for child in resolved.iterdir() if child.is_dir()]
+    except OSError as exc:
+        raise AG2CError(f"cannot read folder {resolved}: {exc}") from exc
+    children.sort(key=lambda item: item.name.lower())
+    truncated = len(children) > 1000
+    children = children[:1000]
+    parent = None if resolved.parent == resolved else str(resolved.parent)
+    return {
+        "path": str(resolved),
+        "parent": parent,
+        "is_git": (resolved / ".git").exists(),
+        "directories": [
+            {"name": child.name, "path": str(child), "is_git": (child / ".git").exists()}
+            for child in children
+        ],
+        "truncated": truncated,
+    }
+
+
+def describe_picked_folder(path: Path | None) -> dict[str, object]:
+    if path is None:
+        return {"cancelled": True, "unavailable": False, "path": None, "is_git": False}
+    resolved = path.expanduser().resolve()
+    if not resolved.is_dir():
+        raise AG2CError(f"folder is unavailable: {resolved}")
+    return {
+        "cancelled": False,
+        "unavailable": False,
+        "path": str(resolved),
+        "is_git": (resolved / ".git").exists(),
+    }
+
+
+def pick_project_folder() -> dict[str, object]:
+    selected: list[str | None] = []
+    errors: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            selected.append(_native_folder_path())
+        except BaseException as exc:
+            errors.append(exc)
+
+    if os.name == "nt":
+        thread = threading.Thread(target=_run_windows_sta, args=(run,), name="ag2c-folder-picker", daemon=True)
+        thread.start()
+        thread.join()
+    else:
+        run()
+    if errors or not selected:
+        return {"cancelled": False, "unavailable": True, "path": None, "is_git": False}
+    return describe_picked_folder(Path(selected[0]) if selected[0] else None)
+
+
+def _run_windows_sta(callback: Callable[[], None]) -> None:
+    import ctypes
+    from ctypes.wintypes import DWORD
+
+    ole32 = ctypes.windll.ole32
+    ole32.CoInitializeEx.argtypes = [ctypes.c_void_p, DWORD]
+    ole32.CoInitializeEx.restype = ctypes.HRESULT
+    status = ole32.CoInitializeEx(None, 2)
+    try:
+        callback()
+    finally:
+        if status in (0, 1):
+            ole32.CoUninitialize()
+
+
+def _native_folder_path() -> str | None:
+    pickers = (
+        (_pick_folder_windows_dialog, _pick_folder_tkinter)
+        if os.name == "nt"
+        else (_pick_folder_macos_dialog, _pick_folder_linux_dialog, _pick_folder_tkinter)
+        if sys.platform == "darwin"
+        else (_pick_folder_linux_dialog, _pick_folder_tkinter)
+    )
+    for picker in pickers:
+        try:
+            return picker()
+        except _PickerCancelled:
+            return None
+        except _PickerUnavailable:
+            continue
+    raise AG2CError("native folder picker is unavailable")
+
+
+def _vtable(pointer: object):
+    import ctypes
+
+    return ctypes.cast(ctypes.cast(pointer, ctypes.POINTER(ctypes.c_void_p))[0], ctypes.POINTER(ctypes.c_void_p))
+
+
+def _windows_guid(value: str):
+    import ctypes
+    from ctypes import byref, c_wchar_p
+
+    class GUID(ctypes.Structure):
+        _fields_ = [
+            ("Data1", ctypes.c_ulong),
+            ("Data2", ctypes.c_ushort),
+            ("Data3", ctypes.c_ushort),
+            ("Data4", ctypes.c_ubyte * 8),
+        ]
+
+    guid = GUID()
+    status = ctypes.windll.ole32.CLSIDFromString(c_wchar_p(value), byref(guid))
+    if status:
+        raise _PickerUnavailable(f"invalid COM id: {value}")
+    return guid
+
+
+def _focus_window_with_title(title: str, stop: threading.Event) -> None:
+    import ctypes
+    import time
+    from ctypes.wintypes import BOOL, HWND, LPARAM
+
+    user32 = ctypes.windll.user32
+    callback_type = ctypes.WINFUNCTYPE(BOOL, HWND, LPARAM)
+
+    def each(hwnd: int, _lparam: int) -> bool:
+        length = user32.GetWindowTextLengthW(hwnd)
+        if length <= 0:
+            return True
+        buffer = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, buffer, length + 1)
+        if buffer.value != title or not user32.IsWindowVisible(hwnd):
+            return True
+        user32.ShowWindow(hwnd, 9)
+        user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 3)
+        user32.SetForegroundWindow(hwnd)
+        return False
+
+    enumerate_windows = callback_type(each)
+    for _ in range(40):
+        if stop.is_set():
+            return
+        user32.EnumWindows(enumerate_windows, 0)
+        time.sleep(0.05)
+
+
+def _pick_folder_windows_dialog() -> str:
+    if os.name != "nt":
+        raise _PickerUnavailable("Windows folder dialog is not available")
+    import ctypes
+    from ctypes import HRESULT, POINTER, byref, c_void_p
+    from ctypes.wintypes import DWORD, HWND, LPCWSTR, LPWSTR
+
+    ole32 = ctypes.windll.ole32
+    clsid = _windows_guid("{DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7}")
+    iid = _windows_guid("{42F85136-DB7E-439C-85F1-E4075D135FC8}")
+    dialog = c_void_p()
+    created = ole32.CoCreateInstance(byref(clsid), None, 1, byref(iid), byref(dialog))
+    if created or not dialog.value:
+        raise _PickerUnavailable("Windows folder dialog could not be created")
+    item = c_void_p()
+    path_memory = LPWSTR()
+    stop = threading.Event()
+    try:
+        table = _vtable(dialog)
+        options = DWORD(0)
+        get_options = ctypes.WINFUNCTYPE(HRESULT, c_void_p, POINTER(DWORD))(table[10])
+        set_options = ctypes.WINFUNCTYPE(HRESULT, c_void_p, DWORD)(table[9])
+        set_title = ctypes.WINFUNCTYPE(HRESULT, c_void_p, LPCWSTR)(table[17])
+        show = ctypes.WINFUNCTYPE(HRESULT, c_void_p, HWND)(table[3])
+        get_result = ctypes.WINFUNCTYPE(HRESULT, c_void_p, POINTER(c_void_p))(table[20])
+        if get_options(dialog, byref(options)):
+            raise _PickerUnavailable("Windows folder dialog options are unavailable")
+        if set_options(dialog, options.value | 0x20 | 0x40 | 0x800):
+            raise _PickerUnavailable("Windows folder dialog could not pick folders")
+        set_title(dialog, FOLDER_PICKER_TITLE)
+        focus = threading.Thread(
+            target=_focus_window_with_title,
+            args=(FOLDER_PICKER_TITLE, stop),
+            name="ag2c-folder-focus",
+            daemon=True,
+        )
+        focus.start()
+        shown = show(dialog, None)
+        stop.set()
+        if shown:
+            raise _PickerCancelled()
+        if get_result(dialog, byref(item)) or not item.value:
+            raise _PickerCancelled()
+        item_table = _vtable(item)
+        get_name = ctypes.WINFUNCTYPE(HRESULT, c_void_p, DWORD, POINTER(LPWSTR))(item_table[5])
+        if get_name(item, 0x80058000, byref(path_memory)) or not path_memory.value:
+            raise _PickerCancelled()
+        return path_memory.value
+    finally:
+        stop.set()
+        if path_memory:
+            ole32.CoTaskMemFree(path_memory)
+        if item.value:
+            ctypes.WINFUNCTYPE(DWORD, c_void_p)(_vtable(item)[2])(item)
+        if dialog.value:
+            ctypes.WINFUNCTYPE(DWORD, c_void_p)(_vtable(dialog)[2])(dialog)
+
+
+def _pick_folder_macos_dialog() -> str:
+    if sys.platform != "darwin":
+        raise _PickerUnavailable("macOS folder dialog is not available")
+    escaped = FOLDER_PICKER_TITLE.replace("\\", "\\\\").replace('"', '\\"')
+    completed = subprocess.run(
+        ["osascript", "-e", f'POSIX path of (choose folder with prompt "{escaped}")'],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        message = (completed.stderr or "").strip().lower()
+        if "user canceled" in message or "user cancelled" in message or not message:
+            raise _PickerCancelled()
+        raise _PickerUnavailable(completed.stderr.strip())
+    selected = completed.stdout.strip().rstrip("/")
+    if not selected:
+        raise _PickerCancelled()
+    return selected
+
+
+def _pick_folder_linux_dialog() -> str:
+    if sys.platform == "darwin" or os.name == "nt":
+        raise _PickerUnavailable("Linux folder dialog is not available")
+    commands = (
+        ["zenity", "--file-selection", "--directory", f"--title={FOLDER_PICKER_TITLE}"],
+        ["kdialog", "--getexistingdirectory", ".", FOLDER_PICKER_TITLE],
+    )
+    saw_dialog = False
+    for command in commands:
+        try:
+            completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        except FileNotFoundError:
+            continue
+        saw_dialog = True
+        if completed.returncode != 0:
+            raise _PickerCancelled()
+        selected = completed.stdout.strip()
+        if not selected:
+            raise _PickerCancelled()
+        return selected
+    if not saw_dialog:
+        raise _PickerUnavailable("no desktop folder dialog is installed")
+    raise _PickerCancelled()
+
+
+def _pick_folder_tkinter() -> str:
+    try:
+        import tkinter
+        from tkinter import filedialog
+    except ImportError as exc:
+        raise _PickerUnavailable("tkinter folder dialog is not available") from exc
+    root = tkinter.Tk()
+    root.withdraw()
+    try:
+        root.attributes("-topmost", True)
+    except tkinter.TclError:
+        pass
+    try:
+        selected = filedialog.askdirectory(parent=root, title=FOLDER_PICKER_TITLE, mustexist=True)
+    finally:
+        root.destroy()
+    if not selected:
+        raise _PickerCancelled()
+    return selected
 
 
 class DesktopServer(ThreadingHTTPServer):
@@ -43,8 +344,16 @@ class DesktopHandler(BaseHTTPRequestHandler):
         parsed = urlparse(origin)
         return parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost"}
 
+    def _cookie_token(self) -> str:
+        for part in self.headers.get("Cookie", "").split(";"):
+            name, _, value = part.strip().partition("=")
+            if name == "ag2c-token":
+                return value
+        return ""
+
     def _authorized(self) -> bool:
-        return self.headers.get("X-AG2C-Token", "") == self.server.token
+        provided = self.headers.get("X-AG2C-Token", "") or self._cookie_token()
+        return provided == self.server.token
 
     def _headers(self, status: int, content_type: str, length: int) -> None:
         self.send_response(status)
@@ -56,6 +365,7 @@ class DesktopHandler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; frame-ancestors 'none'")
         self.send_header("X-AG2C-Desktop", f"desktop/{__version__}")
+        self.send_header("Set-Cookie", f"ag2c-token={self.server.token}; Path=/; SameSite=Strict; HttpOnly")
         self.end_headers()
 
     def _json(self, status: int, value: object) -> None:
@@ -111,14 +421,26 @@ class DesktopHandler(BaseHTTPRequestHandler):
         if path == "/":
             self._static("index.html", "text/html")
             return
-        if path == "/assets/styles.css":
+        if path == "/assets/styles.css" or path.startswith("/assets/styles.css"):
             self._static("styles.css", "text/css")
             return
-        if path == "/assets/app.js":
+        if path == "/assets/app.js" or path.startswith("/assets/app.js"):
             self._static("app.js", "application/javascript")
             return
         if path == "/api/status":
-            self._json(HTTPStatus.OK, {"status": "ready", "version": __version__})
+            self._json(
+                HTTPStatus.OK,
+                {
+                    "status": "ready",
+                    "version": __version__,
+                    "capabilities": ["web-folder-picker", "native-folder-picker", "project-details"],
+                },
+            )
+            return
+        if path == "/api/session":
+            # Loopback viewers can recover after a restart or a missing bootstrap
+            # query. Host and Origin checks already keep this off the network.
+            self._json(HTTPStatus.OK, {"token": self.server.token})
             return
         if not self._authorized():
             self._error(HTTPStatus.UNAUTHORIZED, "desktop session token is required")
@@ -138,11 +460,26 @@ class DesktopHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         try:
             body = self._read_json()
+            if path == "/api/filesystem/list":
+                requested = body.get("path")
+                if requested is not None and (not isinstance(requested, str) or not requested.strip()):
+                    raise AG2CError("folder path must be a non-empty string")
+                self._json(
+                    HTTPStatus.OK,
+                    list_project_folders(Path(requested) if isinstance(requested, str) else None),
+                )
+                return
+            if path == "/api/filesystem/pick":
+                self._json(HTTPStatus.OK, pick_project_folder())
+                return
             if path == "/api/projects/add":
                 self._json(HTTPStatus.OK, {"project": add_project(self._request_path(body))})
                 return
             if path == "/api/projects/check":
                 self._json(HTTPStatus.OK, {"project": repair_and_check_project(self._request_path(body))})
+                return
+            if path == "/api/project/details":
+                self._json(HTTPStatus.OK, project_details(self._request_path(body)))
                 return
             if path == "/api/projects/remove":
                 self._json(HTTPStatus.OK, stop_managing(self._request_path(body)))
@@ -160,13 +497,15 @@ class DesktopHandler(BaseHTTPRequestHandler):
         self._error(HTTPStatus.NOT_FOUND, "not found")
 
 
-def serve_desktop(*, port: int, token: str) -> int:
+def serve_desktop(*, port: int, token: str, on_ready: Callable[[int], object] | None = None) -> int:
     if not 1 <= port <= 65535:
         raise AG2CError("desktop port must be between 1 and 65535")
     if len(token) < 24:
         raise AG2CError("desktop session token is too short")
     server = DesktopServer(("127.0.0.1", port), token)
     try:
+        if on_ready is not None:
+            on_ready(server.server_address[1])
         server.serve_forever(poll_interval=0.2)
     except KeyboardInterrupt:
         pass

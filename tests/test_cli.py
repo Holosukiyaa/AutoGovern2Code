@@ -19,6 +19,30 @@ from support import git_project
 
 
 class CLITests(unittest.TestCase):
+    def test_viewer_opens_browser_only_after_server_is_ready(self) -> None:
+        token = "viewer-token-with-at-least-24-characters"
+        output = io.StringIO()
+
+        with (
+            patch("ag2c.desktop.serve_desktop") as serve,
+            patch("ag2c.cli.webbrowser.open") as browser_open,
+            redirect_stdout(output),
+        ):
+            def run_server(*, port: int, token: str, on_ready) -> int:
+                self.assertEqual(18994, port)
+                self.assertEqual("viewer-token-with-at-least-24-characters", token)
+                browser_open.assert_not_called()
+                self.assertEqual("", output.getvalue())
+                on_ready(port)
+                return 0
+
+            serve.side_effect = run_server
+            self.assertEqual(0, main(["viewer", "--port", "18994", "--token", token, "--open"]))
+
+        expected_url = f"http://127.0.0.1:18994/?bootstrap={token}"
+        browser_open.assert_called_once_with(expected_url)
+        self.assertIn(expected_url, output.getvalue())
+
     def test_explicit_external_manifest_keeps_its_declared_project_root(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = git_project(Path(directory) / "repository")

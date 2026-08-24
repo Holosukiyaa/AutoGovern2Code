@@ -66,7 +66,7 @@ This release is intentionally single-user. Multi-user coordination and remote ev
 The desktop installer is currently Windows-only. Python 3.11 or newer can run AG2C from a tagged GitHub source release:
 
 ```bash
-python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.6.0"
+python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.7.0"
 ag2c setup
 ```
 
@@ -90,6 +90,54 @@ ag2c evidence --format json
 ```
 
 Full governance evidence stays local so the project remains free of governance files. Commits contain only `AG2C-Task` and `AG2C-Evidence` message trailers. Another machine cannot reconstruct the full local Ledger from those digests alone; normal CI should independently run the project's tests and use branch protection. See [local evidence and CI](docs/CI_VERIFICATION.md).
+
+## Knowledge freshness
+
+Knowledge cards can explicitly reference source files or documentation. After a
+sync, AG2C stores byte digests for those references. If a selected reference
+changes, the next entry slice reports stale Knowledge and conservatively expands
+validation to every Floor in the affected target. Existing projects with no
+synced Knowledge anchors keep their legacy routing behavior.
+
+```bash
+ag2c knowledge status
+ag2c knowledge sync --card knowledge.worker \
+  --actor codex \
+  --reason "Reviewed implementation changes"
+ag2c govern ingest --actor codex --reason "Project docs or areas changed"
+ag2c govern apply --action add --id knowledge.handbook \
+  --title Handbook --summary "Operator contract" --include handbook.md \
+  --actor codex --reason "Handbook is now the operator contract"
+ag2c govern pending
+ag2c govern retrieve --path app:src/value.py --goal "change value"
+```
+
+First enrollment ingests README files, docs, and detected public surfaces. Later changes go through `ag2c govern` and require a reason. `ag2c task start` returns the matching Knowledge; after merge, `ag2c task finish` lists new directories or documents that still need a governance update. Synced Knowledge stores the lead line of each referenced file; if that claim is rewritten, status becomes `conflict` and `ag2c govern settle` leaves it until an explicit `ag2c knowledge sync` after review.
+
+## Browser viewer
+
+After installing the Python package, start the local governance viewer with:
+
+```powershell
+ag2c viewer --open
+```
+
+When developing from this repository, run the source checkout directly:
+
+```powershell
+$env:PYTHONPATH="$PWD\src"
+python -m ag2c viewer --open
+```
+
+On Windows, you can also double-click `start-governance-viewer.cmd` in the repository root (it uses local port `18995`).
+Start it from Explorer or a normal user terminal, rather than a restricted code runner: the
+governance service needs to write the user-level governance store, project Git configuration,
+and AI Skill directories.
+
+The viewer listens only on `127.0.0.1` and generates a session token at startup.
+Click **Add project** and choose a Git project in the built-in folder browser to inspect its status,
+governance cards, scopes, checkers, Knowledge freshness, index findings, contract
+relations, and Ledger summary. Press `Ctrl+C` to stop the viewer.
 
 ## Maintainer documentation
 

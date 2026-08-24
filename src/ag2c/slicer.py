@@ -8,6 +8,7 @@ from typing import Any
 from .config import load_policy
 from .errors import ConfigurationError, SliceError
 from .index import index_path, primary_owners, summary as index_summary, verify_freshness
+from .knowledge import knowledge_status
 from .model import Card, Manifest, Policy, Scope
 from .util import digest_file, digest_json, normalize_artifact_path, path_matches
 
@@ -44,8 +45,8 @@ def _scope_matches(scope: Scope, target_id: str, artifact_path: str) -> bool:
     )
 
 
-def _card_payload(card: Card, reasons: set[str]) -> dict[str, Any]:
-    return {
+def _card_payload(card: Card, reasons: set[str], freshness: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = {
         "id": card.card_id,
         "type": card.card_type,
         "title": card.title,
@@ -53,6 +54,9 @@ def _card_payload(card: Card, reasons: set[str]) -> dict[str, Any]:
         "references": list(card.references),
         "selection_reasons": sorted(reasons),
     }
+    if card.card_type == "knowledge" and freshness is not None:
+        payload["freshness"] = freshness
+    return payload
 
 
 def compile_slice(
@@ -80,6 +84,7 @@ def compile_slice(
     fallback_targets: set[str] = set()
     artifacts: list[dict[str, str]] = []
     contracts: list[dict[str, str]] = []
+    selected_primary: dict[str, set[str]] = defaultdict(set)
 
     def select(card_id: str, reason: str) -> None:
         reasons[card_id].add(reason)
@@ -121,6 +126,7 @@ def compile_slice(
             )
             if len(owners) == 1:
                 select(owners[0].card_id, f"primary-owner:{artifact_id}")
+                selected_primary[target_id].add(owners[0].card_id)
             else:
                 status = "unowned" if not owners else "ambiguous"
                 expand_target(target_id, f"{status}-entry:{artifact_id}")
@@ -131,6 +137,17 @@ def compile_slice(
                     select(card.card_id, f"scoped-knowledge:{artifact_id}")
     finally:
         connection.close()
+
+    if not all_mode:
+        floors_by_target: dict[str, set[str]] = defaultdict(set)
+        for card in policy.cards:
+            if card.card_type == "floor":
+                for scope in card.scopes:
+                    floors_by_target[scope.target_id].add(card.card_id)
+        for target_id, selected in selected_primary.items():
+            total = floors_by_target.get(target_id, set())
+            if len(selected) >= 2 and total and len(selected) * 2 >= len(total):
+                expand_target(target_id, f"broad-change:{target_id}")
 
     for raw_spec in contract_specs:
         target_id, contract_id, version = parse_contract_spec(raw_spec, manifest)
@@ -146,6 +163,17 @@ def compile_slice(
         for relation in policy.relations:
             if relation.source == binding.boundary and relation.relation_type in {"producer", "consumer"}:
                 select(relation.target, f"contract-{relation.relation_type}:{key}")
+
+    freshness_by_id = {item["id"]: item for item in knowledge_status(manifest, policy)}
+    for card_id, card_reasons in list(reasons.items()):
+        card = policy.card(card_id)
+        if card.card_type != "knowledge":
+            continue
+        freshness = freshness_by_id[card_id]
+        if freshness["status"] in {"stale", "conflict"}:
+            prefix = "conflict-knowledge" if freshness["status"] == "conflict" else "stale-knowledge"
+            for target_id in freshness["target_ids"]:
+                expand_target(target_id, f"{prefix}:{card_id}")
 
     queue = deque(sorted(reasons))
     visited: set[str] = set()
@@ -172,7 +200,10 @@ def compile_slice(
                     select(relation.target, f"boundary-{relation.relation_type}:{card_id}")
 
     cards = sorted(
-        (_card_payload(policy.card(card_id), card_reasons) for card_id, card_reasons in reasons.items()),
+        (
+            _card_payload(policy.card(card_id), card_reasons, freshness_by_id.get(card_id))
+            for card_id, card_reasons in reasons.items()
+        ),
         key=lambda card: (CARD_ORDER[card["type"]], card["id"]),
     )
     checker_reasons: dict[str, set[str]] = defaultdict(set)
@@ -203,6 +234,11 @@ def compile_slice(
         "route": route,
         "cards": cards,
         "check_plan": check_plan,
+        "knowledge": [
+            freshness_by_id[card_id]
+            for card_id in sorted(freshness_by_id)
+            if card_id in reasons
+        ],
         "manifest_digest": digest_file(manifest.path),
         "policy_digest": digest_file(policy.path),
         "index_facts_digest": index_summary(index)["facts_digest"],

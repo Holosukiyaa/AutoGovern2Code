@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import secrets
 import shutil
 import sys
+import webbrowser
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +16,7 @@ from .errors import AG2CError
 from .gitops import repository_root
 from .index import build_index, findings, index_path, summary, verify_freshness
 from .ledger import ledger_summary, verify_ledger
+from .knowledge import knowledge_status, sync_knowledge
 from .render import render_slice_markdown
 from .slicer import compile_slice
 
@@ -146,6 +149,11 @@ def build_parser() -> argparse.ArgumentParser:
     desktop_serve.add_argument("--port", type=int, default=18992)
     desktop_serve.add_argument("--token", required=True)
 
+    viewer = subparsers.add_parser("viewer", help="serve the governance viewer in a local browser")
+    viewer.add_argument("--port", type=int, default=18992)
+    viewer.add_argument("--token", help="local session token; generated when omitted")
+    viewer.add_argument("--open", action="store_true", help="open the viewer in the default browser")
+
     guard = subparsers.add_parser("guard", help="internal activation and Git enforcement")
     guard_commands = guard.add_subparsers(dest="guard_command", required=True)
     guard_commands.add_parser("status")
@@ -158,6 +166,13 @@ def build_parser() -> argparse.ArgumentParser:
     task_start.add_argument("--task-id")
     task_start.add_argument("--worktree-root", type=Path)
     task_commands.add_parser("verify")
+    task_list = task_commands.add_parser("list")
+    task_list.add_argument("--format", choices=("text", "json"), default="text")
+    task_refresh = task_commands.add_parser("refresh")
+    task_refresh.add_argument("--task", required=True)
+    task_abandon = task_commands.add_parser("abandon")
+    task_abandon.add_argument("--task", required=True)
+    task_abandon.add_argument("--reason", default="")
     task_finish = task_commands.add_parser("finish")
     task_finish.add_argument("--task", required=True)
     task_finish.add_argument("--message", required=True)
@@ -199,6 +214,43 @@ def build_parser() -> argparse.ArgumentParser:
     ledger_commands = ledger.add_subparsers(dest="ledger_command", required=True)
     ledger_commands.add_parser("verify")
     ledger_commands.add_parser("summary")
+
+    knowledge = subparsers.add_parser("knowledge", help="inspect and sync Knowledge freshness")
+    knowledge_commands = knowledge.add_subparsers(dest="knowledge_command", required=True)
+    knowledge_status_parser = knowledge_commands.add_parser("status")
+    knowledge_status_parser.add_argument("--format", choices=("text", "json"), default="text")
+    knowledge_sync_parser = knowledge_commands.add_parser("sync")
+    knowledge_sync_parser.add_argument("--card", dest="cards", action="append", required=True)
+    knowledge_sync_parser.add_argument("--actor", required=True)
+    knowledge_sync_parser.add_argument("--reason", required=True)
+    knowledge_sync_parser.add_argument("--format", choices=("text", "json"), default="text")
+
+    govern = subparsers.add_parser("govern", help="ingest, update, and retrieve project governance knowledge")
+    govern_commands = govern.add_subparsers(dest="govern_command", required=True)
+    govern_ingest = govern_commands.add_parser("ingest")
+    govern_ingest.add_argument("--actor", required=True)
+    govern_ingest.add_argument("--reason", required=True)
+    govern_ingest.add_argument("--format", choices=("text", "json"), default="text")
+    govern_pending = govern_commands.add_parser("pending")
+    govern_pending.add_argument("--format", choices=("text", "json"), default="text")
+    govern_settle = govern_commands.add_parser("settle")
+    govern_settle.add_argument("--actor", required=True)
+    govern_settle.add_argument("--reason", required=True)
+    govern_settle.add_argument("--format", choices=("text", "json"), default="text")
+    govern_apply = govern_commands.add_parser("apply")
+    govern_apply.add_argument("--action", required=True, choices=("add", "update", "remove"))
+    govern_apply.add_argument("--kind", default="card", choices=("card",))
+    govern_apply.add_argument("--id", dest="card_id", required=True)
+    govern_apply.add_argument("--actor", required=True)
+    govern_apply.add_argument("--reason", required=True)
+    govern_apply.add_argument("--type", dest="card_type", default="knowledge")
+    govern_apply.add_argument("--title", default="")
+    govern_apply.add_argument("--summary", default="")
+    govern_apply.add_argument("--include", dest="includes", action="append", default=[])
+    govern_apply.add_argument("--format", choices=("text", "json"), default="text")
+    govern_retrieve = govern_commands.add_parser("retrieve")
+    _add_slice_arguments(govern_retrieve)
+    govern_retrieve.add_argument("--format", choices=("text", "json"), default="text")
 
     doctor = subparsers.add_parser("doctor", help="check configuration, activation, tools, index, and ledger")
     doctor.add_argument("--repair", action="store_true", help="restore the Skill, Git guard, activation, and index")
@@ -245,6 +297,7 @@ def _print_evidence(report: dict[str, Any]) -> None:
     for task in report["tasks"]:
         print(f"\n{task['goal']} [{task['id']}]")
         print(f"Management: {task['management_result']}")
+        print(f"Worktree: {(task.get('worktree') or {}).get('lifecycle', task['state'])}")
         print(f"Files changed: {len(task['changed_files'])}")
         print(f"Checks: {task['checks_passed']}/{task['checks_run']} passed")
         print(f"Verification attempts: {task['verification_attempts']}")
@@ -368,6 +421,20 @@ def main(argv: list[str] | None = None) -> int:
             from .desktop import serve_desktop
 
             return serve_desktop(port=args.port, token=args.token)
+        if args.command == "viewer":
+            from urllib.parse import quote
+
+            from .desktop import serve_desktop
+
+            token = args.token or secrets.token_urlsafe(32)
+            url = f"http://127.0.0.1:{args.port}/?bootstrap={quote(token, safe='')}"
+
+            def viewer_ready(_port: int) -> None:
+                print(f"AG2C browser viewer: {url}", flush=True)
+                if args.open:
+                    webbrowser.open(url)
+
+            return serve_desktop(port=args.port, token=token, on_ready=viewer_ready)
         if args.command == "guard":
             from .enrollment import activation_status, guard_pre_commit
 
@@ -377,7 +444,7 @@ def main(argv: list[str] | None = None) -> int:
             print(_json(status))
             return 0 if status["managed"] else 1
         if args.command == "task":
-            from .tasks import finish_task, start_task, task_record, verify_task
+            from .tasks import abandon_task, finish_task, list_tasks, refresh_task, start_task, task_record, verify_task
 
             if args.task_command == "start":
                 print(
@@ -398,6 +465,33 @@ def main(argv: list[str] | None = None) -> int:
                 result = verify_task(Path.cwd())
                 print(_json(result))
                 return 0 if result["passed"] else 1
+            if args.task_command == "list":
+                records = list_tasks(Path.cwd())
+                if args.format == "json":
+                    print(_json(records))
+                elif not records:
+                    print("No governed tasks have been recorded yet.")
+                else:
+                    labels = {
+                        "in-progress": "constructing",
+                        "verified-unmerged": "verified, not merged",
+                        "verified-stale": "verified bytes changed",
+                        "diverged": "canonical moved",
+                        "missing": "worktree missing",
+                        "completed": "merged",
+                        "abandoned": "abandoned",
+                    }
+                    for item in records:
+                        lifecycle = str((item.get("worktree") or {}).get("lifecycle", item["state"]))
+                        print(f"[{lifecycle}] {item['id']} - {item['goal']}")
+                        print(f"  {labels.get(lifecycle, item['state'])}: {(item.get('worktree') or {}).get('path', '')}")
+                return 0
+            if args.task_command == "refresh":
+                print(_json(refresh_task(Path.cwd(), args.task)))
+                return 0
+            if args.task_command == "abandon":
+                print(_json(abandon_task(Path.cwd(), args.task, reason=args.reason)))
+                return 0
             if args.task_command == "finish":
                 print(_json(finish_task(Path.cwd(), args.task, message=args.message)))
                 return 0
@@ -411,7 +505,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(_json(report))
             else:
                 _print_evidence(report)
-            evidence_ok = all(task["management_result"] == "successful" for task in report["tasks"])
+            evidence_ok = all(task["management_result"] in {"successful", "abandoned"} for task in report["tasks"])
             return 0 if report["managed"] and report["ledger_valid"] and evidence_ok else 1
         if args.command == "doctor" and args.repair:
             from .enrollment import repair_project
@@ -434,6 +528,92 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Check rerun: {report['rerun']}")
             return 0
         manifest, policy = _loaded(args)
+        if args.command == "knowledge":
+            if args.knowledge_command == "status":
+                statuses = knowledge_status(manifest, policy)
+                if args.format == "json":
+                    print(_json(statuses))
+                elif not statuses:
+                    print("No Knowledge cards are configured.")
+                else:
+                    for item in statuses:
+                        reasons = f" ({', '.join(item['reasons'])})" if item["reasons"] else ""
+                        print(
+                            f"[{item['status']}] {item['id']} - {item['title']} "
+                            f"(source: {item['source_status']}; assertion: {item['assertion_status']}){reasons}"
+                        )
+                return 0 if all(item["status"] not in {"stale", "conflict"} for item in statuses) else 1
+            result = sync_knowledge(
+                manifest,
+                policy,
+                card_ids=list(args.cards),
+                actor=args.actor,
+                reason=args.reason,
+            )
+            if args.format == "json":
+                print(_json(result))
+            else:
+                print(f"Synced Knowledge: {', '.join(result['cards'])}")
+                print(f"Actor: {result['actor']}")
+                print(f"Reason: {result['reason']}")
+                print(f"Ledger event: {result['ledger_event_digest']}")
+            return 0
+        if args.command == "govern":
+            from .govern import apply_change, ingest_project, pending_updates, retrieve_guidance, settle_pending
+
+            if args.govern_command == "ingest":
+                result = ingest_project(Path.cwd(), actor=args.actor, reason=args.reason)
+            elif args.govern_command == "pending":
+                result = pending_updates(Path.cwd())
+            elif args.govern_command == "settle":
+                result = settle_pending(Path.cwd(), actor=args.actor, reason=args.reason)
+            elif args.govern_command == "apply":
+                result = apply_change(
+                    Path.cwd(),
+                    action=args.action,
+                    kind=args.kind,
+                    card_id=args.card_id,
+                    reason=args.reason,
+                    actor=args.actor,
+                    card_type=args.card_type,
+                    title=args.title,
+                    summary=args.summary,
+                    include=list(args.includes),
+                )
+            else:
+                result = retrieve_guidance(
+                    Path.cwd(),
+                    path_specs=list(args.paths or []),
+                    contract_specs=list(args.contracts or []),
+                    goal=args.goal or "",
+                )
+            if args.format == "json":
+                print(_json(result))
+            elif args.govern_command == "pending":
+                items = result.get("items") or []
+                if not items:
+                    print("No governance updates are pending.")
+                else:
+                    for item in items:
+                        print(f"[{item['kind']}] {item['path']} -> {item['action']}")
+            elif args.govern_command == "retrieve":
+                print(f"Route: {result['route']['state']}")
+                print(f"Cards: {len(result['cards'])}")
+                print(f"Knowledge: {len(result['knowledge'])}")
+                print(f"Pending: {len(result['pending'])}")
+            elif args.govern_command == "settle":
+                print(f"Actor: {result['actor']}")
+                print(f"Reason: {result['reason']}")
+                print(f"Actions: {', '.join(result.get('actions') or []) or 'none'}")
+                print(f"Remaining: {len(result.get('pending') or [])}")
+            else:
+                print(f"Actor: {result.get('actor', '')}")
+                print(f"Reason: {result.get('reason', '')}")
+                if result.get("knowledge") is not None:
+                    print(f"Knowledge: {', '.join(result.get('knowledge') or []) or 'none'}")
+                if result.get("id"):
+                    print(f"{result['action']} {result['id']}")
+            return 0
         if args.command == "coverage":
             value = {
                 "level": policy.coverage.level,

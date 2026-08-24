@@ -21,9 +21,9 @@ using Microsoft.Win32;
 [assembly: AssemblyProduct("AutoGovern2Code")]
 [assembly: AssemblyCompany("AutoGovern2Code contributors")]
 [assembly: AssemblyDescription("Zero-touch governance for AI coding changes")]
-[assembly: AssemblyVersion("0.6.0.0")]
-[assembly: AssemblyFileVersion("0.6.0.0")]
-[assembly: AssemblyInformationalVersion("0.6.0")]
+[assembly: AssemblyVersion("0.7.0.0")]
+[assembly: AssemblyFileVersion("0.7.0.0")]
+[assembly: AssemblyInformationalVersion("0.7.0")]
 
 namespace AutoGovern2CodeDesktop
 {

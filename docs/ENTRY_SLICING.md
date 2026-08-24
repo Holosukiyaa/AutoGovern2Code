@@ -90,7 +90,9 @@ A route becomes conservative when:
 - no Floor owns an entry path;
 - multiple Floors own it;
 - a contract has no exact binding;
-- a future policy extension reports stale or conflicting local knowledge.
+- a synced Knowledge anchor reports stale or conflicting local knowledge;
+- one task's actual paths cover at least half of a target's Floors, and at least two Floors;
+- the project's Policy or Manifest changed after the task started.
 
 Conservative expansion selects every Floor for the affected target. It does not
 authorize editing every selected Floor. The implementation scope remains the
@@ -173,6 +175,20 @@ A slice contains:
 
 Each card has explicit `selection_reasons`. Treat unexplained context as a policy
 bug rather than silently adding it.
+
+When a selected Knowledge card has been synced and one of its referenced files
+changes, the slice reports `stale-knowledge:<card-id>` and expands validation to
+the affected target's Floors. If the stored lead-line claim no longer matches the
+file, the slice reports `conflict-knowledge:<card-id>` instead. Knowledge cards
+without an explicit sync remain `unknown` and preserve legacy routing behavior.
+Inspect and update anchors with:
+
+```bash
+ag2c knowledge status
+ag2c knowledge sync --card knowledge.worker \
+  --actor codex \
+  --reason "Reviewed implementation changes"
+```
 
 ## 8. Policy authoring order
 

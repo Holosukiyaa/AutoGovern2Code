@@ -136,7 +136,7 @@ def _remove_block(path: Path, begin: str, end: str) -> None:
 
 
 def _tracked_roots(root: Path) -> list[str]:
-    tracked = [line.replace("\\", "/") for line in str(git(root, "ls-files")).splitlines()]
+    tracked = [line.replace("\\", "/").strip("\r") for line in str(git(root, "ls-files", "-z")).split("\0") if line.strip()]
     candidates: dict[str, bool] = {}
     for relative in tracked:
         if relative in {"AGENTS.md", "CLAUDE.md", ".gitignore"} or relative.startswith((".ag2c/", ".deg/")):
@@ -394,6 +394,9 @@ def enroll_project(
         ],
     }
     checker_ids = [item["id"] for item in checkers]
+    from .govern import compose_baseline_governance, finalize_ingest
+
+    ingested = compose_baseline_governance(root, project_roots, checker_ids)
     policy = {
         "schema": POLICY_SCHEMA,
         "coverage": {
@@ -402,9 +405,9 @@ def enroll_project(
             "managed_by": "ag2c",
             "areas": project_roots,
         },
-        "cards": _baseline_cards(root, project_roots, checker_ids),
-        "relations": [],
-        "contracts": [],
+        "cards": ingested["cards"],
+        "relations": ingested["relations"],
+        "contracts": ingested["contracts"],
         "checkers": checkers,
     }
     enrollment = {
@@ -437,6 +440,7 @@ def enroll_project(
             },
         )
         activation = activate_project(root, skill_root=skill_root, harnesses=harnesses)
+        finalize_ingest(loaded_manifest, actor="ag2c", reason="initial enrollment")
     except Exception:
         unregister_project(root, remove_data=True)
         if store.is_dir():
@@ -525,15 +529,35 @@ def _upgrade_generated_policy(root: Path, policy: dict[str, Any]) -> bool:
             policy["checkers"] = detected_checkers
             changed = True
         floor_checkers = [str(item["id"]) for item in detected_checkers]
-        cards = _baseline_cards(root, project_roots, floor_checkers)
+        from .govern import compose_baseline_governance
+
+        ingested = compose_baseline_governance(root, project_roots, floor_checkers)
         expected_coverage = {
             "level": "baseline",
             "strategy": "conservative",
             "managed_by": "ag2c",
             "areas": project_roots,
         }
-        if policy.get("cards") != cards:
-            policy["cards"] = cards
+        ingested_ids = {str(card["id"]) for card in ingested["cards"]}
+        extras = [
+            card
+            for card in policy.get("cards", [])
+            if isinstance(card, dict) and str(card.get("id")) not in ingested_ids
+        ]
+        merged_cards = ingested["cards"] + extras
+        if policy.get("cards") != merged_cards:
+            policy["cards"] = merged_cards
+            changed = True
+        extra_ids = {str(card["id"]) for card in extras}
+        extra_relations = [
+            item
+            for item in policy.get("relations", [])
+            if isinstance(item, dict)
+            and (str(item.get("source")) in extra_ids or str(item.get("target")) in extra_ids)
+        ]
+        merged_relations = ingested["relations"] + extra_relations
+        if policy.get("relations") != merged_relations:
+            policy["relations"] = merged_relations
             changed = True
         if coverage != expected_coverage:
             policy["coverage"] = expected_coverage
@@ -593,7 +617,7 @@ def _active_task_ids(source: Path) -> list[str]:
     if directory.is_dir():
         for path in directory.glob("*.json"):
             task = _read_json(path)
-            if task.get("state") == "active":
+            if task.get("state") in {"active", "verified"}:
                 result.append(str(task.get("id", path.stem)))
     return sorted(result)
 
@@ -722,6 +746,9 @@ def upgrade_project(
         _write_json(manifest.policy_path, policy)
         registration = register_project(root, project_id=manifest.project_id, manifest=external)
         activation = activate_project(root, skill_root=skill_root, harnesses=harnesses)
+        from .govern import finalize_ingest
+
+        finalize_ingest(manifest, actor="ag2c", reason="upgrade ingest")
         return {
             "action": "reactivated",
             "project_id": manifest.project_id,
@@ -914,9 +941,9 @@ def guard_pre_commit(start: Path) -> int:
         manifest = load_manifest(discover_manifest(canonical))
         task = json.loads((manifest.state_dir / "tasks" / f"{task_id}.json").read_text(encoding="utf-8"))
     except (FileNotFoundError, KeyError, OSError, json.JSONDecodeError) as exc:
-        raise AG2CError("AG2C blocks commits without a valid active task record") from exc
+        raise AG2CError("AG2C blocks commits without a valid open task record") from exc
     if (
-        task.get("state") != "active"
+        task.get("state") not in {"active", "verified"}
         or task.get("worktree", {}).get("branch") != branch
         or Path(str(task.get("worktree", {}).get("path", ""))).resolve() != root
     ):

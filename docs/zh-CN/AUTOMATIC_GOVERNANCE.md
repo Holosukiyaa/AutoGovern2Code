@@ -14,9 +14,11 @@ Skill 只读检查正式工作副本，提取预计修改路径或精确公开�
 
 AI 可以在任务 worktree 中编辑、装依赖、构建、测试和生成产物。正式工作副本只负责最后集成。每个工程都有独立的外部策略、worktree、Ledger 和证据。
 
+`ag2c task list` 跟踪每份生成的施工副本。验证通过后任务进入“改完了没合并”，直到 `task finish`。不再需要的施工用 `ag2c task abandon` 废弃；正式分支已前进时用 `ag2c task refresh` 把施工副本接到当前 HEAD，并重新验证。
+
 ## 验证
 
-`ag2c task verify` 不相信 AI 自报范围，而是根据实际 Git diff 再算一次。新触及的已治理路径会扩大路由并留下干预记录；未纳管路径直接失败。
+`ag2c task verify` 不相信 AI 自报范围，而是根据实际 Git diff 再算一次。新触及的已治理路径会扩大路由并留下干预记录；未纳管路径直接失败。一次改动覆盖目标下大部分 Floor，或任务开始后 Policy / Manifest 发生变化，都会保守扩大验证范围。
 
 只运行 Policy 中已声明的 argv Checker。失败不会被后续通过覆盖；修好后通过会记录“AI 完成纠正”。如果 Checker 自己改变了受治理内容，原验证立即过期，必须重新验证。
 

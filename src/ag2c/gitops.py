@@ -9,9 +9,13 @@ from .errors import AG2CError
 
 
 def git(root: Path, *args: str, check: bool = True, binary: bool = False) -> str | bytes:
+    resolved_root = root.expanduser().resolve()
     try:
         completed = subprocess.run(
-            ["git", "-C", str(root), *args],
+            # The project path is explicitly selected by the local user. Pass a
+            # per-invocation trust exception so Windows Git's ownership check
+            # does not require changing the user's global configuration.
+            ["git", "-c", f"safe.directory={resolved_root}", "-C", str(resolved_root), *args],
             check=False,
             capture_output=True,
             text=not binary,
@@ -52,6 +56,33 @@ def current_branch(root: Path) -> str:
 
 def head(root: Path) -> str:
     return str(git(root, "rev-parse", "HEAD")).strip()
+
+
+def is_ancestor(root: Path, ancestor: str, commit: str) -> bool:
+    try:
+        git(root, "merge-base", "--is-ancestor", ancestor, commit)
+        return True
+    except AG2CError:
+        return False
+
+
+def rebase_worktree(root: Path, onto: str, *, stash_message: str) -> None:
+    before = [line for line in str(git(root, "stash", "list")).splitlines() if line.strip()]
+    git(root, "stash", "push", "--include-untracked", "--message", stash_message, check=False)
+    after = [line for line in str(git(root, "stash", "list")).splitlines() if line.strip()]
+    stashed = len(after) > len(before)
+    try:
+        git(root, "-c", "sequence.editor=true", "rebase", onto)
+    except AG2CError as exc:
+        git(root, "rebase", "--abort", check=False)
+        if stashed:
+            git(root, "stash", "pop", check=False)
+        raise AG2CError(f"cannot rebase task worktree onto {onto}: {exc}") from exc
+    if stashed:
+        try:
+            git(root, "stash", "pop")
+        except AG2CError as exc:
+            raise AG2CError(f"rebased onto {onto} but local changes could not be restored: {exc}") from exc
 
 
 def status_entries(root: Path) -> list[str]:

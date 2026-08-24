@@ -18,6 +18,8 @@ from .gitops import (
     current_branch,
     git,
     head,
+    is_ancestor,
+    rebase_worktree,
     repository_root,
     status_entries,
 )
@@ -31,8 +33,11 @@ from .receipts import (
 )
 from .slicer import compile_slice
 from .storage import git_private_path
+from .util import digest_file
 
 TASK_SCHEMA = "ag2c.task.v1"
+OPEN_TASK_STATES = frozenset({"active", "verified"})
+TERMINAL_TASK_STATES = frozenset({"completed", "abandoned"})
 
 
 def _now() -> str:
@@ -150,11 +155,12 @@ def _start_evidence_valid(manifest, task: dict[str, Any]) -> bool:
     )
     if event is None:
         return False
+    started_head = task.get("source", {}).get("started_head") or task.get("source", {}).get("head")
     return event["payload"] == {
         "task_id": task["id"],
         "goal": task.get("goal"),
-        "source_head": task.get("source", {}).get("head"),
-        "source_branch": task.get("source", {}).get("branch"),
+        "source_head": started_head,
+        "source_branch": task.get("source", {}).get("started_branch") or task.get("source", {}).get("branch"),
         "worktree": task.get("worktree", {}).get("path"),
         "worktree_branch": task.get("worktree", {}).get("branch"),
         "slice_digest": task.get("route", {}).get("slice_digest"),
@@ -225,7 +231,15 @@ def start_task(
         "state": "active",
         "goal": goal,
         "created_at": _now(),
-        "source": {"root": str(canonical), "branch": source_branch, "head": source_head},
+        "source": {
+            "root": str(canonical),
+            "branch": source_branch,
+            "head": source_head,
+            "started_head": source_head,
+            "started_branch": source_branch,
+            "policy_digest": digest_file(policy.path),
+            "manifest_digest": digest_file(manifest.path),
+        },
         "worktree": {"path": str(worktree), "branch": branch},
         "entry": {"paths": path_specs, "contracts": contract_specs, "all": all_mode},
         "route": {
@@ -256,7 +270,80 @@ def start_task(
     )
     task["start_ledger_event_digest"] = event["event_digest"]
     _atomic_json(record_path, task)
-    return task
+    from .govern import retrieve_guidance
+
+    return {**task, "guidance": retrieve_guidance(canonical, path_specs=path_specs, contract_specs=contract_specs, goal=goal)}
+
+
+def _require_open_task(task: dict[str, Any]) -> None:
+    state = str(task.get("state", ""))
+    if state in TERMINAL_TASK_STATES:
+        raise AG2CError(f"task is {state}: {task['id']}")
+    if state not in OPEN_TASK_STATES:
+        raise AG2CError(f"task is not open: {task['id']} ({state})")
+
+
+def _remove_task_worktree(canonical: Path, task: dict[str, Any], *, force: bool) -> str:
+    worktree = Path(str(task["worktree"]["path"]))
+    branch = str(task["worktree"]["branch"])
+    try:
+        if worktree.exists():
+            args = ["worktree", "remove"]
+            if force:
+                args.append("--force")
+            git(canonical, *args, str(worktree))
+        git(canonical, "branch", "-D" if force else "-d", branch, check=False)
+        return "removed"
+    except AG2CError as exc:
+        return f"pending: {exc}"
+
+
+def _worktree_snapshot(canonical: Path, task: dict[str, Any]) -> dict[str, Any]:
+    recorded = task.get("worktree") or {}
+    path = Path(str(recorded.get("path", "")))
+    present = bool(str(recorded.get("path", ""))) and path.is_dir()
+    canonical_head = head(canonical)
+    source_head = str(task.get("source", {}).get("head", ""))
+    diverged = bool(source_head) and canonical_head != source_head
+    dirty = False
+    bytes_changed = False
+    if present:
+        try:
+            dirty = bool(status_entries(path))
+            last_pass = next(
+                (item for item in reversed(task.get("verifications", [])) if item.get("passed")),
+                None,
+            )
+            if source_head and last_pass:
+                bytes_changed = change_digest(path, source_head) != last_pass.get("change_digest")
+        except AG2CError:
+            present = False
+    state = str(task.get("state", ""))
+    if state == "completed":
+        lifecycle = "completed"
+    elif state == "abandoned":
+        lifecycle = "abandoned"
+    elif not present:
+        lifecycle = "missing"
+    elif diverged:
+        lifecycle = "diverged"
+    elif state == "verified" and bytes_changed:
+        lifecycle = "verified-stale"
+    elif state == "verified":
+        lifecycle = "verified-unmerged"
+    else:
+        lifecycle = "in-progress"
+    return {
+        "path": str(recorded.get("path", "")),
+        "branch": recorded.get("branch"),
+        "present": present,
+        "dirty": dirty,
+        "diverged": diverged,
+        "lifecycle": lifecycle,
+        "source_head": source_head,
+        "canonical_head": canonical_head,
+        "bytes_changed_after_verify": bytes_changed,
+    }
 
 
 def _task_from_worktree(start: Path) -> tuple[Path, dict[str, Any]]:
@@ -307,8 +394,7 @@ def _changed_specs(manifest, paths: list[str]) -> tuple[list[str], list[str]]:
 def verify_task(start: Path) -> dict[str, Any]:
     worktree = repository_root(start)
     canonical, task = _task_from_worktree(worktree)
-    if task["state"] != "active":
-        raise AG2CError(f"task is not active: {task['id']} ({task['state']})")
+    _require_open_task(task)
     canonical_manifest, _ = _canonical_manifest(canonical)
     formal_dirty = status_entries(canonical)
     if formal_dirty:
@@ -322,7 +408,7 @@ def verify_task(start: Path) -> dict[str, Any]:
             "canonical-head-diverged",
             {"expected": task["source"]["head"], "actual": head(canonical)},
         )
-        raise AG2CError("canonical HEAD changed during the task; start a new task from the current branch")
+        raise AG2CError("canonical HEAD changed during the task; run `ag2c task refresh` or start a new task")
     stale_receipt = receipt_path(canonical_manifest, str(task["id"]))
     if stale_receipt.is_file():
         stale_receipt.unlink()
@@ -335,6 +421,36 @@ def verify_task(start: Path) -> dict[str, Any]:
     if unmanaged:
         _record_intervention(canonical, canonical_manifest, task, "ungoverned-change-blocked", {"paths": unmanaged})
         raise AG2CError("changed paths are outside the governed project: " + ", ".join(unmanaged))
+    policy_digest = digest_file(policy.path)
+    manifest_digest = digest_file(manifest.path)
+    recorded_policy = str(task.get("source", {}).get("policy_digest", ""))
+    recorded_manifest = str(task.get("source", {}).get("manifest_digest", ""))
+    governance_changed = bool(
+        (recorded_policy and recorded_policy != policy_digest)
+        or (recorded_manifest and recorded_manifest != manifest_digest)
+    )
+    verify_all_mode = bool(task["entry"]["all"]) or governance_changed
+    if governance_changed and not any(
+        item.get("kind") == "governance-changed" for item in task.get("interventions", [])
+    ):
+        _record_intervention(
+            canonical,
+            canonical_manifest,
+            task,
+            "governance-changed",
+            {"policy_digest": policy_digest, "manifest_digest": manifest_digest},
+        )
+    last_pass = next((item for item in reversed(task.get("verifications", [])) if item.get("passed")), None)
+    current_digest = change_digest(worktree, task["source"]["head"])
+    if task["state"] == "verified" and last_pass and current_digest != last_pass.get("change_digest"):
+        task["state"] = "active"
+        _record_intervention(
+            canonical,
+            canonical_manifest,
+            task,
+            "verified-bytes-changed",
+            {"previous_digest": last_pass.get("change_digest"), "change_digest": current_digest},
+        )
     build_index(manifest, policy, index_path(manifest))
     actual_slice = compile_slice(
         manifest,
@@ -342,7 +458,7 @@ def verify_task(start: Path) -> dict[str, Any]:
         path_specs=path_specs,
         contract_specs=list(task["entry"]["contracts"]),
         goal=str(task["goal"]),
-        all_mode=bool(task["entry"]["all"]),
+        all_mode=verify_all_mode,
     )
     initial_paths = set(task["entry"]["paths"])
     expanded = sorted(set(path_specs) - initial_paths)
@@ -356,7 +472,7 @@ def verify_task(start: Path) -> dict[str, Any]:
         manifest,
         policy,
         actual_slice,
-        all_mode=bool(task["entry"]["all"]),
+        all_mode=verify_all_mode,
         ledger_path=canonical_manifest.ledger_path,
         task_id=str(task["id"]),
     )
@@ -391,6 +507,7 @@ def verify_task(start: Path) -> dict[str, Any]:
     )
     verification["ledger_event_digest"] = verification_event["event_digest"]
     prior_failure = any(not item.get("passed", False) for item in task["verifications"])
+    task["state"] = "verified" if passed else "active"
     task["verifications"].append(verification)
     _atomic_json(_task_path(canonical, str(task["id"])), task)
     if checker_mutated_change:
@@ -417,7 +534,13 @@ def verify_task(start: Path) -> dict[str, Any]:
             "verification-failed",
             {"attempt": verification["attempt"], "failed_checkers": [item["id"] for item in report["results"] if item["status"] != "passed"]},
         )
-    return {"task_id": task["id"], "passed": passed, "verification": verification}
+    return {
+        "task_id": task["id"],
+        "state": task["state"],
+        "passed": passed,
+        "verification": verification,
+        "worktree": _worktree_snapshot(canonical, task),
+    }
 
 
 def finish_task(start: Path, task_id: str, *, message: str) -> dict[str, Any]:
@@ -429,8 +552,7 @@ def finish_task(start: Path, task_id: str, *, message: str) -> dict[str, Any]:
     if not status["managed"]:
         raise AG2CError("AG2C is not active")
     task = _load_task(canonical, task_id)
-    if task["state"] != "active":
-        raise AG2CError(f"task is not active: {task_id} ({task['state']})")
+    _require_open_task(task)
     manifest, policy = _canonical_manifest(canonical)
     if not _start_evidence_valid(manifest, task):
         raise AG2CError("task start evidence is missing or inconsistent")
@@ -449,7 +571,7 @@ def finish_task(start: Path, task_id: str, *, message: str) -> dict[str, Any]:
         _record_intervention(canonical, manifest, task, "merge-blocked-canonical-dirty", {"paths": dirty})
         raise AG2CError("canonical worktree is dirty; refusing merge")
     if head(canonical) != task["source"]["head"] or current_branch(canonical) != task["source"]["branch"]:
-        raise AG2CError("canonical branch or HEAD changed; refusing merge")
+        raise AG2CError("canonical branch or HEAD changed; run `ag2c task refresh` or start a new task")
     current_digest = change_digest(worktree, task["source"]["head"])
     if current_digest != task["verifications"][-1]["change_digest"]:
         raise AG2CError("task changed after verification; run `ag2c task verify` again")
@@ -499,15 +621,135 @@ def finish_task(start: Path, task_id: str, *, message: str) -> dict[str, Any]:
     )
     task["result"]["ledger_event_digest"] = event["event_digest"]
     _atomic_json(_task_path(canonical, task_id), task)
-    cleanup = "completed"
     try:
         git(canonical, "worktree", "remove", str(worktree))
         git(canonical, "branch", "-d", task["worktree"]["branch"])
+        cleanup = "removed"
     except AG2CError as exc:
         cleanup = f"pending: {exc}"
     task["cleanup"] = cleanup
+    from .govern import record_pending_from_task
+
+    pending = record_pending_from_task(canonical, list(task["verifications"][-1].get("changed_paths") or []))
+    task["governance_pending"] = pending
     _atomic_json(_task_path(canonical, task_id), task)
     return task
+
+
+def list_tasks(start: Path) -> list[dict[str, Any]]:
+    canonical = Path(activation_status(start)["canonical_root"])
+    return [
+        {
+            "id": task["id"],
+            "goal": task["goal"],
+            "state": task["state"],
+            "created_at": task.get("created_at"),
+            "source": task.get("source"),
+            "worktree": _worktree_snapshot(canonical, task),
+        }
+        for task in task_records(canonical)
+    ]
+
+
+def refresh_task(start: Path, task_id: str) -> dict[str, Any]:
+    root = repository_root(start)
+    status = activation_status(root)
+    canonical = Path(status["canonical_root"])
+    if root != canonical:
+        raise AG2CError(f"refresh AG2C tasks from the canonical worktree: {canonical}")
+    if not status["managed"]:
+        raise AG2CError("AG2C is not active")
+    task = _load_task(canonical, task_id)
+    _require_open_task(task)
+    dirty = status_entries(canonical)
+    if dirty:
+        raise AG2CError("canonical worktree is dirty; refusing refresh: " + ", ".join(dirty))
+    worktree = Path(task["worktree"]["path"]).resolve()
+    if not worktree.is_dir():
+        raise AG2CError(f"task worktree is missing: {worktree}")
+    if repository_root(worktree) != worktree or current_branch(worktree) != task["worktree"]["branch"]:
+        raise AG2CError("task worktree identity no longer matches its AG2C record")
+    manifest, policy = _canonical_manifest(canonical)
+    current_head = head(canonical)
+    previous_head = str(task["source"]["head"])
+    if current_head == previous_head:
+        return {**task, "refreshed": False, "worktree": _worktree_snapshot(canonical, task)}
+    if not is_ancestor(canonical, previous_head, current_head):
+        _record_intervention(
+            canonical,
+            manifest,
+            task,
+            "canonical-history-rewritten",
+            {"expected": previous_head, "actual": current_head},
+        )
+        raise AG2CError(
+            "canonical history no longer contains the task source commit; abandon this worktree or start a new task"
+        )
+    try:
+        rebase_worktree(worktree, current_head, stash_message=f"ag2c-refresh-{task_id}")
+    except AG2CError as exc:
+        _record_intervention(
+            canonical,
+            manifest,
+            task,
+            "refresh-conflict",
+            {"previous": previous_head, "actual": current_head, "error": str(exc)},
+        )
+        raise
+    task["source"].setdefault("started_head", previous_head)
+    task["source"].setdefault("started_branch", task["source"].get("branch"))
+    task["state"] = "active"
+    task["source"]["head"] = current_head
+    task["source"]["branch"] = current_branch(canonical)
+    task["source"]["policy_digest"] = digest_file(policy.path)
+    task["source"]["manifest_digest"] = digest_file(manifest.path)
+    _record_intervention(
+        canonical,
+        manifest,
+        task,
+        "source-refreshed",
+        {"previous": previous_head, "source_head": current_head},
+    )
+    event = append_event(
+        manifest.ledger_path,
+        "task-refreshed",
+        {"task_id": task_id, "previous_head": previous_head, "source_head": current_head},
+    )
+    task["refresh_ledger_event_digest"] = event["event_digest"]
+    _atomic_json(_task_path(canonical, task_id), task)
+    return {**task, "refreshed": True, "worktree": _worktree_snapshot(canonical, task)}
+
+
+def abandon_task(start: Path, task_id: str, *, reason: str = "") -> dict[str, Any]:
+    root = repository_root(start)
+    status = activation_status(root)
+    canonical = Path(status["canonical_root"])
+    if root != canonical:
+        raise AG2CError(f"abandon AG2C tasks from the canonical worktree: {canonical}")
+    if not status["managed"]:
+        raise AG2CError("AG2C is not active")
+    task = _load_task(canonical, task_id)
+    _require_open_task(task)
+    reason = reason.strip() or "abandoned by operator"
+    manifest, _ = _canonical_manifest(canonical)
+    worktree = str(Path(task["worktree"]["path"]))
+    cleanup = _remove_task_worktree(canonical, task, force=True)
+    task["state"] = "abandoned"
+    task["abandoned_at"] = _now()
+    task["abandon"] = {
+        "reason": reason,
+        "source_head": task["source"]["head"],
+        "worktree": worktree,
+    }
+    event = append_event(
+        manifest.ledger_path,
+        "task-abandoned",
+        {"task_id": task_id, **task["abandon"]},
+    )
+    task["abandon"]["ledger_event_digest"] = event["event_digest"]
+    task["cleanup"] = cleanup
+    _atomic_json(_task_path(canonical, task_id), task)
+    return {**task, "worktree": _worktree_snapshot(canonical, task)}
 
 
 def task_record(start: Path, task_id: str) -> dict[str, Any]:
@@ -562,8 +804,12 @@ def evidence(start: Path, task_id: str | None = None) -> dict[str, Any]:
             (str(item.get("check_ledger_event_digest", "")), "check-run")
             for item in verifications
         )
+        if task.get("refresh_ledger_event_digest"):
+            references.append((str(task.get("refresh_ledger_event_digest", "")), "task-refreshed"))
         if task.get("result"):
             references.append((str(task["result"].get("ledger_event_digest", "")), "task-completed"))
+        if task.get("abandon"):
+            references.append((str(task["abandon"].get("ledger_event_digest", "")), "task-abandoned"))
         evidence_complete = True
         for digest, expected_type in references:
             event = events_by_digest.get(digest)
@@ -603,12 +849,27 @@ def evidence(start: Path, task_id: str | None = None) -> dict[str, Any]:
             }
             if result_event is None or result_event.get("payload") != expected_result:
                 evidence_complete = False
+        if evidence_complete and task.get("abandon"):
+            abandon_event = events_by_digest.get(str(task["abandon"].get("ledger_event_digest", "")))
+            expected_abandon = {
+                "task_id": task["id"],
+                **{key: value for key, value in task["abandon"].items() if key != "ledger_event_digest"},
+            }
+            if abandon_event is None or abandon_event.get("payload") != expected_abandon:
+                evidence_complete = False
         verified = bool(
             verifications
             and verifications[-1].get("passed")
             and _verification_evidence_valid(manifest, task, verifications[-1])
         )
         completed = task["state"] == "completed" and bool(task.get("result"))
+        abandoned = task["state"] == "abandoned" and bool(task.get("abandon"))
+        if completed and verified and evidence_complete:
+            management_result = "successful"
+        elif abandoned and evidence_complete:
+            management_result = "abandoned"
+        else:
+            management_result = "incomplete"
         last_verification = verifications[-1] if verifications else {}
         checker_results = last_verification.get("checker_results", [])
         correction_proven = any(
@@ -626,7 +887,7 @@ def evidence(start: Path, task_id: str | None = None) -> dict[str, Any]:
                 "goal": task["goal"],
                 "state": task["state"],
                 "managed": start_valid,
-                "management_result": "successful" if completed and verified and evidence_complete else "incomplete",
+                "management_result": management_result,
                 "evidence_complete": evidence_complete,
                 "route_state": task["route"]["state"],
                 "interventions": task.get("interventions", []),
@@ -641,6 +902,8 @@ def evidence(start: Path, task_id: str | None = None) -> dict[str, Any]:
                 "blocked_actions": blocked_actions,
                 "local_evidence": _local_evidence(canonical, task),
                 "result": task.get("result"),
+                "abandon": task.get("abandon"),
+                "worktree": _worktree_snapshot(canonical, task),
                 "cleanup": task.get("cleanup"),
             }
         )

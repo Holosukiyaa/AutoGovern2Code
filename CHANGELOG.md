@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+## 0.7.0 - 2026-08-24
+
+- Tracked generated task worktrees through constructing, verified-but-unmerged, diverged, abandoned, and merged states.
+- Added `ag2c task list`, `ag2c task refresh`, and `ag2c task abandon` so a moved canonical branch can rebase an open worktree or discard obsolete construction.
+- Expanded verification conservatively when a task's actual diff covers most Floors in a target, or when Policy or Manifest changes after the task starts.
+- Opened the operating-system folder dialog from the browser viewer when adding a project, and kept the in-page browser only as fallback.
+- Ingested project documents and detected public surfaces into Knowledge and boundary cards on first enrollment, and kept them current through `ag2c govern ingest`.
+- Added `ag2c govern apply`, `pending`, and `retrieve` plus the `ag2c-governance-update` Skill so stored knowledge changes only with an actor and reason.
+- Attached retrieved Knowledge to `ag2c task start` and listed follow-up governance updates after `ag2c task finish`.
+- Let the browser viewer recover a missing or rotated loopback session token without showing `desktop session token is required`.
+- Show post-merge governance updates in the viewer and settle them with `ag2c govern settle` so the next task starts against current Knowledge.
+- Detect rewritten Knowledge claims from synced document leads, mark them as assertion conflicts, expand the slice, and keep `ag2c govern settle` from accepting those conflicts without an explicit sync.
+
 ## 0.6.0 - 2026-08-16
 
 - Added a per-user Windows tray application, adapted from the CartridgeFlow Runtime Shell pattern, with native folder selection, managed-project status, harness readiness, recheck, evidence, and detach actions.

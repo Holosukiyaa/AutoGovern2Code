@@ -30,6 +30,7 @@ class HarnessAdapterTests(unittest.TestCase):
             ]
             for root in expected:
                 self.assertTrue((root / "ag2c-governed-development" / "SKILL.md").is_file())
+                self.assertTrue((root / "ag2c-governance-update" / "SKILL.md").is_file())
 
     def test_harness_selection_is_narrow(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

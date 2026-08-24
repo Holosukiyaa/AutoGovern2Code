@@ -31,7 +31,7 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
 
    Repeat `--path` and `--contract` as needed. If the change surface is genuinely unknown, use `--all`; never use a vague goal to invent a narrow route.
 
-6. Read the JSON response and move into `worktree.path`. Perform every write, dependency install, build, test, screenshot, and generated output only in that external worktree.
+6. Read the JSON response and move into `worktree.path`. Perform every write, dependency install, build, test, screenshot, and generated output only in that external worktree. `ag2c task list` reports worktree lifecycle: constructing, verified but unmerged, diverged, abandoned, or merged.
 
 7. After the final change, run from the task worktree:
 
@@ -39,7 +39,9 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
    ag2c task verify
    ```
 
-   AG2C recomputes the route from the actual diff and runs only trusted project checkers. When it reports a failure, fix the product cause and verify again. Never weaken policy, remove checks, edit evidence, or touch the canonical checkout to make a task pass.
+   AG2C recomputes the route from the actual diff and runs only trusted project checkers. A passing result leaves the task verified but unmerged. When it reports a failure, fix the product cause and verify again. Never weaken policy, remove checks, edit evidence, or touch the canonical checkout to make a task pass.
+
+   If the canonical branch moved while the worktree was open, run `ag2c task refresh --task <task-id>` from the canonical checkout, then verify again. If that work is obsolete, run `ag2c task abandon --task <task-id>` instead of leaving an active worktree behind. A large actual diff or a changed Manifest/Policy expands validation conservatively.
 
 8. After a passing verification, return to the canonical checkout and run:
 
@@ -47,13 +49,22 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
    ag2c task finish --task <task-id> --message "<concise commit message>"
    ```
 
-   AG2C refuses stale evidence, writes the full record to the external project store, adds only evidence digest trailers to the commit, validates the committed bytes, fast-forwards the original branch, and cleans up the external worktree.
+   AG2C refuses stale evidence, writes the full record to the external project store, adds only evidence digest trailers to the commit, validates the committed bytes, fast-forwards the original branch, and cleans up the external worktree. If `governance_pending.items` is not empty, immediately settle it before any new coding task:
 
-9. Run `ag2c evidence --task <task-id>` and report its plain-language facts with the product outcome: files changed, checks passed, whether a failed attempt was corrected, local evidence completeness, and merged commit. Do not teach the user cards, floors, slices, policies, or checker selection unless they explicitly request diagnostics.
+   ```text
+   ag2c govern settle --actor <harness> --reason "after task <task-id>: <user request>"
+   ```
+
+   Do not ask the user to operate this. If settle reports remaining items, follow the `ag2c-governance-update` Skill for those leftovers only. Then continue with evidence.
+
+8b. Use the JSON `guidance` from `ag2c task start` as the retrieved project knowledge and contracts for this change. Do not grep the whole repository for ownership or public interfaces when that guidance already names them.
+
+9. Run `ag2c evidence --task <task-id>` and report its plain-language facts with the product outcome: files changed, checks passed, whether a failed attempt was corrected, local evidence completeness, and merged commit. Do not teach the user cards, floors, slices, policies, or checker selection unless they explicitly request diagnostics. Do not edit Policy by hand; use `ag2c govern` through the governance-update Skill when rules must change.
 
 ## Fail Closed
 
 - A dirty or advanced canonical checkout blocks start, verify, or merge.
+- A diverged task worktree must be refreshed onto the current canonical HEAD or abandoned before delivery.
 - A write outside governed scope blocks verification.
 - Any change after the passing verification requires another verification.
 - Missing or invalid evidence means the work is not complete.

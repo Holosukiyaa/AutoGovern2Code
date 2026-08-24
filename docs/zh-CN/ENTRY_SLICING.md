@@ -96,7 +96,9 @@ AG2C 的核心裁决规则是：
 - 入口路径没有主 Floor；
 - 入口路径同时属于多个 Floor；
 - 公开合同没有精确版本绑定；
-- 未来扩展检测到 Knowledge 过期或事实冲突。
+- 已同步的 Knowledge Anchor 检测到引用过期或事实冲突；
+- 一次任务的实际路径覆盖了某个目标至少一半 Floor，且不少于两个 Floor；
+- 任务开始后项目的 Policy 或 Manifest 发生了变化。
 
 保守回退会选择受影响目标下的全部 Floor，以免漏检。但它不会授权修改全部 Floor。
 
@@ -183,6 +185,19 @@ ag2c check --all
 - `slice_digest`：整个决定的稳定摘要。
 
 每张卡都有 `selection_reasons`。如果一份上下文无法解释自己为什么被选中，应把它视为策略缺陷，而不是静默加入更多材料。
+
+如果已选中的 Knowledge 卡片完成过同步，而它引用的文件后来发生变化，
+切片会报告 `stale-knowledge:<card-id>`，并把检查范围扩大到对应目标的
+全部 Floor。如果记下的文档要点和当前首行对不上，则报告
+`conflict-knowledge:<card-id>`。没有显式同步过的 Knowledge 保持 `unknown`，
+旧项目的路由行为不受影响。可以使用以下命令查看和同步 Anchor：
+
+```bash
+ag2c knowledge status
+ag2c knowledge sync --card knowledge.worker \
+  --actor codex \
+  --reason "Reviewed implementation changes"
+```
 
 ## 8. Floor 怎么切才合理
 

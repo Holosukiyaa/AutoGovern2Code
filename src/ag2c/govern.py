@@ -25,6 +25,7 @@ PENDING_TITLES = {
     "stale-knowledge": "Knowledge 已过期",
     "assertion-conflict": "文档要点和记录冲突",
     "new-interface": "检测到新的公开界面",
+    "undeclared-product": "还没有产品验收",
 }
 PENDING_HINTS = {
     "add-or-expand-floor": "补目录归属",
@@ -32,7 +33,8 @@ PENDING_HINTS = {
     "add-or-update-knowledge": "更新 Knowledge",
     "sync-or-update-knowledge": "同步 Knowledge",
     "review-then-sync-knowledge": "核对要点后再同步",
-    "add-boundary": "登记公开界面",
+    "add-boundary": "登记公开界面，并补上对应检查",
+    "declare-product-checks": "补上要验的能力和对应检查",
 }
 DOC_NAMES = ("README.md", "README.zh-CN.md", "README.en.md", "CONTRIBUTING.md", "CHANGELOG.md", "AGENTS.md")
 DOC_DIRS = ("docs", "doc", "handbook")
@@ -213,6 +215,7 @@ def finalize_ingest(manifest: Manifest, *, actor: str, reason: str) -> dict[str,
             "boundaries": [card.card_id for card in policy.cards if card.card_type == "boundary"],
         },
     )
+    pending_updates(manifest.project_root)
     return {
         "knowledge": knowledge_ids,
         "synced": None if synced is None else synced["cards"],
@@ -307,6 +310,8 @@ def pending_updates(start: Path, changed_paths: list[str] | None = None) -> dict
         if any(part.lower() in BOUNDARY_HINTS for part in Path(normalized).parts):
             if not any(normalized.startswith(str(scope.includes[0]).replace("/**", "")) for card in policy.cards if card.card_type == "boundary" for scope in card.scopes if scope.includes):
                 items.append({"kind": "new-interface", "path": normalized, "action": "add-boundary"})
+    if not policy.contracts and not any(checker.stage in {"boundary", "scenario"} for checker in policy.checkers):
+        items.append({"kind": "undeclared-product", "path": ".", "action": "declare-product-checks"})
     unique: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for item in items:

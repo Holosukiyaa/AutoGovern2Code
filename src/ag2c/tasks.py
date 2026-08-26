@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .checks import run_checks
+from .acceptance import assess_product
+from .checks import PROCESS_CHECK_STATUSES, run_checks
 from .config import discover_manifest, load_manifest, load_policy
 from .enrollment import activation_status
 from .errors import AG2CError
@@ -480,7 +481,8 @@ def verify_task(start: Path) -> dict[str, Any]:
     checker_mutated_change = before_check_digest != after_check_digest
     passed = (
         bool(report["results"])
-        and all(item["status"] == "passed" for item in report["results"])
+        and all(item["status"] in PROCESS_CHECK_STATUSES for item in report["results"])
+        and any(item["status"] == "passed" for item in report["results"])
         and not checker_mutated_change
     )
     verification = {
@@ -787,6 +789,9 @@ def evidence(start: Path, task_id: str | None = None) -> dict[str, Any]:
     status = activation_status(start)
     canonical = Path(status["canonical_root"])
     manifest, policy = _canonical_manifest(canonical)
+    from .knowledge import knowledge_status
+
+    knowledge_rows = knowledge_status(manifest, policy)
     ledger_errors = verify_ledger(manifest.ledger_path)
     events = read_events(manifest.ledger_path) if not ledger_errors else []
     events_by_digest = {str(event["event_digest"]): event for event in events}
@@ -876,6 +881,7 @@ def evidence(start: Path, task_id: str | None = None) -> dict[str, Any]:
             management_result = "incomplete"
         last_verification = verifications[-1] if verifications else {}
         checker_results = last_verification.get("checker_results", [])
+        product = assess_product(policy, knowledge=knowledge_rows, verification=last_verification or None)
         correction_proven = any(
             intervention.get("kind") == "ai-correction-proven"
             for intervention in task.get("interventions", [])
@@ -904,6 +910,7 @@ def evidence(start: Path, task_id: str | None = None) -> dict[str, Any]:
                 "failed_attempts": sum(not item.get("passed", False) for item in verifications),
                 "correction_proven": correction_proven,
                 "blocked_actions": blocked_actions,
+                "product": product,
                 "local_evidence": _local_evidence(canonical, task),
                 "result": task.get("result"),
                 "abandon": task.get("abandon"),
@@ -926,5 +933,10 @@ def evidence(start: Path, task_id: str | None = None) -> dict[str, Any]:
         "ledger_valid": not ledger_errors,
         "ledger_errors": ledger_errors,
         "coverage": coverage,
+        "product": assess_product(
+            policy,
+            knowledge=knowledge_rows,
+            verification=(summaries[0].get("verifications") or [None])[-1] if summaries else None,
+        ),
         "tasks": summaries,
     }

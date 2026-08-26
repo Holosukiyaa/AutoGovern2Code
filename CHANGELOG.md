@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.8.1 - 2026-08-26
+
+- Split process delivery from product acceptance so a finished task no longer reads as product-complete.
+- Kept baseline projects explicitly undeclared until contracts or boundary/scenario checks exist, and left that gap in pending updates.
+- Let checkers skip with `AG2C_SKIP:` or exit code 78, recorded the local environment, and treated stale or conflicting Knowledge as blocking product acceptance.
+
 ## 0.8.0 - 2026-08-26
 
 - Recorded a versioned governance journal after each finished task and showed those versions in the desktop viewer.

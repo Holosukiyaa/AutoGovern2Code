@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +15,10 @@ from .ledger import append_event
 from .model import Checker, Manifest, Policy
 from .util import digest_file
 
+SKIP_EXIT_CODE = 78
+SKIP_MARK = "AG2C_SKIP:"
+PROCESS_CHECK_STATUSES = frozenset({"passed", "skipped"})
+
 
 def _clip(value: str, limit: int = 4000) -> str:
     if len(value) <= limit:
@@ -23,6 +29,41 @@ def _clip(value: str, limit: int = 4000) -> str:
 def _checker_cwd(manifest: Manifest, checker: Checker) -> Path:
     base = manifest.target_root(checker.target_id) if checker.target_id else manifest.project_root
     return (base / checker.cwd).resolve()
+
+
+def environment_snapshot() -> dict[str, Any]:
+    return {
+        "python": sys.version.split()[0],
+        "platform": sys.platform,
+        "has_node": shutil.which("node") is not None,
+        "has_go": shutil.which("go") is not None,
+        "data_roots": {
+            key: os.environ[key]
+            for key in sorted(os.environ)
+            if key.endswith("_DATA_ROOT")
+        },
+    }
+
+
+def _skip_reason(exit_code: int | None, stdout: str, stderr: str) -> str | None:
+    for line in f"{stdout}\n{stderr}".splitlines():
+        stripped = line.strip()
+        if stripped.startswith(SKIP_MARK):
+            return stripped[len(SKIP_MARK):].strip() or "skipped"
+    if exit_code == SKIP_EXIT_CODE:
+        return "checker reported skip"
+    return None
+
+
+def _stage_acceptance(stage_results: list[dict[str, Any]]) -> str:
+    statuses = {str(item.get("status")) for item in stage_results}
+    if "failed" in statuses:
+        return "failed"
+    if "error" in statuses:
+        return "error"
+    if "skipped" in statuses:
+        return "skipped"
+    return "passed"
 
 
 def run_checks(
@@ -87,27 +128,34 @@ def run_checks(
                 exit_code = completed.returncode
                 stdout = completed.stdout
                 stderr = completed.stderr
-                status = "passed" if completed.returncode == 0 else "failed"
+                skipped = _skip_reason(exit_code, stdout, stderr)
+                if skipped:
+                    status = "skipped"
+                elif completed.returncode == 0:
+                    status = "passed"
+                else:
+                    status = "failed"
             except subprocess.TimeoutExpired as exc:
                 stdout = str(exc.stdout or "")
                 stderr = f"checker timed out after {checker.timeout} seconds"
             except OSError as exc:
                 stderr = f"cannot execute checker: {exc}"
-        results.append(
-            {
-                "id": checker.checker_id,
-                "stage": checker.stage,
-                "target": checker.target_id,
-                "status": status,
-                "exit_code": exit_code,
-                "started_at": started_at,
-                "duration_ms": max(0, round((time.monotonic() - started) * 1000)),
-                "command": list(checker.command),
-                "cwd": str(cwd),
-                "stdout": _clip(stdout),
-                "stderr": _clip(stderr),
-            }
-        )
+        result = {
+            "id": checker.checker_id,
+            "stage": checker.stage,
+            "target": checker.target_id,
+            "status": status,
+            "exit_code": exit_code,
+            "started_at": started_at,
+            "duration_ms": max(0, round((time.monotonic() - started) * 1000)),
+            "command": list(checker.command),
+            "cwd": str(cwd),
+            "stdout": _clip(stdout),
+            "stderr": _clip(stderr),
+        }
+        if status == "skipped":
+            result["skip_reason"] = _skip_reason(exit_code, stdout, stderr) or "skipped"
+        results.append(result)
     acceptance: dict[str, str] = {}
     for stage in ("static", "floor", "boundary", "scenario"):
         policy_stage_ids = {checker.checker_id for checker in policy.checkers if checker.stage == stage}
@@ -115,9 +163,7 @@ def run_checks(
         acceptance[stage] = (
             "not-applicable" if not policy_stage_ids
             else "not-run" if not stage_results
-            else "passed" if all(result["status"] == "passed" for result in stage_results)
-            else "failed" if any(result["status"] == "failed" for result in stage_results)
-            else "error"
+            else _stage_acceptance(stage_results)
         )
     all_policy_ids = {checker.checker_id for checker in policy.checkers}
     complete = all_mode and selected_ids == all_policy_ids and all(result["status"] == "passed" for result in results)
@@ -132,6 +178,7 @@ def run_checks(
         "index_facts_digest": index_summary(index_path(manifest))["facts_digest"],
         "results": results,
         "acceptance": acceptance,
+        "environment": environment_snapshot(),
     }
     if task_id is not None:
         report["task_id"] = task_id

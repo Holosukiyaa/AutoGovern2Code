@@ -25,6 +25,17 @@ def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True)
 
 
+def _configure_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            pass
+
+
 def _write_output(content: str, output: Path | None) -> None:
     if output is None:
         print(content)
@@ -313,10 +324,15 @@ def _print_evidence(report: dict[str, Any]) -> None:
         print(f"Local evidence: {task['local_evidence']['status']}")
         if task["result"]:
             print(f"Merged commit: {task['result']['commit']}")
-        print(f"Evidence: {'complete' if task['evidence_complete'] else 'incomplete'}")
+        print(f"Process evidence: {'complete' if task['evidence_complete'] else 'incomplete'}")
+        product = task.get("product") or report.get("product") or {}
+        print(f"Product: {product.get('status', 'undeclared')}")
+        if product.get("summary"):
+            print(f"Product detail: {product['summary']}")
 
 
 def main(argv: list[str] | None = None) -> int:
+    _configure_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
     try:

@@ -54,6 +54,7 @@ class DesktopServerTests(unittest.TestCase):
         status, script, _ = self.request("GET", "/assets/app.js")
         self.assertEqual(200, status)
         self.assertIn(b"function yesNo", script)
+        self.assertIn("产品验收".encode("utf-8"), script)
         self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
         status, body, headers = self.request("GET", "/api/status")
         self.assertEqual(200, status)

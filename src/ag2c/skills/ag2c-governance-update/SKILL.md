@@ -10,7 +10,7 @@ This Skill is the only path for changing stored project knowledge. The user desc
 ## When to use
 
 - First enrollment already ingested top-level areas, key documents, and detected interfaces. Use this Skill only when those records must change.
-- After `ag2c task finish`, if `governance_pending` lists items. Prefer `ag2c govern settle` first.
+- After `ag2c task finish`, if `governance_pending` lists items. Prefer `ag2c govern settle` first. `undeclared-product` stays until the project has a real product check; settle does not invent one.
 - When the user says a directory, README, API, or contract is new, moved, or gone.
 
 ## Workflow

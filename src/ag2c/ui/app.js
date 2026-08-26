@@ -136,9 +136,15 @@
     return value || "未知";
   }
   function managementName(value) {
-    if (value === "successful") return "成功";
+    if (value === "successful") return "已入库";
     if (value === "abandoned") return "已废弃";
     return "未完成";
+  }
+  function productStatusName(value) {
+    if (value === "checked") return "产品验收已通过";
+    if (value === "blocked") return "规则过期，不能当产品通过";
+    if (value === "incomplete") return "产品验收还没跑完";
+    return "产品验收未登记";
   }
   function cardTypeName(value) {
     if (value === "floor") return "Floor（楼层）";
@@ -372,7 +378,14 @@
       text($("deliveryState"), yesNo(project.delivery_enforced, "已控制", "未生效"));
       text($("deliveryHint"), project.delivery_enforced ? "交付门禁已接通" : "还没有接通交付门禁");
       text($("observedState"), project.completed_tasks || 0);
-      text($("observedHint"), yesNo(project.agent_observed, "已有成功记录", "尚未观察"));
+      text($("observedHint"), yesNo(project.agent_observed, "已有入库记录", "尚未观察"));
+      if ($("healthyCopy")) {
+        var productStatus = project.product && project.product.status;
+        if (productStatus === "checked") text($("healthyCopy"), "施工检查已通过，产品验收已通过");
+        else if (productStatus === "blocked") text($("healthyCopy"), "施工检查已通过，但规则过期，不能当产品通过");
+        else if (productStatus === "incomplete") text($("healthyCopy"), "施工检查已通过，产品验收还没跑完");
+        else text($("healthyCopy"), "施工检查已通过，产品验收还未登记");
+      }
       text($("stateLabel"), stateName(project.state));
       var checked = taskTime(project.last_task);
       text($("healthMeta"), checked ? ("最后检查  " + checked) : "");
@@ -395,7 +408,7 @@
       fillStat($("relationList"), "…", "正在读取", "muted");
       fillStat($("worktreeList"), "…", "正在读取", "muted");
       loadDetails(project);
-      renderEvidenceSummary(project.last_task);
+      renderEvidenceSummary(project.last_task, project.product);
       renderJournalSummary((currentDetails && currentDetails.journals) || []);
       updateGovernanceActions(project);
       if ($("journalPanel")) $("journalPanel").hidden = true;
@@ -494,7 +507,8 @@
     metrics.appendChild(metricRow("警告", pendingCount, "warn"));
     metrics.appendChild(metricRow("失败", issueCount, "fail"));
     var foot = document.createElement("div"); foot.className = "overview-foot";
-    text(foot, "覆盖 " + (coverage.level || "unknown") + "  ·  检查项 " + (passed + pendingCount + issueCount));
+    var product = (details && details.project && details.project.product) || (project && project.product) || {};
+    text(foot, "施工覆盖 " + (coverage.level || "unknown") + "  ·  " + productStatusName(product.status));
     metrics.appendChild(foot);
   }
   function emptyDetail(node, message) {
@@ -700,9 +714,15 @@
       renderDetails(value);
     });
   }
-  function renderEvidenceSummary(task) {
-    if (!task) { fillStat($("evidenceSummary"), "暂无证据", "还没有成功交付记录", "muted"); return; }
-    fillStat($("evidenceSummary"), (task.changed_files || []).length ? ((task.changed_files || []).length + " 条证据") : "最近证据", taskTime(task) || ((task.checks_passed || 0) + "/" + (task.checks_run || 0) + " 检查通过"));
+  function renderEvidenceSummary(task, product) {
+    if (!task) { fillStat($("evidenceSummary"), "暂无证据", "还没有入库记录", "muted"); return; }
+    var status = (product && product.status) || (task.product && task.product.status);
+    fillStat(
+      $("evidenceSummary"),
+      "施工已入库",
+      productStatusName(status),
+      status === "checked" ? "current" : "muted"
+    );
   }
   function cardActionName(value) {
     if (value === "add") return "新增";
@@ -798,11 +818,11 @@
         var header = document.createElement("header"); var title = document.createElement("strong"); text(title, task.goal);
         var state = document.createElement("span"); text(state, managementName(task.management_result));
         var detail = document.createElement("p");
-        text(detail, (task.changed_files || []).length + " 个文件，" + (task.checks_passed || 0) + " 项检查通过，失败修正 " + (task.failed_attempts || 0) + " 次");
+        text(detail, (task.changed_files || []).length + " 个文件，" + (task.checks_passed || 0) + " 项检查通过，失败修正 " + (task.failed_attempts || 0) + " 次。 " + productStatusName(task.product && task.product.status));
         header.appendChild(title); header.appendChild(state); item.appendChild(header); item.appendChild(detail); list.appendChild(item);
       }
       if ($("evidenceSummary") && tasks.length) {
-        renderEvidenceSummary(tasks[0]);
+        renderEvidenceSummary(tasks[0], value.product || tasks[0].product);
       }
       if (openPanel) panel.hidden = false;
     });

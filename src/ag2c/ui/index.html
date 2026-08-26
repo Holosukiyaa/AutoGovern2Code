@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
   <title>AutoGovern2Code</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=0.8.0">
+  <link rel="stylesheet" href="/assets/styles.css?v=0.8.1">
 </head>
 <body>
   <div class="app-shell">
@@ -64,7 +64,7 @@
           </header>
 
           <ul id="issueList" class="issue-list"></ul>
-          <div id="healthyState" class="healthy-state" hidden><span aria-hidden="true">&#x2713;</span><span>治理检查已通过</span></div>
+          <div id="healthyState" class="healthy-state" hidden><span aria-hidden="true">&#x2713;</span><span id="healthyCopy">施工检查已通过</span></div>
 
           <div class="dash-grid">
             <div class="dash-row dash-row-main">
@@ -165,7 +165,7 @@
               <span id="stopHint">停止后项目仍保留，只是不再自动检查。卸载才会清除治理档案。</span>
             </div>
             <div class="footer-meta">
-              <span id="engineVersion">治理引擎 v0.8.0</span>
+              <span id="engineVersion">治理引擎 v0.8.1</span>
               <button id="logsButton" class="quiet-button" type="button">查看日志</button>
             </div>
           </footer>
@@ -192,6 +192,6 @@
     </div>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </div>
-  <script src="/assets/app.js?v=0.8.0"></script>
+  <script src="/assets/app.js?v=0.8.1"></script>
 </body>
 </html>

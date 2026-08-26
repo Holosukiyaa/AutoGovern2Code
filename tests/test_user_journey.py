@@ -103,7 +103,8 @@ class UserJourneyTests(unittest.TestCase):
             self.assertIn("Files changed: 2", plain)
             self.assertIn("AI correction: proven after 1 failed attempt(s)", plain)
             self.assertIn("Local evidence: valid", plain)
-            self.assertIn("Evidence: complete", plain)
+            self.assertIn("Process evidence: complete", plain)
+            self.assertIn("Product:", plain)
             report = json.loads(
                 self.run_cli(root, "evidence", "--task", "user-value-change", "--format", "json").stdout
             )

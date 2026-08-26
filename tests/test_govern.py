@@ -131,7 +131,7 @@ class GovernanceIngestTests(unittest.TestCase):
 
             result = settle_pending(root, actor="codex", reason="docs area was added after merge")
             self.assertIn("ingest", result["actions"])
-            self.assertFalse(result["pending"])
+            self.assertEqual({"undeclared-product"}, {item["kind"] for item in result["pending"]})
             policy = json.loads(load_manifest(discover_manifest(root)).policy_path.read_text(encoding="utf-8"))
             self.assertIn("floor.docs", {card["id"] for card in policy["cards"]})
             self.assertIn("knowledge.docs-guide-md", {card["id"] for card in policy["cards"]})

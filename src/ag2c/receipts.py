@@ -201,8 +201,13 @@ def verify_commit_receipt(start: Path, commit: str = "HEAD", *, rerun: bool = Fa
         if receipt.get("policy_digest") != digest_file(policy.path):
             raise AG2CError("current AG2C policy does not match the evidence")
     checks = receipt.get("checks")
-    if not isinstance(checks, list) or not checks or any(
-        not isinstance(item, dict) or item.get("status") != "passed" for item in checks
+    from .checks import PROCESS_CHECK_STATUSES
+
+    if (
+        not isinstance(checks, list)
+        or not checks
+        or any(not isinstance(item, dict) or item.get("status") not in PROCESS_CHECK_STATUSES for item in checks)
+        or not any(item.get("status") == "passed" for item in checks)
     ):
         raise AG2CError("AG2C evidence does not contain a passing checker result")
     rerun_report: dict[str, Any] | None = None
@@ -247,7 +252,9 @@ def verify_commit_receipt(start: Path, commit: str = "HEAD", *, rerun: bool = Fa
         after_check_digest = change_digest(root, source)
         if before_check_digest != after_check_digest:
             raise AG2CError("AG2C evidence rerun checker changed the governed bytes")
-        if any(item["status"] != "passed" for item in rerun_report["results"]):
+        if any(item["status"] not in PROCESS_CHECK_STATUSES for item in rerun_report["results"]):
+            raise AG2CError("AG2C evidence rerun failed")
+        if not any(item["status"] == "passed" for item in rerun_report["results"]):
             raise AG2CError("AG2C evidence rerun failed")
         if rerun_report.get("acceptance") != receipt.get("acceptance"):
             raise AG2CError("AG2C evidence rerun acceptance does not match")

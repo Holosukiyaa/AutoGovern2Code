@@ -59,7 +59,7 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
 
 8b. Use the JSON `guidance` from `ag2c task start` as the retrieved project knowledge and contracts for this change. Do not grep the whole repository for ownership or public interfaces when that guidance already names them.
 
-9. Run `ag2c evidence --task <task-id>` and report its plain-language facts with the product outcome: files changed, checks passed, whether a failed attempt was corrected, local evidence completeness, and merged commit. Do not teach the user cards, floors, slices, policies, or checker selection unless they explicitly request diagnostics. Do not edit Policy by hand; use `ag2c govern` through the governance-update Skill when rules must change.
+9. Run `ag2c evidence --task <task-id>` and report its plain-language facts: files changed, checks passed, whether a failed attempt was corrected, process evidence completeness, merged commit, and the Product line. Process evidence complete only means the task was delivered through AG2C. If Product is `undeclared`, `blocked`, or `incomplete`, say the work was checked in, not that the product is done. Do not teach the user cards, floors, slices, policies, or checker selection unless they explicitly request diagnostics. Do not edit Policy by hand; use `ag2c govern` through the governance-update Skill when rules must change.
 
 ## Fail Closed
 
@@ -67,5 +67,6 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
 - A diverged task worktree must be refreshed onto the current canonical HEAD or abandoned before delivery.
 - A write outside governed scope blocks verification.
 - Any change after the passing verification requires another verification.
-- Missing or invalid evidence means the work is not complete.
+- Missing or invalid process evidence means the work is not delivered.
+- An undeclared, blocked, or incomplete Product line means product behavior was not proven.
 - Do not edit or manufacture the external project store, task records, hooks, or evidence files.

@@ -99,6 +99,7 @@ def project_status(start: Path) -> dict[str, Any]:
         "last_task": last,
         "ledger_valid": bool(report and report.get("ledger_valid")),
         "coverage": report.get("coverage") if report else None,
+        "product": report.get("product") if report else None,
         "pending_count": len(pending_items),
         "pending": pending_items,
     }

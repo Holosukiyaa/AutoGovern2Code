@@ -15,6 +15,8 @@ from .gitops import git, repository_root
 REGISTRY_SCHEMA = "ag2c.registry.v1"
 MANIFEST_CONFIG_KEY = "ag2c.manifest"
 PROJECT_KEY_CONFIG_KEY = "ag2c.project-key"
+GOVERNANCE_ACTIVE = "active"
+GOVERNANCE_STOPPED = "stopped"
 
 
 def _now() -> str:
@@ -79,22 +81,55 @@ def _write_registry(value: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
+def find_project_record(root: Path) -> dict[str, Any] | None:
+    root = root.resolve()
+    key = project_key(root)
+    identity = _path_identity(root)
+    for item in _read_registry()["projects"]:
+        if not isinstance(item, dict):
+            continue
+        if item.get("key") == key:
+            return dict(item)
+        try:
+            if _path_identity(Path(str(item.get("root", ".")))) == identity:
+                return dict(item)
+        except (OSError, TypeError, ValueError):
+            continue
+    return None
+
+
+def registered_manifest(root: Path) -> Path | None:
+    record = find_project_record(root)
+    if record:
+        manifest = Path(str(record.get("manifest", "")))
+        if manifest.is_file():
+            return manifest.resolve()
+    candidate = project_store(root) / "manifest.json"
+    return candidate.resolve() if candidate.is_file() else None
+
+
 def register_project(root: Path, *, project_id: str, manifest: Path) -> dict[str, Any]:
     root = root.resolve()
     key = project_key(root)
     registry = _read_registry()
-    projects = [
-        item
-        for item in registry["projects"]
-        if isinstance(item, dict) and item.get("key") != key and _path_identity(Path(str(item.get("root", ".")))) != _path_identity(root)
-    ]
+    existing = None
+    projects = []
+    for item in registry["projects"]:
+        if not isinstance(item, dict):
+            continue
+        same = item.get("key") == key or _path_identity(Path(str(item.get("root", ".")))) == _path_identity(root)
+        if same:
+            existing = item
+            continue
+        projects.append(item)
     record = {
         "key": key,
         "project_id": project_id,
         "name": root.name,
         "root": str(root),
         "manifest": str(manifest.resolve()),
-        "registered_at": _now(),
+        "registered_at": existing.get("registered_at") if isinstance(existing, dict) else _now(),
+        "governance": GOVERNANCE_ACTIVE,
     }
     projects.append(record)
     registry["projects"] = sorted(projects, key=lambda item: str(item.get("name", "")).lower())
@@ -104,10 +139,41 @@ def register_project(root: Path, *, project_id: str, manifest: Path) -> dict[str
     return record
 
 
+def set_project_governance(root: Path, governance: str) -> dict[str, Any]:
+    root = repository_root(root)
+    if governance not in {GOVERNANCE_ACTIVE, GOVERNANCE_STOPPED}:
+        raise AG2CError(f"unsupported governance state: {governance}")
+    key = project_key(root)
+    registry = _read_registry()
+    updated = None
+    projects = []
+    for item in registry["projects"]:
+        if not isinstance(item, dict):
+            continue
+        same = item.get("key") == key or _path_identity(Path(str(item.get("root", ".")))) == _path_identity(root)
+        if same:
+            updated = dict(item)
+            updated["governance"] = governance
+            updated["root"] = str(root)
+            projects.append(updated)
+        else:
+            projects.append(item)
+    if updated is None:
+        raise AG2CError(f"project is not in the AG2C registry: {root}")
+    registry["projects"] = projects
+    _write_registry(registry)
+    return updated
+
+
 def unregister_project(root: Path, *, remove_data: bool = False) -> dict[str, Any]:
     root = repository_root(root)
     key = project_key(root)
+    record = find_project_record(root)
     manifest = configured_manifest(root)
+    if manifest is None and record and record.get("manifest"):
+        candidate = Path(str(record["manifest"]))
+        if candidate.is_file():
+            manifest = candidate.resolve()
     registry = _read_registry()
     before = len(registry["projects"])
     registry["projects"] = [
@@ -119,9 +185,9 @@ def unregister_project(root: Path, *, remove_data: bool = False) -> dict[str, An
     git(root, "config", "--local", "--unset-all", MANIFEST_CONFIG_KEY, check=False)
     git(root, "config", "--local", "--unset-all", PROJECT_KEY_CONFIG_KEY, check=False)
     removed_data = False
-    if remove_data and manifest is not None:
-        store = manifest.parent.resolve()
+    if remove_data:
         expected = project_store(root).resolve()
+        store = manifest.parent.resolve() if manifest is not None else expected
         if store == expected and store.is_dir():
             shutil.rmtree(store)
             removed_data = True

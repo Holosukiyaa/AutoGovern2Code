@@ -16,7 +16,14 @@ from urllib.parse import urlparse
 
 from . import __version__
 from .errors import AG2CError
-from .management import add_project, managed_projects, project_details, repair_and_check_project, stop_managing
+from .management import (
+    add_project,
+    managed_projects,
+    project_details,
+    repair_and_check_project,
+    stop_managing,
+    uninstall_project,
+)
 from .tasks import evidence
 
 MAX_BODY = 64 * 1024
@@ -101,9 +108,11 @@ def pick_project_folder() -> dict[str, object]:
         thread.join()
     else:
         run()
+    if any(isinstance(exc, _PickerCancelled) for exc in errors) or (selected and selected[0] is None):
+        return describe_picked_folder(None)
     if errors or not selected:
         return {"cancelled": False, "unavailable": True, "path": None, "is_git": False}
-    return describe_picked_folder(Path(selected[0]) if selected[0] else None)
+    return describe_picked_folder(Path(selected[0]))
 
 
 def _run_windows_sta(callback: Callable[[], None]) -> None:
@@ -193,6 +202,24 @@ def _focus_window_with_title(title: str, stop: threading.Event) -> None:
         time.sleep(0.05)
 
 
+def _windows_dialog_cancelled(status: int) -> bool:
+    code = status & 0xFFFFFFFF
+    return code in {0x800704C7, 0x800704C8} or code == 1223
+
+
+def _release_com(pointer: object) -> None:
+    import ctypes
+    from ctypes import c_void_p
+    from ctypes.wintypes import DWORD
+
+    if not getattr(pointer, "value", None):
+        return
+    try:
+        ctypes.WINFUNCTYPE(DWORD, c_void_p)(_vtable(pointer)[2])(pointer)
+    except OSError:
+        return
+
+
 def _pick_folder_windows_dialog() -> str:
     if os.name != "nt":
         raise _PickerUnavailable("Windows folder dialog is not available")
@@ -233,7 +260,9 @@ def _pick_folder_windows_dialog() -> str:
         shown = show(dialog, None)
         stop.set()
         if shown:
-            raise _PickerCancelled()
+            if _windows_dialog_cancelled(int(shown)):
+                raise _PickerCancelled()
+            raise _PickerUnavailable(f"Windows folder dialog failed: {int(shown) & 0xFFFFFFFF:#010x}")
         if get_result(dialog, byref(item)) or not item.value:
             raise _PickerCancelled()
         item_table = _vtable(item)
@@ -244,11 +273,12 @@ def _pick_folder_windows_dialog() -> str:
     finally:
         stop.set()
         if path_memory:
-            ole32.CoTaskMemFree(path_memory)
-        if item.value:
-            ctypes.WINFUNCTYPE(DWORD, c_void_p)(_vtable(item)[2])(item)
-        if dialog.value:
-            ctypes.WINFUNCTYPE(DWORD, c_void_p)(_vtable(dialog)[2])(dialog)
+            try:
+                ole32.CoTaskMemFree(path_memory)
+            except OSError:
+                pass
+        _release_com(item)
+        _release_com(dialog)
 
 
 def _pick_folder_macos_dialog() -> str:
@@ -483,6 +513,12 @@ class DesktopHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/projects/remove":
                 self._json(HTTPStatus.OK, stop_managing(self._request_path(body)))
+                return
+            if path == "/api/projects/uninstall":
+                self._json(HTTPStatus.OK, uninstall_project(self._request_path(body)))
+                return
+            if path == "/api/projects/resume":
+                self._json(HTTPStatus.OK, {"project": repair_and_check_project(self._request_path(body))})
                 return
             if path == "/api/evidence":
                 self._json(HTTPStatus.OK, evidence(self._request_path(body)))

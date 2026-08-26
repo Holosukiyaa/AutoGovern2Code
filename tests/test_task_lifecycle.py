@@ -67,8 +67,14 @@ class TaskLifecycleTests(unittest.TestCase):
             self.assertEqual("verified-unmerged", listed[0]["worktree"]["lifecycle"])
             completed = finish_task(root, "verified-note", message="docs: add note")
             self.assertEqual("completed", completed["state"])
+            self.assertEqual(1, completed["journal_version"])
             self.assertFalse(worktree.exists())
             self.assertEqual("completed", list_tasks(root)[0]["worktree"]["lifecycle"])
+            from ag2c.journal import list_journals
+
+            journals = list_journals(root)
+            self.assertEqual(1, len(journals))
+            self.assertEqual("verified-note", journals[0]["task_id"])
 
     def test_abandon_removes_open_worktree_and_records_discard(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

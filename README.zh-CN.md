@@ -66,7 +66,7 @@ Windows 默认位置：
 桌面安装器目前只支持 Windows。macOS、Linux 和源码开发需要 Python 3.11 或更高版本：
 
 ```bash
-python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.7.0"
+python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.8.0"
 ag2c setup
 ```
 

@@ -9,8 +9,8 @@ import bootstrap
 
 from ag2c.enrollment import enroll_project
 from ag2c.gitops import git, head, status_entries
-from ag2c.management import managed_projects, project_details, project_status, stop_managing
-from ag2c.storage import configured_manifest
+from ag2c.management import add_project, managed_projects, project_details, project_status, stop_managing
+from ag2c.storage import configured_manifest, find_project_record, project_store
 
 from support import git_project
 
@@ -78,10 +78,38 @@ class ManagementTests(unittest.TestCase):
             result = stop_managing(root)
 
             self.assertTrue(result["previous_evidence_kept"])
+            self.assertFalse(result["uninstalled"])
+            self.assertEqual("stopped", result["governance"])
             self.assertIsNone(configured_manifest(root))
             self.assertTrue(manifest.is_file())
             self.assertFalse(str(git(root, "config", "--get", "core.hooksPath", check=False)).strip())
             self.assertEqual([], status_entries(root))
+            record = find_project_record(root)
+            self.assertIsNotNone(record)
+            self.assertEqual("stopped", record["governance"])
+            listed = next(item for item in managed_projects() if item["root"] == str(root))
+            self.assertEqual("stopped", listed["state"])
+            details = project_details(root)
+            self.assertTrue(details["available"])
+            self.assertTrue(details["cards"])
+            resumed = add_project(root)
+            self.assertTrue(resumed["managed"])
+            self.assertEqual("active", resumed["governance"])
+            self.assertIsNotNone(configured_manifest(root))
+
+    def test_uninstall_removes_registry_and_governance_store(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            root = git_project(workspace / "project")
+            enroll_project(root, project_id="managed-project", skill_root=workspace / "skills")
+            store = project_store(root)
+            self.assertTrue(store.is_dir())
+            result = stop_managing(root, remove_data=True)
+            self.assertTrue(result["uninstalled"])
+            self.assertTrue(result["data_removed"])
+            self.assertIsNone(find_project_record(root))
+            self.assertFalse(store.exists())
+            self.assertFalse(any(item["root"] == str(root) for item in managed_projects()))
 
 
 if __name__ == "__main__":

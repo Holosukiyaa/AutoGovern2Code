@@ -49,6 +49,8 @@ class DesktopServerTests(unittest.TestCase):
         self.assertIn(b"AutoGovern2Code", body)
         self.assertIn("施工副本".encode("utf-8"), body)
         self.assertIn("待更新规则".encode("utf-8"), body)
+        self.assertIn("治理日志".encode("utf-8"), body)
+        self.assertIn("卸载项目".encode("utf-8"), body)
         status, script, _ = self.request("GET", "/assets/app.js")
         self.assertEqual(200, status)
         self.assertIn(b"function yesNo", script)
@@ -170,6 +172,13 @@ class DesktopServerTests(unittest.TestCase):
         with patch("ag2c.desktop._native_folder_path", side_effect=RuntimeError("no display")):
             self.assertEqual(
                 {"cancelled": False, "unavailable": True, "path": None, "is_git": False},
+                pick_project_folder(),
+            )
+        from ag2c.desktop import _PickerCancelled
+
+        with patch("ag2c.desktop._native_folder_path", side_effect=_PickerCancelled()):
+            self.assertEqual(
+                {"cancelled": True, "unavailable": False, "path": None, "is_git": False},
                 pick_project_folder(),
             )
 

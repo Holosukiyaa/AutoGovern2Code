@@ -142,6 +142,8 @@ def build_parser() -> argparse.ArgumentParser:
     project_remove = project_commands.add_parser("remove")
     project_remove.add_argument("path", type=Path)
     project_remove.add_argument("--remove-data", action="store_true")
+    project_uninstall = project_commands.add_parser("uninstall")
+    project_uninstall.add_argument("path", type=Path)
 
     desktop = subparsers.add_parser("desktop", help="internal desktop management service")
     desktop_commands = desktop.add_subparsers(dest="desktop_command", required=True)
@@ -415,7 +417,7 @@ def main(argv: list[str] | None = None) -> int:
                 result = project_status(args.path)
                 print(_json(result))
                 return 0 if result["managed"] else 1
-            print(_json(stop_managing(args.path, remove_data=bool(args.remove_data))))
+            print(_json(stop_managing(args.path, remove_data=bool(args.remove_data) or args.project_command == "uninstall")))
             return 0
         if args.command == "desktop":
             from .desktop import serve_desktop

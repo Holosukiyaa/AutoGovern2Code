@@ -66,7 +66,7 @@ This release is intentionally single-user. Multi-user coordination and remote ev
 The desktop installer is currently Windows-only. Python 3.11 or newer can run AG2C from a tagged GitHub source release:
 
 ```bash
-python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.7.0"
+python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.8.0"
 ag2c setup
 ```
 

@@ -1,15 +1,27 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import stat
 import subprocess
+import tempfile
 from pathlib import Path
 
 from .errors import AG2CError
 
 
-def git(root: Path, *args: str, check: bool = True, binary: bool = False) -> str | bytes:
+def git(
+    root: Path,
+    *args: str,
+    check: bool = True,
+    binary: bool = False,
+    stdin: bytes | str | None = None,
+    env: dict[str, str] | None = None,
+) -> str | bytes:
     resolved_root = root.expanduser().resolve()
+    run_env = os.environ.copy()
+    if env:
+        run_env.update(env)
     try:
         completed = subprocess.run(
             # The project path is explicitly selected by the local user. Pass a
@@ -21,6 +33,8 @@ def git(root: Path, *args: str, check: bool = True, binary: bool = False) -> str
             text=not binary,
             encoding=None if binary else "utf-8",
             errors=None if binary else "replace",
+            input=stdin,
+            env=run_env,
             shell=False,
         )
     except OSError as exc:
@@ -120,11 +134,72 @@ def changed_paths(root: Path, base: str, *, exclude_prefixes: tuple[str, ...] = 
     return sorted(path for path in paths if not path.startswith(normalized_excludes))
 
 
+def _stage_modes(root: Path) -> dict[str, bytes]:
+    raw = git(root, "ls-files", "--stage", "-z", binary=True)
+    assert isinstance(raw, bytes)
+    modes: dict[str, bytes] = {}
+    for entry in raw.split(b"\0"):
+        if not entry or b"\t" not in entry:
+            continue
+        metadata, _, relative = entry.partition(b"\t")
+        mode = metadata.split(b" ", 1)[0]
+        modes[relative.decode("utf-8", errors="replace").replace("\\", "/")] = mode
+    return modes
+
+
+def _hash_worktree_files(root: Path, relatives: list[str]) -> dict[str, str]:
+    if not relatives:
+        return {}
+    wanted = set(relatives)
+    with tempfile.TemporaryDirectory() as directory:
+        extra = {"GIT_INDEX_FILE": str(Path(directory) / "index")}
+        git(root, "read-tree", "HEAD", env=extra)
+        git(root, "add", "-A", env=extra)
+        raw = git(root, "ls-files", "--stage", "-z", binary=True, env=extra)
+    assert isinstance(raw, bytes)
+    object_ids: dict[str, str] = {}
+    for entry in raw.split(b"\0"):
+        if not entry or b"\t" not in entry:
+            continue
+        metadata, _, relative_bytes = entry.partition(b"\t")
+        relative = relative_bytes.decode("utf-8", errors="replace").replace("\\", "/")
+        if relative not in wanted:
+            continue
+        object_ids[relative] = metadata.split()[1].decode("ascii")
+    missing = wanted - set(object_ids)
+    if missing:
+        raise AG2CError("unable to hash changed files: " + ", ".join(sorted(missing)[:8]))
+    return object_ids
+
+
+def _tree_entries(root: Path, commit: str) -> dict[str, tuple[bytes, bytes, bytes]]:
+    raw = git(root, "ls-tree", "-r", "-z", commit, binary=True)
+    assert isinstance(raw, bytes)
+    entries: dict[str, tuple[bytes, bytes, bytes]] = {}
+    for entry in raw.split(b"\0"):
+        if not entry or b"\t" not in entry:
+            continue
+        metadata, _, relative = entry.partition(b"\t")
+        mode, object_type, object_id = metadata.split(b" ", 2)
+        entries[relative.decode("utf-8", errors="replace").replace("\\", "/")] = (mode, object_type, object_id)
+    return entries
+
+
 def change_digest(root: Path, base: str, *, exclude_prefixes: tuple[str, ...] = ()) -> str:
     digest = hashlib.sha256()
     digest.update(base.encode("ascii"))
     file_mode_enabled = str(git(root, "config", "--bool", "core.fileMode", check=False)).strip() == "true"
-    for relative in changed_paths(root, base, exclude_prefixes=exclude_prefixes):
+    relatives = changed_paths(root, base, exclude_prefixes=exclude_prefixes)
+    stage_modes = {} if file_mode_enabled else _stage_modes(root)
+    object_ids = _hash_worktree_files(
+        root,
+        [
+            relative
+            for relative in relatives
+            if (root / relative).is_file() and not (root / relative).is_symlink()
+        ],
+    )
+    for relative in relatives:
         path = root / relative
         digest.update(b"\0")
         digest.update(relative.encode("utf-8"))
@@ -132,15 +207,13 @@ def change_digest(root: Path, base: str, *, exclude_prefixes: tuple[str, ...] = 
             digest.update(b"\0symlink\0")
             digest.update(path.readlink().as_posix().encode("utf-8"))
         elif path.is_file():
-            staged = git(root, "ls-files", "--stage", "-z", "--", relative, binary=True)
-            assert isinstance(staged, bytes)
-            if file_mode_enabled or not staged:
+            staged_mode = stage_modes.get(relative)
+            if file_mode_enabled or staged_mode is None:
                 executable = bool(path.stat().st_mode & stat.S_IXUSR)
             else:
-                executable = staged.startswith(b"100755 ")
+                executable = staged_mode == b"100755"
             digest.update(b"\0file+x\0" if executable else b"\0file\0")
-            object_id = str(git(root, "hash-object", f"--path={relative}", "--", relative)).strip()
-            digest.update(object_id.encode("ascii"))
+            digest.update(object_ids[relative].encode("ascii"))
         elif path.exists():
             digest.update(b"\0other\0")
         else:
@@ -176,16 +249,15 @@ def commit_change_digest(
 ) -> str:
     digest = hashlib.sha256()
     digest.update(base.encode("ascii"))
+    tree_entries = _tree_entries(root, commit)
     for relative in commit_changed_paths(root, base, commit, exclude_prefixes=exclude_prefixes):
         digest.update(b"\0")
         digest.update(relative.encode("utf-8"))
-        entry = git(root, "ls-tree", "-z", commit, "--", relative, binary=True)
-        assert isinstance(entry, bytes)
+        entry = tree_entries.get(relative)
         if not entry:
             digest.update(b"\0deleted\0")
             continue
-        metadata, _, _ = entry.partition(b"\t")
-        mode, object_type, object_id = metadata.split(b" ", 2)
+        mode, object_type, object_id = entry
         if mode == b"120000":
             digest.update(b"\0symlink\0")
             content = git(root, "cat-file", "blob", object_id.decode("ascii"), binary=True)

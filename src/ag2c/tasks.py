@@ -272,7 +272,7 @@ def start_task(
     _atomic_json(record_path, task)
     from .govern import retrieve_guidance
 
-    return {**task, "guidance": retrieve_guidance(canonical, path_specs=path_specs, contract_specs=contract_specs, goal=goal)}
+    return {**task, "guidance": retrieve_guidance(canonical, path_specs=path_specs, contract_specs=contract_specs, goal=goal, all_mode=all_mode)}
 
 
 def _require_open_task(task: dict[str, Any]) -> None:
@@ -632,6 +632,10 @@ def finish_task(start: Path, task_id: str, *, message: str) -> dict[str, Any]:
 
     pending = record_pending_from_task(canonical, list(task["verifications"][-1].get("changed_paths") or []))
     task["governance_pending"] = pending
+    from .journal import mark_version
+
+    journal = mark_version(canonical, task=task)
+    task["journal_version"] = journal["version"]
     _atomic_json(_task_path(canonical, task_id), task)
     return task
 

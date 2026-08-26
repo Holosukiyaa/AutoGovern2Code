@@ -6,30 +6,37 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
   <title>AutoGovern2Code</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=0.7.0">
+  <link rel="stylesheet" href="/assets/styles.css?v=0.8.0">
 </head>
 <body>
   <div class="app-shell">
     <header class="app-bar">
       <div class="app-identity">
         <span class="app-mark" aria-hidden="true">AG</span>
-        <div><strong>AutoGovern2Code</strong><span id="summary">正在检查项目</span></div>
+        <strong>AutoGovern2Code</strong>
       </div>
-      <div class="app-actions">
+      <div class="app-status">
+        <span id="summary">正在检查项目</span>
+        <span id="projectCount" hidden>0</span>
         <button id="refreshButton" class="icon-button" type="button" title="刷新" aria-label="刷新">&#x21BB;</button>
         <button id="addButton" class="primary-button command-button" type="button"><span aria-hidden="true">+</span><span>添加项目</span></button>
       </div>
     </header>
 
     <main class="workspace">
-      <section class="project-pane" aria-label="治理项目">
-        <header class="pane-head"><div><span>项目</span><h1>治理列表</h1></div><strong id="projectCount">0</strong></header>
-        <div id="projectList" class="project-list"></div>
-        <section id="emptyState" class="empty-state" hidden>
-          <span class="empty-mark" aria-hidden="true">+</span>
-          <strong>还没有治理项目</strong>
-          <button id="emptyAddButton" class="primary-button" type="button">添加项目</button>
-        </section>
+      <section id="emptyState" class="empty-state" hidden>
+        <span class="empty-mark" aria-hidden="true">+</span>
+        <strong>还没有治理项目</strong>
+        <button id="emptyAddButton" class="primary-button" type="button">添加项目</button>
+      </section>
+
+      <section id="projectRail" class="project-rail" aria-label="治理项目">
+        <div class="rail-row">
+          <button id="projectPrev" class="rail-arrow" type="button" title="上一个项目" aria-label="上一个项目">&#x2039;</button>
+          <div id="projectList" class="project-track"></div>
+          <button id="projectNext" class="rail-arrow" type="button" title="下一个项目" aria-label="下一个项目">&#x203A;</button>
+        </div>
+        <div id="projectDots" class="project-dots"></div>
       </section>
 
       <section id="detailPane" class="detail-pane" aria-live="polite">
@@ -39,76 +46,128 @@
         </div>
         <div id="detailContent" class="detail-content" hidden>
           <header class="detail-head">
-            <div class="detail-title"><span id="detailStateDot" class="state-dot"></span><div><h2 id="detailName"></h2><p id="detailPath"></p></div></div>
-            <div class="detail-actions">
-              <button id="openFolderButton" class="icon-button" type="button" title="打开项目文件夹" aria-label="打开项目文件夹">&#x2197;</button>
-              <button id="checkButton" class="secondary-button command-button" type="button" title="检查并自动修复" aria-label="检查并自动修复"><span aria-hidden="true">&#x21BB;</span><span>重新检查</span></button>
+            <div class="detail-title-row">
+              <h2 id="detailName"></h2>
+              <div class="detail-actions">
+                <button id="openFolderButton" class="icon-button" type="button" title="打开项目文件夹" aria-label="打开项目文件夹">&#x2197;</button>
+                <button id="checkButton" class="secondary-button command-button" type="button" title="检查并自动修复" aria-label="检查并自动修复"><span aria-hidden="true">&#x21BB;</span><span>重新检查</span></button>
+              </div>
+            </div>
+            <p id="detailPath"></p>
+            <div class="detail-health" id="detailHealth">
+              <span id="detailStateDot" class="state-dot"></span>
+              <div>
+                <strong id="stateLabel"></strong>
+                <span id="healthMeta"></span>
+              </div>
             </div>
           </header>
 
-          <section class="protection-strip">
-            <div><span>入口</span><strong id="entryState"></strong></div>
-            <div><span>交付</span><strong id="deliveryState"></strong></div>
-            <div><span>实际记录</span><strong id="observedState"></strong></div>
-          </section>
+          <ul id="issueList" class="issue-list"></ul>
+          <div id="healthyState" class="healthy-state" hidden><span aria-hidden="true">&#x2713;</span><span>治理检查已通过</span></div>
 
-          <div class="detail-scroll">
-            <section class="detail-section">
-              <header><h3>当前状态</h3><span id="stateLabel" class="status-label"></span></header>
-              <ul id="issueList" class="issue-list"></ul>
-              <div id="healthyState" class="healthy-state"><span aria-hidden="true">&#x2713;</span><span>治理检查已通过</span></div>
-            </section>
+          <div class="dash-grid">
+            <div class="dash-row dash-row-main">
+              <article class="dash-card dash-card-tall" id="gateCard">
+                <button id="gateAgentsToggle" class="gate-row" type="button">
+                  <span class="gate-icon" aria-hidden="true">&#x25C9;</span>
+                  <span class="gate-copy"><span>AI 入口</span><small id="entryHint"></small></span>
+                  <strong id="entryState"></strong>
+                  <span class="gate-chevron" aria-hidden="true">&#x203A;</span>
+                </button>
+                <div class="gate-row static">
+                  <span class="gate-icon" aria-hidden="true">&#x25A3;</span>
+                  <span class="gate-copy"><span>交付</span><small id="deliveryHint"></small></span>
+                  <strong id="deliveryState"></strong>
+                </div>
+                <div class="gate-row static">
+                  <span class="gate-icon" aria-hidden="true">&#x2630;</span>
+                  <span class="gate-copy"><span>实际记录</span><small id="observedHint"></small></span>
+                  <strong id="observedState"></strong>
+                </div>
+                <div id="agentList" class="agent-list" hidden></div>
+              </article>
 
-            <section class="detail-section">
-              <header><h3>AI 入口</h3></header>
-              <div id="agentList" class="agent-list"></div>
-            </section>
+              <article class="dash-card dash-card-tall">
+                <header class="dash-head"><h3>治理概览</h3><span id="indexStateLabel" class="status-label"></span></header>
+                <div class="overview-body">
+                  <div id="overviewRing" class="overview-ring"></div>
+                  <div id="coverageMetrics" class="coverage-metrics"></div>
+                </div>
+                <div id="indexFindings" class="index-findings"></div>
+              </article>
 
-            <section class="detail-section">
-              <header><h3>治理概览</h3><span id="indexStateLabel" class="status-label"></span></header>
-              <div id="coverageMetrics" class="coverage-metrics"></div>
-              <div id="indexFindings" class="index-findings"></div>
-            </section>
+              <article class="dash-card dash-card-tall">
+                <header class="dash-head"><h3>待更新规则</h3><span id="pendingCountLabel" class="status-label"></span></header>
+                <div id="pendingList" class="pending-list"></div>
+              </article>
 
-            <section class="detail-section">
-              <header><h3>待更新规则</h3><span id="pendingCountLabel" class="status-label"></span></header>
-              <div id="pendingList" class="pending-list"></div>
-            </section>
+              <article class="dash-card dash-card-tall">
+                <header class="dash-head"><h3>治理卡片</h3><span id="cardCountLabel" class="status-label"></span></header>
+                <div id="cardList" class="governance-card-list is-compact"></div>
+              </article>
+            </div>
 
-            <section class="detail-section">
-              <header><h3>治理卡片</h3><span id="cardCountLabel" class="status-label"></span></header>
-              <div id="cardList" class="governance-card-list"></div>
-            </section>
+            <div class="dash-row dash-row-side">
+              <article class="dash-card dash-card-compact" id="knowledgeCard" data-inspect="knowledge">
+                <header class="dash-head"><h3>Knowledge 新鲜度</h3></header>
+                <div id="knowledgeList" class="stat-block"></div>
+              </article>
 
-            <section class="detail-section">
-              <header><h3>Knowledge 新鲜度</h3></header>
-              <div id="knowledgeList" class="knowledge-list"></div>
-            </section>
+              <article class="dash-card dash-card-compact" id="relationCard" data-inspect="relations">
+                <header class="dash-head"><h3>契约与关系</h3><span id="contractCountLabel" class="status-label" hidden></span></header>
+                <div id="relationList" class="stat-block"></div>
+              </article>
 
-            <section class="detail-section">
-              <header><h3>契约与关系</h3><span id="contractCountLabel" class="status-label"></span></header>
-              <div id="relationList" class="relation-list"></div>
-            </section>
+              <article class="dash-card dash-card-compact" id="worktreeCard" data-inspect="worktrees">
+                <header class="dash-head"><h3>施工副本</h3><span id="worktreeCountLabel" class="status-label" hidden></span></header>
+                <div id="worktreeList" class="stat-block"></div>
+              </article>
 
-            <section class="detail-section">
-              <header><h3>施工副本</h3><span id="worktreeCountLabel" class="status-label"></span></header>
-              <div id="worktreeList" class="worktree-list"></div>
-            </section>
+              <article class="dash-card dash-card-compact">
+                <header class="dash-head"><h3>最近证据</h3></header>
+                <div id="evidenceSummary" class="stat-block"></div>
+              </article>
 
-            <section class="detail-section">
-              <header><h3>最近证据</h3><button id="evidenceButton" class="quiet-button" type="button">查看记录</button></header>
-              <div id="evidenceSummary" class="evidence-summary"></div>
-            </section>
-
-            <section id="evidencePanel" class="detail-section evidence-panel" hidden>
-              <header><h3>治理记录</h3><button id="closeEvidenceButton" class="icon-button" type="button" title="关闭记录" aria-label="关闭记录">&#x00D7;</button></header>
-              <div id="evidenceList" class="evidence-list"></div>
-            </section>
+              <article class="dash-card dash-card-compact">
+                <header class="dash-head"><h3>治理日志</h3><button id="journalButton" class="quiet-button" type="button">查看日志</button></header>
+                <div id="journalSummary" class="stat-block"></div>
+              </article>
+            </div>
           </div>
 
+          <section id="inspectPanel" class="inspect-panel" hidden>
+            <header>
+              <h3 id="inspectTitle"></h3>
+              <button id="closeInspectButton" class="icon-button" type="button" title="关闭" aria-label="关闭">&#x00D7;</button>
+            </header>
+            <div id="inspectList" class="inspect-list"></div>
+          </section>
+
+          <section id="journalPanel" class="inspect-panel" hidden>
+            <header>
+              <h3>治理日志</h3>
+              <button id="closeJournalButton" class="icon-button" type="button" title="关闭日志" aria-label="关闭日志">&#x00D7;</button>
+            </header>
+            <div id="journalList" class="inspect-list"></div>
+          </section>
+
+          <section id="evidencePanel" class="detail-section evidence-panel" hidden>
+            <header><h3>交付记录</h3><button id="closeEvidenceButton" class="icon-button" type="button" title="关闭记录" aria-label="关闭记录">&#x00D7;</button></header>
+            <div id="evidenceList" class="evidence-list"></div>
+          </section>
+
           <footer class="detail-footer">
-            <button id="removeButton" class="danger-button" type="button">停止治理</button>
-            <span>治理档案保留在项目外部</span>
+            <div class="footer-stop">
+              <button id="removeButton" class="danger-button command-button" type="button"><span aria-hidden="true">&#x2715;</span><span>停止治理</span></button>
+              <button id="resumeButton" class="primary-button command-button" type="button" hidden><span>恢复治理</span></button>
+              <button id="uninstallButton" class="secondary-button" type="button">卸载项目</button>
+              <span id="stopHint">停止后项目仍保留，只是不再自动检查。卸载才会清除治理档案。</span>
+            </div>
+            <div class="footer-meta">
+              <span id="engineVersion">治理引擎 v0.8.0</span>
+              <button id="logsButton" class="quiet-button" type="button">查看日志</button>
+            </div>
           </footer>
         </div>
       </section>
@@ -133,6 +192,6 @@
     </div>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </div>
-  <script src="/assets/app.js?v=0.7.0"></script>
+  <script src="/assets/app.js?v=0.8.0"></script>
 </body>
 </html>

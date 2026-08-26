@@ -10,6 +10,11 @@
   var folderParentPath = null;
   var folderSelectedPath = null;
   var folderSelectedIsGit = false;
+  var currentDetails = null;
+  var pickRequestSerial = 0;
+  var pickBusy = false;
+  var ignoreAddUntil = 0;
+  var didResetPageScroll = false;
 
   function $(id) { return document.getElementById(id); }
   function queryValue(name) {
@@ -64,9 +69,10 @@
     toastTimer = window.setTimeout(function () { node.className = "toast"; }, 2600);
   }
   function stateName(value) {
-    if (value === "protected") return "保护中";
+    if (value === "protected") return "治理检查已通过";
     if (value === "attention") return "需要处理";
     if (value === "missing") return "目录不可用";
+    if (value === "stopped") return "治理已关闭";
     return "未生效";
   }
   function knowledgeStatusName(value) {
@@ -102,6 +108,8 @@
   }
   function issueName(value) {
     var message = String(value || "");
+    if (message === "governance is stopped") return "治理已关闭，项目仍保留在列表中";
+    if (message === "canonical worktree has uncommitted changes") return "正式目录里还有没提交的修改，提交或撤掉之后才会恢复正常";
     if (message === "open task worktree has diverged from the canonical branch") return "有施工副本还停在旧的正式提交上，需要刷新或废弃后再继续";
     if (message === "no supported AI harness has a current AG2C Skill") return "还没有检测到可用的 AI Skill 入口";
     if (message.indexOf("runtime") >= 0) return "AG2C 运行时已变化，需要修复交付门禁";
@@ -132,16 +140,36 @@
     if (value === "abandoned") return "已废弃";
     return "未完成";
   }
+  function cardTypeName(value) {
+    if (value === "floor") return "Floor（楼层）";
+    if (value === "knowledge") return "Knowledge（知识）";
+    if (value === "boundary") return "Boundary（边界）";
+    return value || "卡片";
+  }
   function yesNo(value, yes, no) {
     return value ? yes : no;
+  }
+  function timeLabel(value) {
+    if (!value) return "";
+    return String(value).replace("T", " ").replace(/\.\d+Z?$/, "").replace("Z", "");
+  }
+  function taskTime(task) {
+    if (!task) return "";
+    return timeLabel(task.completed_at || (task.result && task.result.completed_at) || task.created_at || "");
   }
   function activeProject() {
     for (var index = 0; index < projects.length; index += 1) if (projects[index].root === selectedRoot) return projects[index];
     return null;
   }
+  function selectedIndex() {
+    for (var index = 0; index < projects.length; index += 1) if (projects[index].root === selectedRoot) return index;
+    return -1;
+  }
   function closeFolderPicker() {
     folderRequestSerial += 1;
+    pickRequestSerial += 1;
     $("folderDialog").hidden = true;
+    ignoreAddUntil = Date.now() + 400;
   }
   function selectFolder(folder, entry) {
     var selected = $("folderList").querySelectorAll(".folder-entry.selected");
@@ -209,11 +237,17 @@
     loadFolder(null);
   }
   function chooseProject() {
+    if (pickBusy || Date.now() < ignoreAddUntil) return;
     if (window.location.protocol === "http:" || window.location.protocol === "https:") {
+      pickBusy = true;
+      pickRequestSerial += 1;
+      var requestSerial = pickRequestSerial;
       setAddBusy(true);
       showToast("正在打开系统文件夹窗口...");
       request("POST", "/api/filesystem/pick", {}, function (ok, value) {
+        pickBusy = false;
         setAddBusy(false);
+        if (requestSerial !== pickRequestSerial) return;
         if (!ok) {
           showToast((value && value.error) || "无法打开系统文件夹窗口");
           return;
@@ -248,28 +282,81 @@
       render();
     });
   }
-  function projectRow(project) {
+  function projectGlyph(name) {
+    var value = String(name || "?");
+    return value.slice(0, 2).toUpperCase();
+  }
+  function projectCard(project) {
     var button = document.createElement("button");
     button.type = "button";
-    button.className = "project-row" + (project.root === selectedRoot ? " active" : "");
-    var dot = document.createElement("span"); dot.className = "project-state " + project.state;
+    button.className = "project-card" + (project.root === selectedRoot ? " active" : "");
+    var glyph = document.createElement("span"); glyph.className = "project-glyph"; glyph.setAttribute("aria-hidden", "true"); text(glyph, projectGlyph(project.name));
     var copy = document.createElement("span"); copy.className = "project-copy";
     var name = document.createElement("strong"); text(name, project.name);
     var path = document.createElement("span"); text(path, project.root);
-    copy.appendChild(name); copy.appendChild(path);
-    var badge = document.createElement("span"); badge.className = "project-badge"; text(badge, stateName(project.state));
-    button.appendChild(dot); button.appendChild(copy); button.appendChild(badge);
+    var status = document.createElement("span"); status.className = "project-status";
+    var dot = document.createElement("span"); dot.className = "project-state " + project.state;
+    var badge = document.createElement("span"); text(badge, stateName(project.state));
+    status.appendChild(dot); status.appendChild(badge);
+    copy.appendChild(name); copy.appendChild(path); copy.appendChild(status);
+    button.appendChild(glyph); button.appendChild(copy);
     button.onclick = function () { selectedRoot = project.root; render(); };
     return button;
   }
+  function renderProjectDots() {
+    var dots = $("projectDots");
+    if (!dots) return;
+    clear(dots);
+    for (var index = 0; index < projects.length; index += 1) {
+      var dot = document.createElement("button");
+      dot.type = "button";
+      dot.className = "project-dot" + (projects[index].root === selectedRoot ? " active" : "");
+      dot.setAttribute("aria-label", projects[index].name);
+      dot.onclick = (function (root) {
+        return function () { selectedRoot = root; render(); };
+      }(projects[index].root));
+      dots.appendChild(dot);
+    }
+  }
+  function shiftProject(delta) {
+    var index = selectedIndex();
+    var next = index + delta;
+    if (next < 0 || next >= projects.length) return;
+    selectedRoot = projects[next].root;
+    render();
+  }
+  function revealSelectedCard() {
+    var list = $("projectList");
+    if (!list) return;
+    var active = list.querySelector(".project-card.active");
+    if (!active) return;
+    var left = active.offsetLeft;
+    var right = left + active.offsetWidth;
+    var viewLeft = list.scrollLeft;
+    var viewRight = viewLeft + list.clientWidth;
+    if (left < viewLeft) list.scrollLeft = Math.max(0, left - 8);
+    else if (right > viewRight) list.scrollLeft = right - list.clientWidth + 8;
+  }
   function render() {
     var list = $("projectList"); clear(list);
-    for (var index = 0; index < projects.length; index += 1) list.appendChild(projectRow(projects[index]));
+    for (var index = 0; index < projects.length; index += 1) list.appendChild(projectCard(projects[index]));
     text($("projectCount"), projects.length);
-    text($("summary"), projects.length ? projects.length + " 个项目已登记" : "等待添加项目");
+    text($("summary"), projects.length ? projects.length + " 个项目正在管理" : "等待添加项目");
     $("emptyState").hidden = projects.length !== 0;
-    list.hidden = projects.length === 0;
+    $("projectRail").hidden = projects.length === 0;
+    $("detailPane").hidden = projects.length === 0;
+    if ($("projectPrev")) $("projectPrev").disabled = selectedIndex() <= 0;
+    if ($("projectNext")) $("projectNext").disabled = selectedIndex() < 0 || selectedIndex() >= projects.length - 1;
+    renderProjectDots();
     renderDetail(activeProject());
+    window.setTimeout(function () {
+      revealSelectedCard();
+      if (didResetPageScroll) return;
+      didResetPageScroll = true;
+      if (window.scrollTo) window.scrollTo(0, 0);
+      if (document.documentElement) document.documentElement.scrollTop = 0;
+      if (document.body) document.body.scrollTop = 0;
+    }, 0);
   }
   function renderDetail(project) {
     $("detailEmpty").hidden = !!project;
@@ -279,10 +366,16 @@
       text($("detailName"), project.name);
       text($("detailPath"), project.root);
       $("detailStateDot").className = "state-dot " + project.state;
-      text($("entryState"), yesNo(project.entry_ready, "已就绪", "未就绪"));
-      text($("deliveryState"), yesNo(project.delivery_enforced, "已强制", "未生效"));
-      text($("observedState"), yesNo(project.agent_observed, "已有成功记录", "尚未观察"));
+      var agents = project.agents || [];
+      text($("entryState"), agents.length);
+      text($("entryHint"), yesNo(project.entry_ready, "已就绪", "未就绪"));
+      text($("deliveryState"), yesNo(project.delivery_enforced, "已控制", "未生效"));
+      text($("deliveryHint"), project.delivery_enforced ? "交付门禁已接通" : "还没有接通交付门禁");
+      text($("observedState"), project.completed_tasks || 0);
+      text($("observedHint"), yesNo(project.agent_observed, "已有成功记录", "尚未观察"));
       text($("stateLabel"), stateName(project.state));
+      var checked = taskTime(project.last_task);
+      text($("healthMeta"), checked ? ("最后检查  " + checked) : "");
       var issues = $("issueList"); clear(issues);
       var issueValues = project.issues || [];
       for (var index = 0; index < issueValues.length; index += 1) {
@@ -290,11 +383,22 @@
       }
       if (issues) issues.hidden = issueValues.length === 0;
       if ($("healthyState")) $("healthyState").hidden = issueValues.length !== 0;
-      renderAgents(project.agents || []);
+      if ($("detailHealth")) $("detailHealth").className = "detail-health " + project.state;
+      if ($("agentList")) $("agentList").hidden = true;
+      if ($("evidencePanel")) $("evidencePanel").hidden = true;
+      closeInspect();
+      renderAgents(agents);
       renderOverview(project, null);
+      clear($("indexFindings"));
+      emptyDetail($("pendingList"), "正在读取待更新规则");
+      fillStat($("knowledgeList"), "…", "正在读取", "muted");
+      fillStat($("relationList"), "…", "正在读取", "muted");
+      fillStat($("worktreeList"), "…", "正在读取", "muted");
       loadDetails(project);
       renderEvidenceSummary(project.last_task);
-      loadEvidence();
+      renderJournalSummary((currentDetails && currentDetails.journals) || []);
+      updateGovernanceActions(project);
+      if ($("journalPanel")) $("journalPanel").hidden = true;
     } catch (error) {
       emptyDetail($("cardList"), "页面渲染失败：" + (error && error.message ? error.message : error));
     }
@@ -316,26 +420,82 @@
       header.appendChild(name); header.appendChild(state); item.appendChild(header); item.appendChild(path); list.appendChild(item);
     }
   }
+  function svgNode(name, attributes) {
+    var node = document.createElementNS("http://www.w3.org/2000/svg", name);
+    for (var key in attributes) if (attributes.hasOwnProperty(key)) node.setAttribute(key, attributes[key]);
+    return node;
+  }
+  function renderRing(passed, warning, failed) {
+    var node = $("overviewRing");
+    if (!node) return;
+    clear(node);
+    var total = passed + warning + failed;
+    if (!total) { passed = 1; total = 1; }
+    var percent = Math.round((passed / total) * 100);
+    var radius = 34;
+    var circumference = 2 * Math.PI * radius;
+    var svg = svgNode("svg", { viewBox: "0 0 96 96", width: "96", height: "96" });
+    svg.appendChild(svgNode("circle", { cx: "48", cy: "48", r: String(radius), fill: "none", stroke: "#e5e7eb", "stroke-width": "8" }));
+    var offset = 0;
+    var parts = [
+      { value: passed, color: "#2563eb" },
+      { value: warning, color: "#d97706" },
+      { value: failed, color: "#dc2626" }
+    ];
+    for (var index = 0; index < parts.length; index += 1) {
+      if (!parts[index].value) continue;
+      var length = circumference * (parts[index].value / total);
+      var arc = svgNode("circle", {
+        cx: "48",
+        cy: "48",
+        r: String(radius),
+        fill: "none",
+        stroke: parts[index].color,
+        "stroke-width": "8",
+        "stroke-linecap": "round",
+        "stroke-dasharray": length + " " + circumference,
+        "stroke-dashoffset": String(-offset),
+        transform: "rotate(-90 48 48)"
+      });
+      svg.appendChild(arc);
+      offset += length;
+    }
+    node.appendChild(svg);
+    var label = document.createElement("div"); label.className = "ring-label";
+    var strong = document.createElement("strong"); text(strong, percent + "%");
+    var caption = document.createElement("span"); text(caption, failed ? "未通过" : (warning ? "待更新" : "通过"));
+    label.appendChild(strong); label.appendChild(caption); node.appendChild(label);
+  }
+  function metricRow(label, value, tone) {
+    var item = document.createElement("div"); item.className = "coverage-metric" + (tone ? " " + tone : "");
+    var left = document.createElement("span");
+    if (tone) {
+      var swatch = document.createElement("span"); swatch.className = "swatch";
+      left.appendChild(swatch);
+      left.appendChild(document.createTextNode(" " + label));
+    } else {
+      text(left, label);
+    }
+    var strong = document.createElement("strong"); text(strong, value);
+    item.appendChild(left); item.appendChild(strong); return item;
+  }
   function renderOverview(project, details) {
     var metrics = $("coverageMetrics");
     clear(metrics);
     if (!metrics) return;
     var coverage = (details && details.project && details.project.coverage) || (project && project.coverage) || {};
-    var manifest = (details && details.manifest) || {};
-    var ledger = (details && details.ledger) || {};
-    var targetCount = (manifest.targets || []).length || coverage.area_count || 0;
     var pendingCount = (details && details.pending && details.pending.items ? details.pending.items.length : null);
     if (pendingCount === null) pendingCount = (project && project.pending_count) || 0;
-    metrics.appendChild(metric("覆盖级别", coverage.level || "unknown"));
-    metrics.appendChild(metric("目标", targetCount));
-    metrics.appendChild(metric("待更新", pendingCount));
-    if (details) {
-      metrics.appendChild(metric("卡片", (details.cards || []).length));
-      metrics.appendChild(metric("Ledger 事件", ledger.events === undefined ? "-" : ledger.events));
-    } else {
-      metrics.appendChild(metric("检查器", coverage.checker_count || 0));
-      metrics.appendChild(metric("已完成任务", (project && project.completed_tasks) || 0));
-    }
+    var issueCount = ((project && project.issues) || []).length;
+    var checkerCount = coverage.checker_count || 0;
+    var passed = issueCount ? 0 : (checkerCount || 1);
+    renderRing(passed, pendingCount, issueCount);
+    metrics.appendChild(metricRow("通过", passed, "pass"));
+    metrics.appendChild(metricRow("警告", pendingCount, "warn"));
+    metrics.appendChild(metricRow("失败", issueCount, "fail"));
+    var foot = document.createElement("div"); foot.className = "overview-foot";
+    text(foot, "覆盖 " + (coverage.level || "unknown") + "  ·  检查项 " + (passed + pendingCount + issueCount));
+    metrics.appendChild(foot);
   }
   function emptyDetail(node, message) {
     if (!node) return;
@@ -343,23 +503,83 @@
     var item = document.createElement("div"); item.className = "empty-detail"; text(item, message);
     node.appendChild(item);
   }
-  function metric(label, value) {
-    var item = document.createElement("div"); item.className = "coverage-metric";
-    var strong = document.createElement("strong"); text(strong, value);
-    var span = document.createElement("span"); text(span, label);
-    item.appendChild(strong); item.appendChild(span); return item;
+  function fillStat(node, primary, secondary, tone) {
+    if (!node) return;
+    clear(node);
+    node.className = "stat-block" + (tone ? " " + tone : "");
+    var strong = document.createElement("strong"); text(strong, primary);
+    node.appendChild(strong);
+    if (secondary) {
+      var span = document.createElement("span"); text(span, secondary);
+      node.appendChild(span);
+    }
+  }
+  function inspectRow(title, meta, tone) {
+    var item = document.createElement("article"); item.className = "inspect-item";
+    var header = document.createElement("header");
+    var strong = document.createElement("strong"); text(strong, title);
+    header.appendChild(strong);
+    if (meta) {
+      var mark = document.createElement("span"); mark.className = tone || ""; text(mark, meta);
+      header.appendChild(mark);
+    }
+    item.appendChild(header);
+    return item;
+  }
+  function closeInspect() {
+    if ($("inspectPanel")) $("inspectPanel").hidden = true;
+  }
+  function openInspect(kind) {
+    var panel = $("inspectPanel");
+    var list = $("inspectList");
+    if (!panel || !list) return;
+    clear(list);
+    var details = currentDetails || {};
+    if (kind === "knowledge") {
+      text($("inspectTitle"), "Knowledge");
+      var knowledge = details.knowledge || [];
+      if (!knowledge.length) emptyDetail(list, "没有 Knowledge 卡片");
+      for (var k = 0; k < knowledge.length; k += 1) {
+        list.appendChild(inspectRow(knowledge[k].title || knowledge[k].id, knowledgeStatusName(knowledge[k].status), knowledge[k].status));
+      }
+    } else if (kind === "relations") {
+      text($("inspectTitle"), "契约与关系");
+      var relations = details.relations || [];
+      var contracts = details.contracts || [];
+      if (!relations.length && !contracts.length) emptyDetail(list, "没有契约或关系");
+      for (var r = 0; r < relations.length; r += 1) {
+        var relationData = relations[r] || {};
+        list.appendChild(inspectRow((relationData.source || "?") + "  →  " + (relationData.target || "?"), relationData.type || "explains"));
+      }
+      for (var q = 0; q < contracts.length; q += 1) {
+        var contract = contracts[q];
+        list.appendChild(inspectRow(contract.target + ":" + contract.id + "@" + contract.version, "契约"));
+      }
+    } else if (kind === "worktrees") {
+      text($("inspectTitle"), "施工副本");
+      var worktrees = details.worktrees || [];
+      if (!worktrees.length) emptyDetail(list, "没有施工副本");
+      for (var w = 0; w < worktrees.length; w += 1) {
+        var worktree = worktrees[w];
+        var lifecycle = (worktree.worktree && worktree.worktree.lifecycle) || worktree.state;
+        list.appendChild(inspectRow(worktree.goal || worktree.id, worktreeLifecycleName(lifecycle), lifecycle));
+      }
+    }
+    panel.hidden = false;
   }
   function renderDetails(details) {
     var project = activeProject();
     clear($("indexFindings")); clear($("pendingList")); clear($("cardList")); clear($("knowledgeList")); clear($("relationList")); clear($("worktreeList"));
+    currentDetails = details && details.available ? details : null;
     text($("indexStateLabel"), ""); text($("pendingCountLabel"), ""); text($("cardCountLabel"), ""); text($("contractCountLabel"), ""); text($("worktreeCountLabel"), "");
     if (!details || !details.available) {
       renderOverview(project, null);
-      emptyDetail($("pendingList"), "正在读取待更新规则");
+      emptyDetail($("pendingList"), "暂无待更新规则");
       emptyDetail($("cardList"), "正在读取治理卡片，或当前还没有详情");
-      emptyDetail($("knowledgeList"), "基线项目默认没有 Knowledge 卡片");
-      emptyDetail($("relationList"), "基线项目默认没有契约或关系");
-      emptyDetail($("worktreeList"), "没有进行中的施工副本");
+      fillStat($("knowledgeList"), "未知", "还没有 Knowledge", "muted");
+      fillStat($("relationList"), "0 个契约", "0 个关系", "muted");
+      fillStat($("worktreeList"), "没有副本", "没有进行中的施工", "muted");
+      renderJournalSummary((details && details.journals) || []);
       return;
     }
     try {
@@ -384,7 +604,6 @@
         findingHeader.appendChild(findingTitle); findingHeader.appendChild(findingSeverity); finding.appendChild(findingHeader);
         var findingCopy = document.createElement("p"); text(findingCopy, findingMessage(findingItems[f].message)); finding.appendChild(findingCopy); findings.appendChild(finding);
       }
-      if (findings && !findings.childNodes.length) emptyDetail(findings, "没有索引发现");
       var pending = (details.pending && details.pending.items) || (details.project && details.project.pending) || [];
       text($("pendingCountLabel"), pending.length ? pending.length + " 项" : "没有待更新");
       var pendingList = $("pendingList");
@@ -397,81 +616,84 @@
         var pendingPath = document.createElement("p"); text(pendingPath, pending[p].path); pendingItem.appendChild(pendingPath);
         if (pendingList) pendingList.appendChild(pendingItem);
       }
-      if (!pending.length) emptyDetail(pendingList, "合并后没有需要补充的规则");
+      if (!pending.length) emptyDetail(pendingList, "暂无待更新规则");
       var cards = details.cards || []; var cardList = $("cardList");
+      var grouped = {};
       for (var c = 0; c < cards.length; c += 1) {
-        var card = cards[c]; var cardItem = document.createElement("article"); cardItem.className = "governance-card";
-        var cardHeader = document.createElement("header"); var cardTitle = document.createElement("strong"); text(cardTitle, card.title + "  ·  " + card.id);
-        var cardType = document.createElement("span"); cardType.className = "card-type"; text(cardType, card.type); cardHeader.appendChild(cardTitle); cardHeader.appendChild(cardType); cardItem.appendChild(cardHeader);
-        var cardSummary = document.createElement("p"); text(cardSummary, card.summary); cardItem.appendChild(cardSummary);
-        var cardMeta = document.createElement("div"); cardMeta.className = "card-meta";
-        var scopes = (card.scopes || []).map(function (scope) {
-          return scope.target + ":" + ((scope.include || scope.includes || []).join(", ") || "*");
-        }).join("  |  ");
-        text(cardMeta, "范围：" + (scopes || "未声明") + "\n检查器：" + ((card.checkers || []).join(", ") || "无") + "\n引用：" + ((card.references || []).join(", ") || "无"));
-        cardItem.appendChild(cardMeta); if (cardList) cardList.appendChild(cardItem);
+        var type = cards[c].type || "other";
+        if (!grouped[type]) grouped[type] = [];
+        grouped[type].push(cards[c]);
       }
+      var typeOrder = ["floor", "knowledge", "boundary"];
+      var seen = {};
+      for (var t = 0; t < typeOrder.length; t += 1) {
+        if (!grouped[typeOrder[t]]) continue;
+        seen[typeOrder[t]] = true;
+        cardList.appendChild(typeRow(typeOrder[t], grouped[typeOrder[t]]));
+      }
+      for (var extra in grouped) if (grouped.hasOwnProperty(extra) && !seen[extra]) cardList.appendChild(typeRow(extra, grouped[extra]));
       if (!cards.length) emptyDetail(cardList, "没有治理卡片");
-      var knowledge = details.knowledge || []; var knowledgeList = $("knowledgeList");
-      for (var k = 0; k < knowledge.length; k += 1) {
-        var item = document.createElement("article"); item.className = "knowledge-item";
-        var header = document.createElement("header"); var title = document.createElement("strong"); text(title, knowledge[k].title + "  ·  " + knowledge[k].id);
-        var status = document.createElement("span"); status.className = "knowledge-status " + knowledge[k].status; text(status, knowledgeStatusName(knowledge[k].status)); header.appendChild(title); header.appendChild(status); item.appendChild(header);
-        var reasons = (knowledge[k].reasons || []).map(knowledgeReasonName);
-        var meta = document.createElement("div"); meta.className = "knowledge-meta"; text(meta, "来源：" + knowledgeStatusName(knowledge[k].source_status) + "  ·  断言：" + knowledgeStatusName(knowledge[k].assertion_status) + "  ·  " + (reasons.join("，") || "无诊断")); item.appendChild(meta); if (knowledgeList) knowledgeList.appendChild(item);
+      var knowledge = details.knowledge || [];
+      if (!knowledge.length) {
+        fillStat($("knowledgeList"), "没有卡片", "基线项目可以没有 Knowledge", "muted");
+      } else {
+        var worst = "current";
+        for (var k = 0; k < knowledge.length; k += 1) {
+          if (knowledge[k].status === "conflict") worst = "conflict";
+          else if (knowledge[k].status === "stale" && worst === "current") worst = "stale";
+          else if (knowledge[k].status === "unknown" && worst === "current") worst = "unknown";
+        }
+        fillStat($("knowledgeList"), knowledgeStatusName(worst), knowledge.length === 1 ? (knowledge[0].title || knowledge[0].id) : (knowledge.length + " 条 Knowledge"), worst);
       }
-      if (!knowledge.length) emptyDetail(knowledgeList, "基线项目默认没有 Knowledge 卡片，不影响交付");
-      var relations = details.relations || []; var contracts = details.contracts || []; var relationList = $("relationList");
-      for (var r = 0; r < relations.length; r += 1) {
-        var relation = document.createElement("div"); relation.className = "relation-item";
-        var relationHeader = document.createElement("header"); var relationTitle = document.createElement("strong"); text(relationTitle, relation.source + "  →  " + relation.target);
-        var relationKind = document.createElement("span"); relationKind.className = "relation-kind"; text(relationKind, relation.type); relationHeader.appendChild(relationTitle); relationHeader.appendChild(relationKind); relation.appendChild(relationHeader);
-        if (relationList) relationList.appendChild(relation);
-      }
-      for (var q = 0; q < contracts.length; q += 1) {
-        var contract = document.createElement("div"); contract.className = "relation-item";
-        var contractHeader = document.createElement("header"); var contractTitle = document.createElement("strong"); text(contractTitle, contract.target + ":" + contract.id + "@" + contract.version);
-        var contractKind = document.createElement("span"); contractKind.className = "relation-kind"; text(contractKind, "contract"); contractHeader.appendChild(contractTitle); contractHeader.appendChild(contractKind); contract.appendChild(contractHeader);
-        var contractDetail = document.createElement("p"); text(contractDetail, "边界：" + contract.boundary + "  ·  场景：" + (contract.scenarios || []).join(", ")); contract.appendChild(contractDetail);
-        if (relationList) relationList.appendChild(contract);
-      }
-      if (!relations.length && !contracts.length) emptyDetail(relationList, "基线项目默认没有契约或关系，不影响交付");
-      var worktrees = details.worktrees || []; var worktreeList = $("worktreeList");
+      var relations = details.relations || [];
+      var contracts = details.contracts || [];
+      text($("contractCountLabel"), contracts.length + " 个契约");
+      fillStat($("relationList"), contracts.length + " 个契约", relations.length + " 个关系", contracts.length || relations.length ? "" : "muted");
+      var worktrees = details.worktrees || [];
       var openCount = 0;
+      var mergedCount = 0;
       for (var w = 0; w < worktrees.length; w += 1) {
-        var worktree = worktrees[w];
-        var lifecycle = (worktree.worktree && worktree.worktree.lifecycle) || worktree.state;
-        if (worktree.state === "active" || worktree.state === "verified") openCount += 1;
-        var worktreeItem = document.createElement("article"); worktreeItem.className = "worktree-item " + lifecycle;
-        var worktreeHeader = document.createElement("header");
-        var worktreeTitle = document.createElement("strong"); text(worktreeTitle, worktree.goal || worktree.id);
-        var worktreeState = document.createElement("span"); worktreeState.className = "worktree-lifecycle"; text(worktreeState, worktreeLifecycleName(lifecycle));
-        worktreeHeader.appendChild(worktreeTitle); worktreeHeader.appendChild(worktreeState); worktreeItem.appendChild(worktreeHeader);
-        var worktreeMeta = document.createElement("p");
-        text(worktreeMeta, (worktree.worktree && worktree.worktree.path) || "施工目录已清理");
-        worktreeItem.appendChild(worktreeMeta);
-        if (worktreeList) worktreeList.appendChild(worktreeItem);
+        var lifecycle = (worktrees[w].worktree && worktrees[w].worktree.lifecycle) || worktrees[w].state;
+        if (worktrees[w].state === "active" || worktrees[w].state === "verified") openCount += 1;
+        if (worktrees[w].state === "completed" || lifecycle === "completed") mergedCount += 1;
       }
-      text($("worktreeCountLabel"), openCount + " 个进行中");
-      if (!worktrees.length) emptyDetail(worktreeList, "没有进行中的施工副本；已合并的任务会留在最近证据里");
+      text($("worktreeCountLabel"), openCount ? openCount + " 个进行中" : (mergedCount ? "已合并" : "没有施工副本"));
+      if (openCount) fillStat($("worktreeList"), openCount + " 个进行中", worktrees.length + " 条施工记录");
+      else if (mergedCount) fillStat($("worktreeList"), "已合并", "无未合并变更", "current");
+      else fillStat($("worktreeList"), "没有副本", "没有进行中的施工", "muted");
+      renderJournalSummary(details.journals || []);
     } catch (error) {
       renderOverview(project, null);
       emptyDetail($("cardList"), "治理详情无法显示：" + (error && error.message ? error.message : error));
     }
+  }
+  function typeRow(type, cards) {
+    var cardItem = document.createElement("article"); cardItem.className = "governance-card";
+    var cardHeader = document.createElement("header");
+    var cardTitle = document.createElement("strong"); text(cardTitle, cardTypeName(type));
+    var cardType = document.createElement("span"); cardType.className = "card-type"; text(cardType, "已定义 · " + cards.length);
+    cardHeader.appendChild(cardTitle); cardHeader.appendChild(cardType); cardItem.appendChild(cardHeader);
+    return cardItem;
   }
   function loadDetails(project) {
     var root = project.root;
     detailRequestSerial += 1;
     var requestSerial = detailRequestSerial;
     emptyDetail($("cardList"), "正在读取治理卡片...");
+    window.setTimeout(function () {
+      if (requestSerial !== detailRequestSerial) return;
+      if ($("cardList") && $("cardList").textContent.indexOf("正在读取治理卡片") >= 0) {
+        emptyDetail($("cardList"), "治理详情还在读取，点右上角刷新重试");
+      }
+    }, 8000);
     request("POST", "/api/project/details", { path: project.root }, function (ok, value) {
       if (requestSerial !== detailRequestSerial || selectedRoot !== root) return;
       if (!ok) {
         renderOverview(project, null);
         emptyDetail($("cardList"), value.error || "无法读取治理卡片");
-        emptyDetail($("knowledgeList"), "基线项目默认没有 Knowledge 卡片");
-        emptyDetail($("relationList"), "基线项目默认没有契约或关系");
-        emptyDetail($("worktreeList"), "没有进行中的施工副本");
+        fillStat($("knowledgeList"), "未知", "无法读取 Knowledge", "muted");
+        fillStat($("relationList"), "0 个契约", "0 个关系", "muted");
+        fillStat($("worktreeList"), "没有副本", "没有进行中的施工", "muted");
         showToast(requestError(value, "无法读取治理详情"));
         return;
       }
@@ -479,16 +701,90 @@
     });
   }
   function renderEvidenceSummary(task) {
-    var node = $("evidenceSummary"); clear(node);
-    if (!task) { var empty = document.createElement("span"); empty.className = "evidence-empty"; text(empty, "暂无治理记录"); node.appendChild(empty); return; }
-    var copy = document.createElement("div");
-    var title = document.createElement("strong"); text(title, task.goal);
-    var meta = document.createElement("span"); text(meta, managementName(task.management_result) === "成功" ? "验证通过并已交付" : (task.management_result === "abandoned" ? "施工副本已废弃" : "施工记录尚未完成"));
-    copy.appendChild(title); copy.appendChild(meta);
-    var checks = document.createElement("span"); text(checks, (task.checks_passed || 0) + "/" + (task.checks_run || 0) + " 检查通过");
-    node.appendChild(copy); node.appendChild(checks);
+    if (!task) { fillStat($("evidenceSummary"), "暂无证据", "还没有成功交付记录", "muted"); return; }
+    fillStat($("evidenceSummary"), (task.changed_files || []).length ? ((task.changed_files || []).length + " 条证据") : "最近证据", taskTime(task) || ((task.checks_passed || 0) + "/" + (task.checks_run || 0) + " 检查通过"));
   }
-  function loadEvidence() {
+  function cardActionName(value) {
+    if (value === "add") return "新增";
+    if (value === "update") return "更新";
+    if (value === "remove") return "移除";
+    return value || "变更";
+  }
+  function cardKindName(value) {
+    if (value === "floor") return "目录卡";
+    if (value === "knowledge") return "Knowledge";
+    if (value === "boundary") return "边界卡";
+    if (value === "constitution") return "总则";
+    return value || "卡片";
+  }
+  function renderJournalSummary(versions) {
+    var node = $("journalSummary");
+    if (!node) return;
+    if (!versions || !versions.length) {
+      fillStat(node, "还没有版本", "完成一次入库后会划定版本日记", "muted");
+      return;
+    }
+    var latest = versions[versions.length - 1];
+    var changes = (latest.card_changes || []).length;
+    fillStat(node, "v" + latest.version, changes ? ("本版改了 " + changes + " 张卡片") : (latest.goal || "本版没有改卡片"), "current");
+  }
+  function renderJournalList(versions) {
+    var list = $("journalList");
+    if (!list) return;
+    clear(list);
+    if (!versions || !versions.length) {
+      emptyDetail(list, "还没有治理日志。走完一次开发并入库后，会在这里留下一个版本日记。");
+      return;
+    }
+    for (var index = versions.length - 1; index >= 0; index -= 1) {
+      var version = versions[index];
+      var item = document.createElement("article");
+      item.className = "inspect-item journal-item";
+      var header = document.createElement("header");
+      var title = document.createElement("strong");
+      text(title, "v" + version.version + "  " + (version.goal || "入库版本"));
+      var meta = document.createElement("span");
+      text(meta, version.marked_at ? String(version.marked_at).replace("T", " ").slice(0, 16) : "");
+      header.appendChild(title);
+      header.appendChild(meta);
+      item.appendChild(header);
+      var summary = document.createElement("p");
+      var changes = version.card_changes || [];
+      var files = version.changed_paths || [];
+      text(summary, (files.length ? files.length + " 个文件入库。 " : "") + (changes.length ? "本版改动了 " + changes.length + " 张治理卡片。" : "本版没有改动治理卡片。"));
+      item.appendChild(summary);
+      if (changes.length) {
+        var bullets = document.createElement("ul");
+        for (var c = 0; c < changes.length; c += 1) {
+          var line = document.createElement("li");
+          text(line, cardActionName(changes[c].action) + " " + cardKindName(changes[c].kind) + "：" + (changes[c].title || changes[c].id));
+          bullets.appendChild(line);
+        }
+        item.appendChild(bullets);
+      }
+      list.appendChild(item);
+    }
+  }
+  function openJournal() {
+    var versions = (currentDetails && currentDetails.journals) || [];
+    renderJournalList(versions);
+    if ($("journalPanel")) $("journalPanel").hidden = false;
+  }
+  function updateGovernanceActions(project) {
+    var stopped = project && project.state === "stopped";
+    if ($("removeButton")) $("removeButton").hidden = !!stopped;
+    if ($("resumeButton")) $("resumeButton").hidden = !stopped;
+    if ($("stopHint")) {
+      text($("stopHint"), stopped
+        ? "治理已关闭。项目还在，档案保留。恢复后会重新接通检查。"
+        : "停止后项目仍保留，只是不再自动检查。卸载才会清除治理档案。");
+    }
+    if ($("checkButton")) {
+      var label = $("checkButton").querySelector("span:last-child");
+      if (label) text(label, stopped ? "恢复治理" : "重新检查");
+    }
+  }
+  function loadEvidence(openPanel) {
     var project = activeProject(); if (!project) return;
     var root = project.root;
     request("POST", "/api/evidence", { path: project.root }, function (ok, value) {
@@ -505,7 +801,10 @@
         text(detail, (task.changed_files || []).length + " 个文件，" + (task.checks_passed || 0) + " 项检查通过，失败修正 " + (task.failed_attempts || 0) + " 次");
         header.appendChild(title); header.appendChild(state); item.appendChild(header); item.appendChild(detail); list.appendChild(item);
       }
-      panel.hidden = false;
+      if ($("evidenceSummary") && tasks.length) {
+        renderEvidenceSummary(tasks[0]);
+      }
+      if (openPanel) panel.hidden = false;
     });
   }
   function addSelectedProject(path, done) {
@@ -532,11 +831,37 @@
   }
   function removeSelected() {
     var project = activeProject(); if (!project) return;
-    if (!window.confirm("停止治理 “" + project.name + "”？\n\n项目文件不会被修改，治理记录会保留。")) return;
+    if (!window.confirm("停止治理 “" + project.name + "”？\n\n项目会留在列表里，只是关闭自动检查。治理档案保留。")) return;
     request("POST", "/api/projects/remove", { path: project.root }, function (ok, value) {
       if (!ok) { showToast(requestError(value, "停止治理失败")); return; }
-      selectedRoot = null; showToast("项目已停止治理"); refreshProjects(false);
+      showToast("已关闭治理，项目仍保留");
+      refreshProjects(true);
     });
+  }
+  function resumeSelected() {
+    var project = activeProject(); if (!project) return;
+    showToast("正在恢复治理...");
+    request("POST", "/api/projects/resume", { path: project.root }, function (ok, value) {
+      if (!ok) { showToast(requestError(value, "恢复治理失败")); return; }
+      showToast(value.project && value.project.managed ? "治理已恢复" : "已尝试恢复治理");
+      refreshProjects(true);
+    });
+  }
+  function uninstallSelected() {
+    var project = activeProject(); if (!project) return;
+    if (!window.confirm("卸载 “" + project.name + "”？\n\n项目文件不会被修改，但外部治理卡片、日志和档案会被清除，且项目会从列表移除。")) return;
+    request("POST", "/api/projects/uninstall", { path: project.root }, function (ok, value) {
+      if (!ok) { showToast(requestError(value, "卸载失败")); return; }
+      selectedRoot = null;
+      showToast("项目已卸载，治理档案已清除");
+      refreshProjects(false);
+    });
+  }
+  function openEvidence() { loadEvidence(true); }
+  function checkOrResume() {
+    var project = activeProject();
+    if (project && project.state === "stopped") { resumeSelected(); return; }
+    checkSelected();
   }
   window.ag2cProjectSelected = addSelectedProject;
   window.refreshStatus = function () { refreshProjects(true); };
@@ -553,11 +878,25 @@
     });
   };
   $("refreshButton").onclick = function () { refreshProjects(true); };
-  $("checkButton").onclick = checkSelected;
-  $("evidenceButton").onclick = loadEvidence;
-  $("closeEvidenceButton").onclick = function () { $("evidencePanel").hidden = true; };
+  $("checkButton").onclick = checkOrResume;
+  if ($("journalButton")) $("journalButton").onclick = openJournal;
+  if ($("logsButton")) $("logsButton").onclick = openJournal;
+  if ($("closeJournalButton")) $("closeJournalButton").onclick = function () { $("journalPanel").hidden = true; };
+  if ($("closeEvidenceButton")) $("closeEvidenceButton").onclick = function () { $("evidencePanel").hidden = true; };
   $("removeButton").onclick = removeSelected;
+  if ($("resumeButton")) $("resumeButton").onclick = resumeSelected;
+  if ($("uninstallButton")) $("uninstallButton").onclick = uninstallSelected;
   $("openFolderButton").onclick = function () { var item = activeProject(); if (item) window.location.href = "ag2c://open-folder?path=" + encodeURIComponent(item.root); };
+  if ($("projectPrev")) $("projectPrev").onclick = function () { shiftProject(-1); };
+  if ($("projectNext")) $("projectNext").onclick = function () { shiftProject(1); };
+  if ($("gateAgentsToggle")) $("gateAgentsToggle").onclick = function () {
+    var list = $("agentList");
+    if (list) list.hidden = !list.hidden;
+  };
+  if ($("knowledgeCard")) $("knowledgeCard").onclick = function () { openInspect("knowledge"); };
+  if ($("relationCard")) $("relationCard").onclick = function () { openInspect("relations"); };
+  if ($("worktreeCard")) $("worktreeCard").onclick = function () { openInspect("worktrees"); };
+  if ($("closeInspectButton")) $("closeInspectButton").onclick = closeInspect;
   document.onkeydown = function (event) { if (event.key === "Escape" && !$("folderDialog").hidden) closeFolderPicker(); };
   function ensureSession(done) {
     request("GET", "/api/session", null, function (ok, value) {
@@ -565,11 +904,17 @@
       done(Boolean(token));
     }, true);
   }
+  function loadEngineVersion() {
+    request("GET", "/api/status", null, function (ok, value) {
+      if (ok && value && value.version) text($("engineVersion"), "治理引擎 v" + value.version);
+    });
+  }
   ensureSession(function (ok) {
     if (!ok) {
       text($("summary"), "无法连接本地治理服务");
       showToast("无法连接本地治理服务");
     }
+    loadEngineVersion();
     refreshProjects(false);
   });
 }());

@@ -29,3 +29,17 @@ class GitDigestTests(unittest.TestCase):
             git(root, "commit", "-m", "change executable")
 
             self.assertEqual(worktree_digest, commit_change_digest(root, base, head(root)))
+
+    def test_many_changed_files_match_committed_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = git_project(Path(directory) / "project")
+            git(root, "commit", "--allow-empty", "-m", "base")
+            base = head(root)
+            for index in range(40):
+                (root / f"page-{index}.html").write_text(f"<p>{index}</p>\n", encoding="utf-8")
+
+            worktree_digest = change_digest(root, base)
+            git(root, "add", ".")
+            git(root, "commit", "-m", "add pages")
+
+            self.assertEqual(worktree_digest, commit_change_digest(root, base, head(root)))

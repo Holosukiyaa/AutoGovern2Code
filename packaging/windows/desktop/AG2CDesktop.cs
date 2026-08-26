@@ -21,9 +21,9 @@ using Microsoft.Win32;
 [assembly: AssemblyProduct("AutoGovern2Code")]
 [assembly: AssemblyCompany("AutoGovern2Code contributors")]
 [assembly: AssemblyDescription("Zero-touch governance for AI coding changes")]
-[assembly: AssemblyVersion("0.7.0.0")]
-[assembly: AssemblyFileVersion("0.7.0.0")]
-[assembly: AssemblyInformationalVersion("0.7.0")]
+[assembly: AssemblyVersion("0.8.0.0")]
+[assembly: AssemblyFileVersion("0.8.0.0")]
+[assembly: AssemblyInformationalVersion("0.8.0")]
 
 namespace AutoGovern2CodeDesktop
 {
@@ -113,8 +113,8 @@ namespace AutoGovern2CodeDesktop
         {
             Text = "AutoGovern2Code";
             StartPosition = FormStartPosition.CenterScreen;
-            MinimumSize = new Size(780, 520);
-            ClientSize = new Size(1060, 700);
+            MinimumSize = new Size(900, 640);
+            ClientSize = new Size(1280, 860);
             BackColor = Color.FromArgb(245, 246, 246);
             Icon = MakeIcon();
             _token = CreateSessionToken();

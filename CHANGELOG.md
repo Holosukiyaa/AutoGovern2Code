@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.8.0 - 2026-08-26
+
+- Recorded a versioned governance journal after each finished task and showed those versions in the desktop viewer.
+- Made Stop Governance keep the project in the list with its store intact, and added Uninstall Project to unregister the project and delete its governance archive.
+- Let a stopped project resume governance without a new enrollment when the external store is still present.
+- Hashed large working-tree diffs in batch so verification and finish stay usable on generated sites.
+- Passed `--all` through guidance retrieval so starting a whole-project task no longer fails after the worktree is created.
+- Stabilized the IE desktop viewer layout: document scrolling, visible project names, and centered action labels.
+
 ## 0.7.0 - 2026-08-24
 
 - Tracked generated task worktrees through constructing, verified-but-unmerged, diverged, abandoned, and merged states.

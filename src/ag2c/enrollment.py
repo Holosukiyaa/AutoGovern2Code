@@ -18,7 +18,7 @@ from .harnesses import SKILL_NAME, install_skill, install_skills, skill_digest, 
 from .index import build_index
 from .lifecycle import LifecycleTransaction, lifecycle_pending, recover_lifecycle
 from .ledger import append_event
-from .storage import configured_manifest, git_private_path, project_store, register_project, unregister_project
+from .storage import configured_manifest, git_private_path, project_store, register_project, registered_manifest, unregister_project
 from .util import digest_file
 
 ENROLLMENT_SCHEMA = "ag2c.enrollment.v1"
@@ -820,6 +820,10 @@ def setup_project(
         }
     root = repository_root(project)
     if configured_manifest(root) is not None:
+        return upgrade_project(root, skill_root=skill_root, harnesses=harnesses)
+    stored = registered_manifest(root)
+    if stored is not None:
+        register_project(root, project_id=load_manifest(stored, project_root=root).project_id, manifest=stored)
         return upgrade_project(root, skill_root=skill_root, harnesses=harnesses)
     if (root / ".ag2c" / "enrollment.json").is_file():
         return upgrade_project(root, skill_root=skill_root, harnesses=harnesses)

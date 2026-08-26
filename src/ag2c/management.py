@@ -12,7 +12,16 @@ from .index import findings as index_findings
 from .index import index_path, summary as index_summary, verify_freshness
 from .knowledge import knowledge_status
 from .ledger import ledger_summary
-from .storage import project_records, unregister_project
+from .storage import (
+    GOVERNANCE_STOPPED,
+    MANIFEST_CONFIG_KEY,
+    PROJECT_KEY_CONFIG_KEY,
+    find_project_record,
+    project_records,
+    registered_manifest,
+    set_project_governance,
+    unregister_project,
+)
 from .tasks import evidence, list_tasks
 
 
@@ -20,12 +29,15 @@ def project_status(start: Path) -> dict[str, Any]:
     root = repository_root(start)
     status = activation_status(root)
     agents = harness_status()
+    record = find_project_record(root)
+    governance = str((record or {}).get("governance") or "active")
     report: dict[str, Any] | None = None
     evidence_error: str | None = None
-    try:
-        report = evidence(root)
-    except (AG2CError, OSError, ValueError) as exc:
-        evidence_error = str(exc)
+    if governance != GOVERNANCE_STOPPED:
+        try:
+            report = evidence(root)
+        except (AG2CError, OSError, ValueError) as exc:
+            evidence_error = str(exc)
     tasks = report.get("tasks", []) if report else []
     completed = [item for item in tasks if item.get("state") == "completed"]
     active = [item for item in tasks if item.get("state") == "active"]
@@ -36,24 +48,29 @@ def project_status(start: Path) -> dict[str, Any]:
     entry_ready = any(bool(item.get("integrated")) for item in agents)
     delivery_enforced = bool(status.get("managed"))
     agent_observed = any(item.get("management_result") == "successful" for item in completed)
-    issues = list(status.get("issues", []))
-    if evidence_error:
-        issues.append(f"evidence: {evidence_error}")
-    if dirty:
-        issues.append("canonical worktree has uncommitted changes")
-    diverged = [
-        item["id"]
-        for item in tasks
-        if item.get("state") in {"active", "verified"} and (item.get("worktree") or {}).get("lifecycle") == "diverged"
-    ]
-    if diverged:
-        issues.append("open task worktree has diverged from the canonical branch")
-    if not entry_ready:
-        issues.append("no supported AI harness has a current AG2C Skill")
+    if governance == GOVERNANCE_STOPPED:
+        issues = ["governance is stopped"]
+    else:
+        issues = list(status.get("issues", []))
+        if evidence_error:
+            issues.append(f"evidence: {evidence_error}")
+        if dirty:
+            issues.append("canonical worktree has uncommitted changes")
+        diverged = [
+            item["id"]
+            for item in tasks
+            if item.get("state") in {"active", "verified"} and (item.get("worktree") or {}).get("lifecycle") == "diverged"
+        ]
+        if diverged:
+            issues.append("open task worktree has diverged from the canonical branch")
+        if not entry_ready:
+            issues.append("no supported AI harness has a current AG2C Skill")
     from .govern import stored_pending
 
     pending_items = list((stored_pending(root) or {}).get("items") or [])
-    if delivery_enforced and entry_ready and not dirty and not diverged:
+    if governance == GOVERNANCE_STOPPED:
+        state = "stopped"
+    elif delivery_enforced and entry_ready and not dirty and not diverged:
         state = "protected"
     elif delivery_enforced:
         state = "attention"
@@ -64,6 +81,7 @@ def project_status(start: Path) -> dict[str, Any]:
         "name": root.name,
         "root": str(root),
         "state": state,
+        "governance": governance,
         "managed": delivery_enforced,
         "issues": issues,
         "dirty": bool(dirty),
@@ -96,6 +114,7 @@ def managed_projects() -> list[dict[str, Any]]:
                     **record,
                     "name": record.get("name") or root.name,
                     "state": "missing",
+                    "governance": record.get("governance") or "active",
                     "managed": False,
                     "issues": ["project folder is unavailable"],
                     "entry_ready": False,
@@ -120,6 +139,7 @@ def managed_projects() -> list[dict[str, Any]]:
                 "name": record.get("name") or root.name,
                 "root": str(root),
                 "state": "inactive",
+                "governance": record.get("governance") or "active",
                 "managed": False,
                 "issues": [str(exc)],
                 "entry_ready": False,
@@ -135,7 +155,7 @@ def managed_projects() -> list[dict[str, Any]]:
                 "ledger_valid": False,
             }
         result.append({**record, **current})
-    order = {"attention": 0, "inactive": 1, "missing": 2, "protected": 3}
+    order = {"attention": 0, "inactive": 1, "stopped": 2, "missing": 3, "protected": 4}
     return sorted(result, key=lambda item: (order.get(str(item.get("state")), 9), str(item.get("name", "")).lower()))
 
 
@@ -149,7 +169,7 @@ def project_details(path: Path) -> dict[str, Any]:
     status = project_status(root)
     result: dict[str, Any] = {
         "project": status,
-        "available": bool(status.get("managed")),
+        "available": False,
         "manifest": None,
         "cards": [],
         "relations": [],
@@ -160,10 +180,16 @@ def project_details(path: Path) -> dict[str, Any]:
         "pending": {"items": []},
         "worktrees": [],
         "ledger": None,
+        "journals": [],
     }
-    if not status.get("managed"):
+    try:
+        manifest_path = discover_manifest(root) if status.get("managed") else registered_manifest(root)
+    except AG2CError:
+        manifest_path = registered_manifest(root)
+    if manifest_path is None or not Path(manifest_path).is_file():
         return result
-    manifest = load_manifest(discover_manifest(root), project_root=root)
+    result["available"] = True
+    manifest = load_manifest(manifest_path, project_root=root)
     policy = load_policy(manifest)
     result["manifest"] = {
         "path": str(manifest.path),
@@ -233,14 +259,26 @@ def project_details(path: Path) -> dict[str, Any]:
     result["knowledge"] = knowledge_status(manifest, policy)
     from .govern import pending_updates
 
-    result["pending"] = pending_updates(root)
+    try:
+        result["pending"] = pending_updates(root)
+    except (AG2CError, OSError, ValueError):
+        result["pending"] = {"items": []}
     result["project"]["pending_count"] = len(result["pending"].get("items") or [])
     result["project"]["pending"] = result["pending"].get("items") or []
-    result["worktrees"] = list_tasks(root)
+    try:
+        result["worktrees"] = list_tasks(root)
+    except (AG2CError, OSError, ValueError):
+        result["worktrees"] = []
     try:
         result["ledger"] = ledger_summary(manifest.ledger_path)
     except (AG2CError, OSError, ValueError) as exc:
         result["ledger"] = {"error": str(exc)}
+    from .journal import list_journals
+
+    try:
+        result["journals"] = list_journals(root)
+    except (AG2CError, OSError, ValueError):
+        result["journals"] = []
     return result
 
 
@@ -249,18 +287,45 @@ def repair_and_check_project(path: Path) -> dict[str, Any]:
     return project_status(path)
 
 
-def stop_managing(path: Path, *, remove_data: bool = False) -> dict[str, Any]:
-    root = repository_root(path)
+def _detach_enforcement(root: Path) -> None:
     status = activation_status(root)
-    activation = status.get("activation", {})
-    expected = str(Path(str(status.get("store"))) / "state" / "hooks") if status.get("store") else ""
+    store = status.get("store")
+    if not store:
+        manifest = registered_manifest(root)
+        store = str(manifest.parent) if manifest is not None else ""
+    expected = str(Path(str(store)) / "state" / "hooks") if store else ""
     actual = str(git(root, "config", "--get", "core.hooksPath", check=False)).strip()
-    if expected and Path(actual).resolve() == Path(expected).resolve():
+    activation = status.get("activation", {})
+    if expected and actual and Path(actual).resolve() == Path(expected).resolve():
         previous = str(activation.get("previous_hooks_path", "")) if isinstance(activation, dict) else ""
         if previous:
             git(root, "config", "core.hooksPath", previous)
         else:
             git(root, "config", "--unset-all", "core.hooksPath", check=False)
-    result = unregister_project(root, remove_data=remove_data)
-    result["previous_evidence_kept"] = not remove_data
-    return result
+    git(root, "config", "--local", "--unset-all", MANIFEST_CONFIG_KEY, check=False)
+    git(root, "config", "--local", "--unset-all", PROJECT_KEY_CONFIG_KEY, check=False)
+
+
+def stop_managing(path: Path, *, remove_data: bool = False) -> dict[str, Any]:
+    root = repository_root(path)
+    _detach_enforcement(root)
+    if remove_data:
+        result = unregister_project(root, remove_data=True)
+        result["previous_evidence_kept"] = False
+        result["uninstalled"] = True
+        result["governance"] = None
+        return result
+    record = set_project_governance(root, GOVERNANCE_STOPPED)
+    return {
+        "root": str(root),
+        "key": record["key"],
+        "registered": True,
+        "governance": GOVERNANCE_STOPPED,
+        "data_removed": False,
+        "previous_evidence_kept": True,
+        "uninstalled": False,
+    }
+
+
+def uninstall_project(path: Path) -> dict[str, Any]:
+    return stop_managing(path, remove_data=True)

@@ -475,7 +475,7 @@ def apply_change(
     }
 
 
-def retrieve_guidance(start: Path, *, path_specs: list[str], contract_specs: list[str] | None = None, goal: str = "") -> dict[str, Any]:
+def retrieve_guidance(start: Path, *, path_specs: list[str], contract_specs: list[str] | None = None, goal: str = "", all_mode: bool = False) -> dict[str, Any]:
     root = repository_root(start)
     manifest = load_manifest(discover_manifest(root), project_root=root)
     policy = load_policy(manifest)
@@ -485,6 +485,7 @@ def retrieve_guidance(start: Path, *, path_specs: list[str], contract_specs: lis
         path_specs=path_specs,
         contract_specs=list(contract_specs or []),
         goal=goal,
+        all_mode=all_mode,
     )
     pending_path = manifest.state_dir / PENDING_FILENAME
     pending = _read_json(pending_path) if pending_path.is_file() else {"items": []}

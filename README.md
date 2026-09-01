@@ -53,7 +53,7 @@ Removing a project from the tray disconnects local enforcement but keeps its evi
 
 ## Agent compatibility
 
-The installer places the same Agent Skills-compatible Skill in Codex, Claude Code, and the generic user Skill location. The tray reports each detected entry separately.
+The installer places the same Agent Skills-compatible Skill in Codex, Claude Code, Cursor (`~/.cursor/skills`), and the generic user Skill location. The tray reports each detected entry separately.
 
 - A harness that supports Agent Skills can enter the complete automatic workflow.
 - An unknown harness may still be stopped by the Git delivery guard, but AG2C cannot promise that it will select the Skill before editing.
@@ -66,7 +66,7 @@ This release is intentionally single-user. Multi-user coordination and remote ev
 The desktop installer is currently Windows-only. Python 3.11 or newer can run AG2C from a tagged GitHub source release:
 
 ```bash
-python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.8.1"
+python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.8.4"
 ag2c setup
 ```
 

@@ -52,9 +52,9 @@ def repository_root(start: Path) -> Path:
     return Path(value).resolve()
 
 
-def canonical_worktree(start: Path) -> Path:
-    root = repository_root(start)
-    listing = str(git(root, "worktree", "list", "--porcelain"))
+def canonical_worktree(start: Path, *, root: Path | None = None) -> Path:
+    resolved = root if root is not None else repository_root(start)
+    listing = str(git(resolved, "worktree", "list", "--porcelain"))
     first = next((line[9:] for line in listing.splitlines() if line.startswith("worktree ")), "")
     if not first:
         raise AG2CError("Git did not report a canonical worktree")

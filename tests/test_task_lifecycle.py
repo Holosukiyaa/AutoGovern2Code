@@ -7,6 +7,7 @@ import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 import bootstrap
 
@@ -17,6 +18,8 @@ from ag2c.errors import AG2CError
 from ag2c.gitops import git, head
 from ag2c.tasks import (
     abandon_task,
+    classify_delivery,
+    describe_delivery,
     evidence,
     finish_task,
     list_tasks,
@@ -30,6 +33,20 @@ from support import git_project
 
 
 class TaskLifecycleTests(unittest.TestCase):
+    def test_delivery_classifies_feature_and_fix(self) -> None:
+        self.assertEqual("fix", classify_delivery("fix login timeout"))
+        self.assertEqual("fix", classify_delivery("修复通知发送失败"))
+        self.assertEqual("feature", classify_delivery("feat: add search page"))
+        self.assertEqual("feature", classify_delivery("实现课程表筛选"))
+        self.assertEqual(
+            {
+                "request": "把搜索做出来",
+                "outcome": "实现站内搜索",
+                "kind": "feature",
+            },
+            describe_delivery(goal="把搜索做出来", outcome="实现站内搜索\n\nAG2C-Task: x"),
+        )
+
     def enrolled(self, workspace: Path) -> Path:
         root = git_project(workspace / "project")
         enroll_project(root, project_id="lifecycle-project", skill_root=workspace / "skills")
@@ -68,6 +85,18 @@ class TaskLifecycleTests(unittest.TestCase):
             completed = finish_task(root, "verified-note", message="docs: add note")
             self.assertEqual("completed", completed["state"])
             self.assertEqual(1, completed["journal_version"])
+            self.assertEqual("docs: add note", completed["delivery"]["outcome"])
+            self.assertEqual("add a note", completed["delivery"]["request"])
+            self.assertEqual("chore", completed["delivery"]["kind"])
+            report = evidence(root, "verified-note")
+            self.assertEqual("docs: add note", report["tasks"][0]["delivery"]["outcome"])
+            self.assertEqual("valid", report["tasks"][0]["local_evidence"]["status"])
+            with patch("ag2c.tasks.verify_commit_receipt") as verify_receipt:
+                listing = evidence(root, "verified-note", verify_local=False)
+                verify_receipt.assert_not_called()
+            self.assertEqual("successful", listing["tasks"][0]["management_result"])
+            self.assertEqual(report["tasks"][0]["management_result"], listing["tasks"][0]["management_result"])
+            self.assertEqual("recorded", listing["tasks"][0]["local_evidence"]["status"])
             self.assertFalse(worktree.exists())
             self.assertEqual("completed", list_tasks(root)[0]["worktree"]["lifecycle"])
             from ag2c.journal import list_journals
@@ -75,6 +104,8 @@ class TaskLifecycleTests(unittest.TestCase):
             journals = list_journals(root)
             self.assertEqual(1, len(journals))
             self.assertEqual("verified-note", journals[0]["task_id"])
+            self.assertEqual("docs: add note", journals[0]["outcome"])
+            self.assertEqual("chore", journals[0]["kind"])
 
     def test_abandon_removes_open_worktree_and_records_discard(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

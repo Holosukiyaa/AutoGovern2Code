@@ -13,6 +13,7 @@ from .checks import PROCESS_CHECK_STATUSES, run_checks
 from .config import discover_manifest, load_manifest, load_policy
 from .enrollment import activation_status
 from .errors import AG2CError
+from .storage import registered_manifest
 from .gitops import (
     change_digest,
     changed_paths,
@@ -25,7 +26,7 @@ from .gitops import (
     status_entries,
 )
 from .index import build_index, index_path
-from .ledger import append_event, read_events, verify_ledger
+from .ledger import append_event, inspect_ledger, read_events
 from .receipts import (
     build_receipt,
     receipt_path,
@@ -38,6 +39,58 @@ from .util import digest_file
 
 TASK_SCHEMA = "ag2c.task.v1"
 OPEN_TASK_STATES = frozenset({"active", "verified"})
+
+
+def _commit_subject(message: str) -> str:
+    lines: list[str] = []
+    for line in str(message or "").replace("\r\n", "\n").split("\n"):
+        if line.strip().startswith("AG2C-"):
+            continue
+        lines.append(line)
+    text = "\n".join(lines).strip()
+    return text.split("\n", 1)[0].strip()
+
+
+def classify_delivery(text: str) -> str:
+    value = str(text or "").lower()
+    if any(token in value for token in ("fix", "bug", "hotfix", "修复", "问题", "缺陷", "故障")):
+        return "fix"
+    if any(token in value for token in ("feat", "feature", "implement", "实现", "功能", "新增")):
+        return "feature"
+    if any(token in value for token in ("chore", "docs", "refactor", "test:", "对齐", "升级", "文档")):
+        return "chore"
+    return "change"
+
+
+def describe_delivery(*, goal: str, outcome: str) -> dict[str, str]:
+    request = str(goal or "").strip()
+    delivered = _commit_subject(outcome) or request
+    return {
+        "request": request,
+        "outcome": delivered,
+        "kind": classify_delivery(f"{delivered} {request}"),
+    }
+
+
+def resolve_delivery(canonical: Path, task: dict[str, Any]) -> dict[str, str]:
+    recorded = task.get("delivery")
+    if isinstance(recorded, dict) and str(recorded.get("outcome") or "").strip():
+        outcome = str(recorded.get("outcome") or "").strip()
+        request = str(recorded.get("request") or task.get("goal") or "").strip()
+        return {
+            "request": request,
+            "outcome": outcome,
+            "kind": str(recorded.get("kind") or classify_delivery(f"{outcome} {request}")),
+        }
+    outcome = ""
+    result = task.get("result") if isinstance(task.get("result"), dict) else {}
+    commit = str(result.get("commit") or "")
+    if commit:
+        try:
+            outcome = _commit_subject(str(git(canonical, "show", "-s", "--format=%B", commit)))
+        except AG2CError:
+            outcome = ""
+    return describe_delivery(goal=str(task.get("goal") or ""), outcome=outcome)
 TERMINAL_TASK_STATES = frozenset({"completed", "abandoned"})
 
 
@@ -52,13 +105,14 @@ def _atomic_json(path: Path, value: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
-def _task_path(canonical: Path, task_id: str) -> Path:
-    manifest = load_manifest(discover_manifest(canonical))
+def _task_path(canonical: Path, task_id: str, *, manifest=None) -> Path:
+    if manifest is None:
+        manifest = load_manifest(discover_manifest(canonical))
     return manifest.state_dir / "tasks" / f"{task_id}.json"
 
 
-def _load_task(canonical: Path, task_id: str) -> dict[str, Any]:
-    path = _task_path(canonical, task_id)
+def _load_task(canonical: Path, task_id: str, *, manifest=None) -> dict[str, Any]:
+    path = _task_path(canonical, task_id, manifest=manifest)
     try:
         task = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
@@ -91,23 +145,45 @@ def _record_intervention(
 
 
 def _canonical_manifest(canonical: Path):
-    manifest = load_manifest(discover_manifest(canonical))
+    try:
+        manifest = load_manifest(discover_manifest(canonical), project_root=canonical)
+    except AG2CError:
+        found = registered_manifest(canonical)
+        if found is None:
+            raise
+        manifest = load_manifest(found, project_root=canonical)
     return manifest, load_policy(manifest)
 
 
-def _matching_event(manifest, digest: str, event_type: str, task_id: str) -> dict[str, Any] | None:
-    event = next((item for item in read_events(manifest.ledger_path) if item.get("event_digest") == digest), None)
+def _matching_event(
+    manifest,
+    digest: str,
+    event_type: str,
+    task_id: str,
+    *,
+    events_by_digest: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    if events_by_digest is None:
+        events_by_digest = {str(item["event_digest"]): item for item in read_events(manifest.ledger_path)}
+    event = events_by_digest.get(digest)
     if event is None or event.get("event_type") != event_type or event.get("payload", {}).get("task_id") != task_id:
         return None
     return event
 
 
-def _verification_evidence_valid(manifest, task: dict[str, Any], verification: dict[str, Any]) -> bool:
+def _verification_evidence_valid(
+    manifest,
+    task: dict[str, Any],
+    verification: dict[str, Any],
+    *,
+    events_by_digest: dict[str, dict[str, Any]] | None = None,
+) -> bool:
     event = _matching_event(
         manifest,
         str(verification.get("ledger_event_digest", "")),
         "task-verification",
         str(task["id"]),
+        events_by_digest=events_by_digest,
     )
     if event is None:
         return False
@@ -134,6 +210,7 @@ def _verification_evidence_valid(manifest, task: dict[str, Any], verification: d
         str(verification.get("check_ledger_event_digest", "")),
         "check-run",
         str(task["id"]),
+        events_by_digest=events_by_digest,
     )
     if check_event is None:
         return False
@@ -147,12 +224,18 @@ def _verification_evidence_valid(manifest, task: dict[str, Any], verification: d
     )
 
 
-def _start_evidence_valid(manifest, task: dict[str, Any]) -> bool:
+def _start_evidence_valid(
+    manifest,
+    task: dict[str, Any],
+    *,
+    events_by_digest: dict[str, dict[str, Any]] | None = None,
+) -> bool:
     event = _matching_event(
         manifest,
         str(task.get("start_ledger_event_digest", "")),
         "task-started",
         str(task["id"]),
+        events_by_digest=events_by_digest,
     )
     if event is None:
         return False
@@ -299,12 +382,31 @@ def _remove_task_worktree(canonical: Path, task: dict[str, Any], *, force: bool)
         return f"pending: {exc}"
 
 
-def _worktree_snapshot(canonical: Path, task: dict[str, Any]) -> dict[str, Any]:
+def _worktree_snapshot(
+    canonical: Path,
+    task: dict[str, Any],
+    *,
+    canonical_head: str | None = None,
+) -> dict[str, Any]:
     recorded = task.get("worktree") or {}
     path = Path(str(recorded.get("path", "")))
     present = bool(str(recorded.get("path", ""))) and path.is_dir()
-    canonical_head = head(canonical)
     source_head = str(task.get("source", {}).get("head", ""))
+    state = str(task.get("state", ""))
+    if state in TERMINAL_TASK_STATES:
+        return {
+            "path": str(recorded.get("path", "")),
+            "branch": recorded.get("branch"),
+            "present": present,
+            "dirty": False,
+            "diverged": False,
+            "lifecycle": "completed" if state == "completed" else "abandoned",
+            "source_head": source_head,
+            "canonical_head": canonical_head or "",
+            "bytes_changed_after_verify": False,
+        }
+    if canonical_head is None:
+        canonical_head = head(canonical)
     diverged = bool(source_head) and canonical_head != source_head
     dirty = False
     bytes_changed = False
@@ -319,12 +421,7 @@ def _worktree_snapshot(canonical: Path, task: dict[str, Any]) -> dict[str, Any]:
                 bytes_changed = change_digest(path, source_head) != last_pass.get("change_digest")
         except AG2CError:
             present = False
-    state = str(task.get("state", ""))
-    if state == "completed":
-        lifecycle = "completed"
-    elif state == "abandoned":
-        lifecycle = "abandoned"
-    elif not present:
+    if not present:
         lifecycle = "missing"
     elif diverged:
         lifecycle = "diverged"
@@ -577,6 +674,10 @@ def finish_task(start: Path, task_id: str, *, message: str) -> dict[str, Any]:
     current_digest = change_digest(worktree, task["source"]["head"])
     if current_digest != task["verifications"][-1]["change_digest"]:
         raise AG2CError("task changed after verification; run `ag2c task verify` again")
+    delivery = describe_delivery(goal=str(task.get("goal") or ""), outcome=message)
+    if not delivery["outcome"]:
+        raise AG2CError("AG2C requires a finish message that says what was implemented or fixed")
+    task["delivery"] = delivery
     receipt = build_receipt(manifest, policy, task)
     evidence_path = write_receipt(manifest, receipt)
     commit_message = (
@@ -644,17 +745,24 @@ def finish_task(start: Path, task_id: str, *, message: str) -> dict[str, Any]:
 
 def list_tasks(start: Path) -> list[dict[str, Any]]:
     canonical = Path(activation_status(start)["canonical_root"])
-    return [
-        {
-            "id": task["id"],
-            "goal": task["goal"],
-            "state": task["state"],
-            "created_at": task.get("created_at"),
-            "source": task.get("source"),
-            "worktree": _worktree_snapshot(canonical, task),
-        }
-        for task in task_records(canonical)
-    ]
+    manifest = load_manifest(discover_manifest(canonical))
+    canonical_head = None
+    records = []
+    for task in task_records(canonical, manifest=manifest):
+        if task.get("state") not in TERMINAL_TASK_STATES and canonical_head is None:
+            canonical_head = head(canonical)
+        records.append(
+            {
+                "id": task["id"],
+                "goal": task["goal"],
+                "delivery": resolve_delivery(canonical, task),
+                "state": task["state"],
+                "created_at": task.get("created_at"),
+                "source": task.get("source"),
+                "worktree": _worktree_snapshot(canonical, task, canonical_head=canonical_head),
+            }
+        )
+    return records
 
 
 def refresh_task(start: Path, task_id: str) -> dict[str, Any]:
@@ -758,22 +866,35 @@ def abandon_task(start: Path, task_id: str, *, reason: str = "") -> dict[str, An
     return {**task, "worktree": _worktree_snapshot(canonical, task)}
 
 
-def task_record(start: Path, task_id: str) -> dict[str, Any]:
-    canonical = Path(activation_status(start)["canonical_root"])
-    return _load_task(canonical, task_id)
+def task_record(start: Path, task_id: str, *, manifest=None) -> dict[str, Any]:
+    if manifest is None:
+        canonical = Path(activation_status(start)["canonical_root"])
+        manifest = load_manifest(discover_manifest(canonical))
+    else:
+        canonical = Path(start)
+    return _load_task(canonical, task_id, manifest=manifest)
 
 
-def task_records(start: Path) -> list[dict[str, Any]]:
-    canonical = Path(activation_status(start)["canonical_root"])
-    directory = load_manifest(discover_manifest(canonical)).state_dir / "tasks"
-    records = [_load_task(canonical, path.stem) for path in directory.glob("*.json")] if directory.is_dir() else []
+def task_records(start: Path, *, manifest=None) -> list[dict[str, Any]]:
+    if manifest is None:
+        canonical = Path(activation_status(start)["canonical_root"])
+        manifest = load_manifest(discover_manifest(canonical))
+    else:
+        canonical = Path(start)
+    directory = manifest.state_dir / "tasks"
+    records = [_load_task(canonical, path.stem, manifest=manifest) for path in directory.glob("*.json")] if directory.is_dir() else []
     return sorted(records, key=lambda item: str(item.get("created_at", "")), reverse=True)
 
 
-def _local_evidence(canonical: Path, task: dict[str, Any]) -> dict[str, Any]:
+def _local_evidence(canonical: Path, task: dict[str, Any], *, verify: bool = True) -> dict[str, Any]:
     result = task.get("result")
     if not isinstance(result, dict) or not result.get("receipt_path") or not result.get("commit"):
         return {"status": "not-created"}
+    receipt = Path(str(result["receipt_path"]))
+    if not verify:
+        if receipt.is_file():
+            return {"status": "recorded", "path": str(receipt)}
+        return {"status": "missing", "path": str(receipt)}
     try:
         report = verify_commit_receipt(canonical, str(result["commit"]))
     except AG2CError as exc:
@@ -785,18 +906,32 @@ def _local_evidence(canonical: Path, task: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def evidence(start: Path, task_id: str | None = None) -> dict[str, Any]:
-    status = activation_status(start)
+def evidence(
+    start: Path,
+    task_id: str | None = None,
+    *,
+    verify_local: bool = True,
+    activation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    status = activation if activation is not None else activation_status(start)
     canonical = Path(status["canonical_root"])
     manifest, policy = _canonical_manifest(canonical)
-    from .knowledge import knowledge_status
+    knowledge_rows: list[dict[str, Any]] = []
+    if verify_local:
+        from .knowledge import knowledge_status
 
-    knowledge_rows = knowledge_status(manifest, policy)
-    ledger_errors = verify_ledger(manifest.ledger_path)
-    events = read_events(manifest.ledger_path) if not ledger_errors else []
+        knowledge_rows = knowledge_status(manifest, policy)
+    ledger_errors, events = inspect_ledger(manifest.ledger_path)
+    if ledger_errors:
+        events = []
     events_by_digest = {str(event["event_digest"]): event for event in events}
-    records = [task_record(canonical, task_id)] if task_id else task_records(canonical)
+    records = (
+        [task_record(canonical, task_id, manifest=manifest)]
+        if task_id
+        else task_records(canonical, manifest=manifest)
+    )
     summaries = []
+    canonical_head = None
     for task in records:
         verifications = task.get("verifications", [])
         references: list[tuple[str, str]] = []
@@ -831,7 +966,9 @@ def evidence(start: Path, task_id: str | None = None) -> dict[str, Any]:
             ):
                 evidence_complete = False
                 break
-        start_valid = not ledger_errors and _start_evidence_valid(manifest, task)
+        start_valid = not ledger_errors and _start_evidence_valid(
+            manifest, task, events_by_digest=events_by_digest
+        )
         if not start_valid:
             evidence_complete = False
         if evidence_complete:
@@ -844,10 +981,11 @@ def evidence(start: Path, task_id: str | None = None) -> dict[str, Any]:
                 if event is None or event.get("payload") != expected:
                     evidence_complete = False
                     break
-        if evidence_complete and any(
-            not _verification_evidence_valid(manifest, task, verification)
+        verification_valid = [
+            _verification_evidence_valid(manifest, task, verification, events_by_digest=events_by_digest)
             for verification in verifications
-        ):
+        ]
+        if evidence_complete and any(not item for item in verification_valid):
             evidence_complete = False
         if evidence_complete and task.get("result"):
             result_event = events_by_digest.get(str(task["result"].get("ledger_event_digest", "")))
@@ -866,11 +1004,8 @@ def evidence(start: Path, task_id: str | None = None) -> dict[str, Any]:
             }
             if abandon_event is None or abandon_event.get("payload") != expected_abandon:
                 evidence_complete = False
-        verified = bool(
-            verifications
-            and verifications[-1].get("passed")
-            and _verification_evidence_valid(manifest, task, verifications[-1])
-        )
+        last_verification_valid = bool(verification_valid and verification_valid[-1])
+        verified = bool(verifications and verifications[-1].get("passed") and last_verification_valid)
         completed = task["state"] == "completed" and bool(task.get("result"))
         abandoned = task["state"] == "abandoned" and bool(task.get("abandon"))
         if completed and verified and evidence_complete:
@@ -891,10 +1026,13 @@ def evidence(start: Path, task_id: str | None = None) -> dict[str, Any]:
             for intervention in task.get("interventions", [])
             if str(intervention.get("kind", "")).endswith("-blocked")
         ]
+        if task.get("state") not in TERMINAL_TASK_STATES and canonical_head is None:
+            canonical_head = head(canonical)
         summaries.append(
             {
                 "id": task["id"],
                 "goal": task["goal"],
+                "delivery": resolve_delivery(canonical, task),
                 "state": task["state"],
                 "managed": start_valid,
                 "management_result": management_result,
@@ -911,10 +1049,10 @@ def evidence(start: Path, task_id: str | None = None) -> dict[str, Any]:
                 "correction_proven": correction_proven,
                 "blocked_actions": blocked_actions,
                 "product": product,
-                "local_evidence": _local_evidence(canonical, task),
+                "local_evidence": _local_evidence(canonical, task, verify=verify_local),
                 "result": task.get("result"),
                 "abandon": task.get("abandon"),
-                "worktree": _worktree_snapshot(canonical, task),
+                "worktree": _worktree_snapshot(canonical, task, canonical_head=canonical_head),
                 "cleanup": task.get("cleanup"),
             }
         )

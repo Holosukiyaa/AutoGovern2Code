@@ -59,13 +59,13 @@ def _read_events(path: Path) -> list[dict[str, Any]]:
     return events
 
 
-def verify_ledger(path: Path) -> list[str]:
+def inspect_ledger(path: Path) -> tuple[list[str], list[dict[str, Any]]]:
     if not path.exists():
-        return []
+        return [], []
     try:
         events = _read_events(path)
     except (OSError, LedgerError) as exc:
-        return [str(exc)]
+        return [str(exc)], []
     errors: list[str] = []
     previous = ZERO_DIGEST
     for index, event in enumerate(events, 1):
@@ -82,17 +82,20 @@ def verify_ledger(path: Path) -> list[str]:
         if recorded != actual:
             errors.append(f"event {index} digest mismatch")
         previous = recorded
-    return errors
+    return errors, events
+
+
+def verify_ledger(path: Path) -> list[str]:
+    return inspect_ledger(path)[0]
 
 
 def append_event(path: Path, event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     path = path.resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     with _exclusive_lock(path):
-        errors = verify_ledger(path)
+        errors, events = inspect_ledger(path)
         if errors:
             raise LedgerError("refusing to append to an invalid ledger:\n- " + "\n- ".join(errors))
-        events = _read_events(path)
         previous = str(events[-1]["event_digest"]) if events else ZERO_DIGEST
         event: dict[str, Any] = {
             "schema": EVENT_SCHEMA,
@@ -111,10 +114,9 @@ def append_event(path: Path, event_type: str, payload: dict[str, Any]) -> dict[s
 
 
 def ledger_summary(path: Path) -> dict[str, Any]:
-    errors = verify_ledger(path)
+    errors, events = inspect_ledger(path)
     if errors:
         raise LedgerError("cannot summarize an invalid ledger:\n- " + "\n- ".join(errors))
-    events = _read_events(path)
     counts: dict[str, int] = {}
     for event in events:
         event_type = str(event.get("event_type", "unknown"))
@@ -128,7 +130,7 @@ def ledger_summary(path: Path) -> dict[str, Any]:
 
 
 def read_events(path: Path) -> list[dict[str, Any]]:
-    errors = verify_ledger(path)
+    errors, events = inspect_ledger(path)
     if errors:
         raise LedgerError("cannot read an invalid ledger:\n- " + "\n- ".join(errors))
-    return _read_events(path)
+    return events

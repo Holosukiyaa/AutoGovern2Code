@@ -21,9 +21,9 @@ using Microsoft.Win32;
 [assembly: AssemblyProduct("AutoGovern2Code")]
 [assembly: AssemblyCompany("AutoGovern2Code contributors")]
 [assembly: AssemblyDescription("Zero-touch governance for AI coding changes")]
-[assembly: AssemblyVersion("0.8.1.0")]
-[assembly: AssemblyFileVersion("0.8.1.0")]
-[assembly: AssemblyInformationalVersion("0.8.1")]
+[assembly: AssemblyVersion("0.8.4.0")]
+[assembly: AssemblyFileVersion("0.8.4.0")]
+[assembly: AssemblyInformationalVersion("0.8.4")]
 
 namespace AutoGovern2CodeDesktop
 {
@@ -65,11 +65,159 @@ namespace AutoGovern2CodeDesktop
         }
     }
 
+    internal static class AppRegistration
+    {
+        private const string AppKey = @"Software\AutoGovern2Code";
+        private const string AppPathsKey = @"Software\Microsoft\Windows\CurrentVersion\App Paths\AutoGovern2Code.exe";
+        private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\AutoGovern2Code";
+        private const string StartupKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+        private const string StartupValue = "AutoGovern2Code";
+
+        public static string ExecutablePath()
+        {
+            return Assembly.GetExecutingAssembly().Location;
+        }
+
+        public static string IconPath()
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "AutoGovern2Code",
+                "app",
+                "AutoGovern2Code.ico");
+        }
+
+        public static string StartMenuShortcutPath()
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.Programs),
+                "AutoGovern2Code.lnk");
+        }
+
+        public static void Ensure()
+        {
+            string exe = ExecutablePath();
+            string icon = WriteIcon();
+            WriteStartMenuShortcut(exe, icon);
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(AppKey))
+                {
+                    if (key != null)
+                    {
+                        key.SetValue("InstallPath", Path.GetDirectoryName(exe));
+                        key.SetValue("DisplayIcon", icon);
+                        key.SetValue("Version", "0.8.4");
+                    }
+                }
+                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(AppPathsKey))
+                {
+                    if (key != null)
+                    {
+                        key.SetValue("", exe);
+                        key.SetValue("Path", Path.GetDirectoryName(exe));
+                    }
+                }
+                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(UninstallKey))
+                {
+                    if (key != null)
+                    {
+                        key.SetValue("DisplayName", "AutoGovern2Code");
+                        key.SetValue("DisplayIcon", icon);
+                        key.SetValue("DisplayVersion", "0.8.4");
+                        key.SetValue("Publisher", "AutoGovern2Code contributors");
+                        key.SetValue("InstallLocation", Path.GetDirectoryName(exe));
+                        key.SetValue("UninstallString", "\"" + exe + "\" --unregister");
+                        key.SetValue("NoModify", 1, RegistryValueKind.DWord);
+                        key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public static void Remove()
+        {
+            try { File.Delete(StartMenuShortcutPath()); } catch { }
+            try { Registry.CurrentUser.DeleteSubKeyTree(AppPathsKey, false); } catch { }
+            try { Registry.CurrentUser.DeleteSubKeyTree(UninstallKey, false); } catch { }
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(StartupKey, true))
+                    if (key != null) key.DeleteValue(StartupValue, false);
+            }
+            catch { }
+            try { Registry.CurrentUser.DeleteSubKeyTree(AppKey, false); } catch { }
+        }
+
+        public static bool TrayHintShown()
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(AppKey))
+                    return key != null && Convert.ToInt32(key.GetValue("TrayHintShown", 0)) != 0;
+            }
+            catch { return false; }
+        }
+
+        public static void MarkTrayHintShown()
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(AppKey))
+                    if (key != null) key.SetValue("TrayHintShown", 1, RegistryValueKind.DWord);
+            }
+            catch { }
+        }
+
+        private static string WriteIcon()
+        {
+            string path = IconPath();
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            using (Icon icon = MainForm.CreateAppIcon())
+            using (FileStream stream = File.Create(path))
+                icon.Save(stream);
+            return path;
+        }
+
+        private static void WriteStartMenuShortcut(string exe, string icon)
+        {
+            try
+            {
+                Type shellType = Type.GetTypeFromProgID("WScript.Shell");
+                if (shellType == null) return;
+                object shell = Activator.CreateInstance(shellType);
+                object shortcut = shellType.InvokeMember(
+                    "CreateShortcut",
+                    BindingFlags.InvokeMethod,
+                    null,
+                    shell,
+                    new object[] { StartMenuShortcutPath() });
+                Type shortcutType = shortcut.GetType();
+                shortcutType.InvokeMember("TargetPath", BindingFlags.SetProperty, null, shortcut, new object[] { exe });
+                shortcutType.InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, shortcut, new object[] { Path.GetDirectoryName(exe) });
+                shortcutType.InvokeMember("IconLocation", BindingFlags.SetProperty, null, shortcut, new object[] { icon });
+                shortcutType.InvokeMember("Description", BindingFlags.SetProperty, null, shortcut, new object[] { "AutoGovern2Code" });
+                shortcutType.InvokeMember("Save", BindingFlags.InvokeMethod, null, shortcut, null);
+            }
+            catch { }
+        }
+    }
+
     internal static class Program
     {
         [STAThread]
         private static int Main(string[] args)
         {
+            foreach (string arg in args)
+            {
+                if (String.Equals(arg, "--unregister", StringComparison.OrdinalIgnoreCase))
+                {
+                    AppRegistration.Remove();
+                    return 0;
+                }
+            }
+            AppRegistration.Ensure();
             bool ownsInstance;
             using (var instance = new Mutex(true, @"Local\AutoGovern2Code.Desktop", out ownsInstance))
             {
@@ -84,6 +232,15 @@ namespace AutoGovern2CodeDesktop
                 using (var form = new MainForm(args)) Application.Run(form);
                 return 0;
             }
+        }
+    }
+
+    [ComVisible(true)]
+    public class DesktopHost
+    {
+        public bool IsDesktop()
+        {
+            return true;
         }
     }
 
@@ -116,7 +273,7 @@ namespace AutoGovern2CodeDesktop
             MinimumSize = new Size(900, 640);
             ClientSize = new Size(1280, 860);
             BackColor = Color.FromArgb(245, 246, 246);
-            Icon = MakeIcon();
+            Icon = CreateAppIcon();
             _token = CreateSessionToken();
             _runtime = ResolveRuntime(args);
             _http = new HttpClient(new HttpClientHandler { UseProxy = false });
@@ -155,9 +312,16 @@ namespace AutoGovern2CodeDesktop
                 WebBrowserShortcutsEnabled = true,
                 Visible = false,
             };
+            _browser.ObjectForScripting = new DesktopHost();
             _browser.Navigating += OnBrowserNavigating;
             _browser.DocumentCompleted += delegate
             {
+                try
+                {
+                    if (_browser.Document != null)
+                        _browser.Document.InvokeScript("ag2cSetDesktopHost");
+                }
+                catch { }
                 _loading.Visible = false;
                 _browser.Visible = true;
                 _browser.BringToFront();
@@ -284,6 +448,7 @@ namespace AutoGovern2CodeDesktop
 
         private void ChooseProject()
         {
+            ShowWindow();
             using (var dialog = new FolderBrowserDialog())
             {
                 dialog.Description = "\u9009\u62e9\u8981\u7eb3\u5165 AutoGovern2Code \u6cbb\u7406\u7684 Git \u9879\u76ee";
@@ -301,7 +466,7 @@ namespace AutoGovern2CodeDesktop
 
         private void SetupTray()
         {
-            _tray = new NotifyIcon { Icon = MakeIcon(), Text = "AutoGovern2Code", Visible = true };
+            _tray = new NotifyIcon { Icon = CreateAppIcon(), Text = "AutoGovern2Code — 双击打开", Visible = true };
             var menu = new ContextMenuStrip();
             menu.Items.Add("\u6253\u5f00 AutoGovern2Code", null, delegate { ShowWindow(); });
             menu.Items.Add("\u6dfb\u52a0\u9879\u76ee...", null, delegate { ChooseProject(); });
@@ -361,6 +526,15 @@ namespace AutoGovern2CodeDesktop
                 e.Cancel = true;
                 Hide();
                 ShowInTaskbar = false;
+                if (_tray != null && !AppRegistration.TrayHintShown())
+                {
+                    _tray.ShowBalloonTip(
+                        5000,
+                        "AutoGovern2Code 还在运行",
+                        "窗口已放到右下角托盘。开始菜单搜索 AutoGovern2Code 也能再次打开。",
+                        ToolTipIcon.Info);
+                    AppRegistration.MarkTrayHintShown();
+                }
                 return;
             }
             try
@@ -384,7 +558,7 @@ namespace AutoGovern2CodeDesktop
             base.Dispose(disposing);
         }
 
-        private static Icon MakeIcon()
+        internal static Icon CreateAppIcon()
         {
             using (var bitmap = new Bitmap(32, 32))
             using (var graphics = Graphics.FromImage(bitmap))

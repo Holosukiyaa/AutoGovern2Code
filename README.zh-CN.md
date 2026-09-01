@@ -53,7 +53,7 @@ Windows 默认位置：
 
 ## 支持哪些 AI
 
-安装器会把同一份 Agent Skills 标准 Skill 安装到 Codex、Claude Code 和通用 Skill 目录，托盘会分别检测这些入口。
+安装器会把同一份 Agent Skills 标准 Skill 安装到 Codex、Claude Code、Cursor（`~/.cursor/skills`）和通用 Skill 目录，托盘会分别检测这些入口。
 
 - 支持 Agent Skills 的工具可以进入完整的无感流程。
 - 对没有 Skill 机制的未知工具，Git 交付门禁仍可能阻止不合规提交，但不能保证它在编辑前主动进入 AG2C。
@@ -66,7 +66,7 @@ Windows 默认位置：
 桌面安装器目前只支持 Windows。macOS、Linux 和源码开发需要 Python 3.11 或更高版本：
 
 ```bash
-python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.8.1"
+python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.8.4"
 ag2c setup
 ```
 

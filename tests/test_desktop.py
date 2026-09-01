@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import bootstrap
 
+import ag2c.desktop
 from ag2c.desktop import DesktopServer
 
 
@@ -50,10 +51,25 @@ class DesktopServerTests(unittest.TestCase):
         self.assertIn("施工副本".encode("utf-8"), body)
         self.assertIn("待更新规则".encode("utf-8"), body)
         self.assertIn("治理日志".encode("utf-8"), body)
+        self.assertIn(b"listDialog", body)
+        self.assertIn(b"busyOverlay", body)
+        self.assertIn(b"gateObservedToggle", body)
         self.assertIn("卸载项目".encode("utf-8"), body)
         status, script, _ = self.request("GET", "/assets/app.js")
         self.assertEqual(200, status)
         self.assertIn(b"function yesNo", script)
+        self.assertIn(b"function setBusy", script)
+        self.assertIn(b"function deliveryKindName", script)
+        self.assertIn(b"function addProjectError", script)
+        self.assertIn(b"function fillEvidenceList", script)
+        self.assertIn("verify_local=False", Path(ag2c.desktop.__file__).read_text(encoding="utf-8"))
+        self.assertIn("正在读取实际记录".encode("utf-8"), script)
+        self.assertIn(b"AG2C_STALE_EXTERNAL_STORE", script)
+        self.assertIn(b"AG2C_RELOCATED_PROJECT", script)
+        self.assertIn("查看全部".encode("utf-8"), script)
+        self.assertIn(b"function isDesktopHost", script)
+        self.assertIn(b"ag2cSetDesktopHost", script)
+        self.assertIn(b"ag2c://choose-project", script)
         self.assertIn("产品验收".encode("utf-8"), script)
         self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
         status, body, headers = self.request("GET", "/api/status")
@@ -68,10 +84,15 @@ class DesktopServerTests(unittest.TestCase):
         self.assertEqual(401, status)
         status, _, _ = self.request("GET", "/api/projects", token=True, origin="http://example.com")
         self.assertEqual(403, status)
-        with patch("ag2c.desktop.managed_projects", return_value=[{"name": "Project", "root": "C:/Project"}]):
+        with patch("ag2c.desktop.managed_projects", return_value=[{"name": "Project", "root": "C:/Project"}]), patch(
+            "ag2c.desktop.align_managed_projects", return_value=[]
+        ):
             status, body, _ = self.request("GET", "/api/projects", token=True)
         self.assertEqual(200, status)
-        self.assertEqual("Project", json.loads(body)["projects"][0]["name"])
+        payload = json.loads(body)
+        self.assertEqual("Project", payload["projects"][0]["name"])
+        self.assertEqual([], payload["migrations"])
+        self.assertIn("version", payload)
 
     def test_session_endpoint_returns_current_token_for_local_tabs(self) -> None:
         status, body, _ = self.request("GET", "/api/session", origin="http://127.0.0.1")
@@ -175,13 +196,22 @@ class DesktopServerTests(unittest.TestCase):
                 {"cancelled": False, "unavailable": True, "path": None, "is_git": False},
                 pick_project_folder(),
             )
-        from ag2c.desktop import _PickerCancelled
+        from ag2c.desktop import _PickerCancelled, _windows_dialog_cancelled, _windows_show_result
 
         with patch("ag2c.desktop._native_folder_path", side_effect=_PickerCancelled()):
             self.assertEqual(
                 {"cancelled": True, "unavailable": False, "path": None, "is_git": False},
                 pick_project_folder(),
             )
+        self.assertTrue(_windows_dialog_cancelled(0x800704C7))
+        self.assertTrue(_windows_dialog_cancelled(0x80004004))
+        self.assertTrue(_windows_dialog_cancelled(1223))
+        self.assertFalse(_windows_dialog_cancelled(0))
+        _windows_show_result(0)
+        with self.assertRaises(_PickerCancelled):
+            _windows_show_result(0x800704C7)
+        with self.assertRaises(_PickerCancelled):
+            _windows_show_result(0x80004004)
 
     def test_list_project_folders_marks_git_directories(self) -> None:
         from ag2c.desktop import list_project_folders

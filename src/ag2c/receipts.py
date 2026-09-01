@@ -34,6 +34,8 @@ def build_receipt(manifest, policy, task: dict[str, Any]) -> dict[str, Any]:
         "project": manifest.project_id,
         "task_id": task["id"],
         "goal": task["goal"],
+        "delivery": task.get("delivery")
+        or {"request": str(task.get("goal") or ""), "outcome": str(task.get("goal") or ""), "kind": "change"},
         "source_commit": task["source"]["head"],
         "source_branch": task["source"]["branch"],
         "entry": task["entry"],

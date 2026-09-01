@@ -46,10 +46,10 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
 8. After a passing verification, return to the canonical checkout and run:
 
    ```text
-   ag2c task finish --task <task-id> --message "<concise commit message>"
+   ag2c task finish --task <task-id> --message "<what was implemented or fixed>"
    ```
 
-   AG2C refuses stale evidence, writes the full record to the external project store, adds only evidence digest trailers to the commit, validates the committed bytes, fast-forwards the original branch, and cleans up the external worktree. If `governance_pending.items` is not empty, immediately settle it before any new coding task:
+   `--message` must name the product change: a feature that landed or a problem that was fixed. AG2C stores that as the task delivery record, refuses stale evidence, writes the full record to the external project store, adds only evidence digest trailers to the commit, validates the committed bytes, fast-forwards the original branch, and cleans up the external worktree. If `governance_pending.items` is not empty, immediately settle it before any new coding task:
 
    ```text
    ag2c govern settle --actor <harness> --reason "after task <task-id>: <user request>"

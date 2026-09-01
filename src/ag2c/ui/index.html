@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
   <title>AutoGovern2Code</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=0.8.1">
+  <link rel="stylesheet" href="/assets/styles.css?v=0.8.4">
 </head>
 <body>
   <div class="app-shell">
@@ -63,7 +63,7 @@
             </div>
           </header>
 
-          <ul id="issueList" class="issue-list"></ul>
+          <div id="issueList" class="issue-list"></div>
           <div id="healthyState" class="healthy-state" hidden><span aria-hidden="true">&#x2713;</span><span id="healthyCopy">施工检查已通过</span></div>
 
           <div class="dash-grid">
@@ -80,11 +80,12 @@
                   <span class="gate-copy"><span>交付</span><small id="deliveryHint"></small></span>
                   <strong id="deliveryState"></strong>
                 </div>
-                <div class="gate-row static">
+                <button id="gateObservedToggle" class="gate-row" type="button">
                   <span class="gate-icon" aria-hidden="true">&#x2630;</span>
                   <span class="gate-copy"><span>实际记录</span><small id="observedHint"></small></span>
                   <strong id="observedState"></strong>
-                </div>
+                  <span class="gate-chevron" aria-hidden="true">&#x203A;</span>
+                </button>
                 <div id="agentList" class="agent-list" hidden></div>
               </article>
 
@@ -165,7 +166,7 @@
               <span id="stopHint">停止后项目仍保留，只是不再自动检查。卸载才会清除治理档案。</span>
             </div>
             <div class="footer-meta">
-              <span id="engineVersion">治理引擎 v0.8.1</span>
+              <span id="engineVersion">治理引擎</span>
               <button id="logsButton" class="quiet-button" type="button">查看日志</button>
             </div>
           </footer>
@@ -190,8 +191,24 @@
         </footer>
       </section>
     </div>
+    <div id="listDialog" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="listDialogTitle" hidden>
+      <section class="list-dialog">
+        <header class="list-dialog-head">
+          <h2 id="listDialogTitle"></h2>
+          <button id="closeListDialogButton" class="icon-button" type="button" title="关闭" aria-label="关闭">&#x00D7;</button>
+        </header>
+        <div id="listDialogBody" class="list-dialog-body"></div>
+      </section>
+    </div>
+    <div id="busyOverlay" class="busy-overlay" hidden role="alertdialog" aria-modal="true" aria-labelledby="busyTitle" aria-describedby="busyHint">
+      <div class="busy-card">
+        <div class="busy-spinner" aria-hidden="true"></div>
+        <strong id="busyTitle">正在纳入治理</strong>
+        <p id="busyHint">入库可能需要一点时间，请不要关闭窗口</p>
+      </div>
+    </div>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </div>
-  <script src="/assets/app.js?v=0.8.1"></script>
+  <script src="/assets/app.js?v=0.8.4"></script>
 </body>
 </html>

@@ -6,7 +6,7 @@ from pathlib import Path
 import bootstrap
 
 from ag2c.errors import LedgerError
-from ag2c.ledger import append_event, ledger_summary, verify_ledger
+from ag2c.ledger import append_event, inspect_ledger, ledger_summary, verify_ledger
 
 
 class LedgerTests(unittest.TestCase):
@@ -16,6 +16,9 @@ class LedgerTests(unittest.TestCase):
             append_event(ledger, "route", {"state": "precise"})
             append_event(ledger, "check-run", {"status": "passed"})
             self.assertEqual(verify_ledger(ledger), [])
+            errors, events = inspect_ledger(ledger)
+            self.assertEqual([], errors)
+            self.assertEqual(2, len(events))
             self.assertEqual(ledger_summary(ledger)["events"], 2)
 
             lines = ledger.read_text(encoding="utf-8").splitlines()

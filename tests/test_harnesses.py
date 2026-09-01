@@ -9,11 +9,11 @@ from unittest.mock import patch
 import bootstrap
 
 from ag2c.enrollment import _native_checkers
-from ag2c.harnesses import install_skills, remove_skills
+from ag2c.harnesses import harness_status, install_skills, remove_skills
 
 
 class HarnessAdapterTests(unittest.TestCase):
-    def test_default_install_covers_codex_claude_and_generic_agents(self) -> None:
+    def test_default_install_covers_codex_claude_cursor_and_generic_agents(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
             codex_home = home / "custom-codex"
@@ -22,15 +22,29 @@ class HarnessAdapterTests(unittest.TestCase):
             ):
                 installed = install_skills()
 
-            self.assertEqual(["codex", "claude", "agents"], [item["harness"] for item in installed])
+            self.assertEqual(["codex", "claude", "cursor", "agents"], [item["harness"] for item in installed])
             expected = [
                 codex_home / "skills",
                 home / ".claude" / "skills",
+                home / ".cursor" / "skills",
                 home / ".agents" / "skills",
             ]
             for root in expected:
                 self.assertTrue((root / "ag2c-governed-development" / "SKILL.md").is_file())
                 self.assertTrue((root / "ag2c-governance-update" / "SKILL.md").is_file())
+
+    def test_cursor_is_detected_from_user_config_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            (home / ".cursor").mkdir()
+            with patch("ag2c.harnesses.Path.home", return_value=home), patch(
+                "ag2c.harnesses.shutil.which", return_value=None
+            ):
+                status = {item["harness"]: item for item in harness_status()}
+            self.assertTrue(status["cursor"]["detected"])
+            self.assertEqual("skill-missing", status["cursor"]["state"])
+            self.assertEqual(str((home / ".cursor" / "skills" / "ag2c-governed-development").resolve()), status["cursor"]["skill_path"])
+            self.assertFalse(str(status["cursor"]["skill_path"]).replace("\\", "/").endswith("skills-cursor/ag2c-governed-development"))
 
     def test_harness_selection_is_narrow(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

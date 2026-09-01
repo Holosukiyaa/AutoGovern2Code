@@ -4,7 +4,8 @@ from pathlib import Path
 from typing import Any
 
 from .config import discover_manifest, load_manifest, load_policy
-from .enrollment import activation_status, setup_project
+from . import __version__
+from .enrollment import activation_status, align_engine, needs_engine_align, setup_project, stored_tool_version
 from .errors import AG2CError
 from .gitops import git, repository_root, status_entries
 from .harnesses import harness_status
@@ -25,19 +26,19 @@ from .storage import (
 from .tasks import evidence, list_tasks
 
 
-def project_status(start: Path) -> dict[str, Any]:
+def project_status(start: Path, *, agents: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     root = repository_root(start)
     status = activation_status(root)
-    agents = harness_status()
+    if agents is None:
+        agents = harness_status()
     record = find_project_record(root)
     governance = str((record or {}).get("governance") or "active")
     report: dict[str, Any] | None = None
     evidence_error: str | None = None
-    if governance != GOVERNANCE_STOPPED:
-        try:
-            report = evidence(root)
-        except (AG2CError, OSError, ValueError) as exc:
-            evidence_error = str(exc)
+    try:
+        report = evidence(root, verify_local=False, activation=status)
+    except (AG2CError, OSError, ValueError) as exc:
+        evidence_error = str(exc)
     tasks = report.get("tasks", []) if report else []
     completed = [item for item in tasks if item.get("state") == "completed"]
     active = [item for item in tasks if item.get("state") == "active"]
@@ -102,11 +103,14 @@ def project_status(start: Path) -> dict[str, Any]:
         "product": report.get("product") if report else None,
         "pending_count": len(pending_items),
         "pending": pending_items,
+        "engine_version": __version__,
+        "tool_version": stored_tool_version(root),
     }
 
 
 def managed_projects() -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
+    agents = harness_status()
     for record in project_records():
         root = Path(str(record.get("root", "")))
         if not root.is_dir():
@@ -121,7 +125,7 @@ def managed_projects() -> list[dict[str, Any]]:
                     "entry_ready": False,
                     "delivery_enforced": False,
                     "agent_observed": False,
-                    "agents": harness_status(),
+                    "agents": agents,
                     "active_tasks": 0,
                     "verified_tasks": 0,
                     "open_tasks": 0,
@@ -133,7 +137,7 @@ def managed_projects() -> list[dict[str, Any]]:
             )
             continue
         try:
-            current = project_status(root)
+            current = project_status(root, agents=agents)
         except (AG2CError, OSError, ValueError) as exc:
             current = {
                 **record,
@@ -146,7 +150,7 @@ def managed_projects() -> list[dict[str, Any]]:
                 "entry_ready": False,
                 "delivery_enforced": False,
                 "agent_observed": False,
-                "agents": harness_status(),
+                "agents": agents,
                 "active_tasks": 0,
                 "verified_tasks": 0,
                 "open_tasks": 0,
@@ -158,6 +162,33 @@ def managed_projects() -> list[dict[str, Any]]:
         result.append({**record, **current})
     order = {"attention": 0, "inactive": 1, "stopped": 2, "missing": 3, "protected": 4}
     return sorted(result, key=lambda item: (order.get(str(item.get("state")), 9), str(item.get("name", "")).lower()))
+
+
+def align_managed_projects() -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for record in project_records():
+        root = Path(str(record.get("root", "")))
+        if not root.is_dir():
+            continue
+        if str(record.get("governance") or "active") == GOVERNANCE_STOPPED:
+            continue
+        try:
+            if not needs_engine_align(root):
+                continue
+            result.append(align_engine(root))
+        except (AG2CError, OSError, ValueError) as exc:
+            result.append(
+                {
+                    "action": "failed",
+                    "root": str(root),
+                    "name": record.get("name") or root.name,
+                    "from_version": stored_tool_version(root) or "unknown",
+                    "to_version": __version__,
+                    "resliced": False,
+                    "error": str(exc),
+                }
+            )
+    return result
 
 
 def add_project(path: Path) -> dict[str, Any]:

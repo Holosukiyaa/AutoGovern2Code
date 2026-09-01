@@ -18,6 +18,7 @@ from .index import build_index, findings, index_path, summary, verify_freshness
 from .ledger import ledger_summary, verify_ledger
 from .knowledge import knowledge_status, sync_knowledge
 from .render import render_slice_markdown
+from .harnesses import SUPPORTED_HARNESSES
 from .slicer import compile_slice
 
 
@@ -86,7 +87,7 @@ def _add_harness_arguments(parser: argparse.ArgumentParser) -> None:
         "--harness",
         dest="harnesses",
         action="append",
-        choices=("codex", "claude", "agents"),
+        choices=SUPPORTED_HARNESSES,
         help="install for one AI harness; repeat to select several (default: all)",
     )
 
@@ -188,7 +189,11 @@ def build_parser() -> argparse.ArgumentParser:
     task_abandon.add_argument("--reason", default="")
     task_finish = task_commands.add_parser("finish")
     task_finish.add_argument("--task", required=True)
-    task_finish.add_argument("--message", required=True)
+    task_finish.add_argument(
+        "--message",
+        required=True,
+        help="what this task implemented or fixed; becomes the commit subject and the stored delivery record",
+    )
     task_show = task_commands.add_parser("show")
     task_show.add_argument("--task", required=True)
 
@@ -309,6 +314,13 @@ def _print_evidence(report: dict[str, Any]) -> None:
         return
     for task in report["tasks"]:
         print(f"\n{task['goal']} [{task['id']}]")
+        delivery = task.get("delivery") or {}
+        if delivery.get("outcome"):
+            print(f"Delivered: {delivery['outcome']}")
+        if delivery.get("kind"):
+            print(f"Change: {delivery['kind']}")
+        if delivery.get("request") and delivery.get("request") != delivery.get("outcome"):
+            print(f"Requested: {delivery['request']}")
         print(f"Management: {task['management_result']}")
         print(f"Worktree: {(task.get('worktree') or {}).get('lifecycle', task['state'])}")
         print(f"Files changed: {len(task['changed_files'])}")
@@ -533,6 +545,21 @@ def main(argv: list[str] | None = None) -> int:
                 skill_root=args.skill_destination,
                 harnesses=tuple(args.harnesses) if args.harnesses else None,
             )
+        if args.command == "doctor" and not args.repair:
+            from .errors import RELOCATED_PROJECT, STALE_EXTERNAL_STORE
+            from .storage import BINDING_RELOCATED, BINDING_STALE, resolve_enrollment_binding
+
+            binding = resolve_enrollment_binding(Path.cwd())
+            if binding["state"] == BINDING_STALE:
+                print("AG2C doctor found issues:")
+                print(f"- {STALE_EXTERNAL_STORE}: configured AG2C store is missing on this computer")
+                print("Run `ag2c doctor --repair` or add the project again to restore this computer's store.")
+                return 1
+            if binding["state"] == BINDING_RELOCATED:
+                print("AG2C doctor found issues:")
+                print(f"- {RELOCATED_PROJECT}: Git still points at another computer's AG2C store")
+                print("Run `ag2c doctor --repair` to rebind the store found on this computer.")
+                return 1
         if args.command == "ci":
             from .receipts import verify_commit_receipt
 

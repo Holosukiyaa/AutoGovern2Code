@@ -12,13 +12,25 @@ from typing import Any
 
 from . import __version__
 from .config import MANIFEST_SCHEMA, POLICY_SCHEMA, discover_manifest, load_manifest, load_policy
-from .errors import AG2CError
+from .errors import AG2CError, RELOCATED_PROJECT, STALE_EXTERNAL_STORE
 from .gitops import canonical_worktree, current_branch, git, repository_root, status_entries
-from .harnesses import SKILL_NAME, install_skill, install_skills, skill_digest, skill_source
+from .harnesses import SKILL_NAME, SUPPORTED_HARNESSES, install_skill, install_skills, skill_digest, skill_source
 from .index import build_index
 from .lifecycle import LifecycleTransaction, lifecycle_pending, recover_lifecycle
 from .ledger import append_event
-from .storage import configured_manifest, git_private_path, project_store, register_project, registered_manifest, unregister_project
+from .storage import (
+    BINDING_HEALTHY,
+    BINDING_RELOCATED,
+    BINDING_STALE,
+    clear_stale_git_enrollment,
+    configured_manifest,
+    git_private_path,
+    project_store,
+    register_project,
+    registered_manifest,
+    resolve_enrollment_binding,
+    unregister_project,
+)
 from .util import digest_file
 
 ENROLLMENT_SCHEMA = "ag2c.enrollment.v1"
@@ -358,6 +370,56 @@ def activate_project(
     return activation
 
 
+def _repoint_manifest_root(manifest_path: Path, root: Path) -> None:
+    raw = _read_json(manifest_path)
+    project = raw.get("project")
+    if not isinstance(project, dict):
+        project = {}
+    project["root"] = str(root.resolve())
+    raw["project"] = project
+    _write_json(manifest_path, raw)
+
+
+def recover_relocated_enrollment(
+    start: Path,
+    binding: dict[str, Any] | None = None,
+    *,
+    skill_root: Path | None = None,
+    harnesses: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
+    root = repository_root(start)
+    binding = binding or resolve_enrollment_binding(root)
+    if binding.get("state") != BINDING_RELOCATED or not binding.get("manifest"):
+        raise AG2CError("project does not have a relocated AG2C store to rebind")
+    manifest_path = Path(str(binding["manifest"]))
+    _repoint_manifest_root(manifest_path, root)
+    loaded = load_manifest(manifest_path, project_root=root)
+    registration = register_project(
+        root,
+        project_id=loaded.project_id,
+        manifest=manifest_path,
+        key=str(binding.get("project_key") or ""),
+    )
+    activation = activate_project(root, skill_root=skill_root, harnesses=harnesses)
+    return {
+        "action": "rebound",
+        "project_id": loaded.project_id,
+        "project_key": registration["key"],
+        "root": str(root),
+        "store": str(manifest_path.parent),
+        "working_tree_changed": False,
+        "skill_path": activation["skill_path"],
+        "skill_paths": [item["path"] for item in activation["skills"]],
+        "recovery": {
+            "action": "rebound",
+            "code": RELOCATED_PROJECT,
+            "history_recovered": True,
+            "previous_manifest": str(binding.get("configured_manifest") or ""),
+            "previous_key": str(binding.get("configured_key") or ""),
+        },
+    }
+
+
 def enroll_project(
     start: Path,
     *,
@@ -368,11 +430,28 @@ def enroll_project(
     root = repository_root(start)
     if root != canonical_worktree(root):
         raise AG2CError("enroll AG2C from the canonical worktree")
-    recovery = {"action": "none"}
-    if configured_manifest(root) is not None:
+    recovery: dict[str, Any] = {"action": "none"}
+    binding = resolve_enrollment_binding(root)
+    if binding["state"] == BINDING_HEALTHY:
         raise AG2CError("project is already enrolled; run `ag2c upgrade`")
+    if binding["state"] == BINDING_RELOCATED:
+        return recover_relocated_enrollment(root, binding, skill_root=skill_root, harnesses=harnesses)
     if (root / ".ag2c" / "enrollment.json").exists() or (root / ".deg" / "enrollment.json").exists():
         raise AG2CError("project contains a legacy enrollment; run `ag2c upgrade`")
+    dirty = status_entries(root)
+    if dirty:
+        raise AG2CError(
+            "canonical worktree is dirty; commit or stash before enrolling: " + ", ".join(dirty)
+        )
+    if binding["state"] == BINDING_STALE:
+        clear_stale_git_enrollment(root)
+        recovery = {
+            "action": "reenrolled",
+            "code": STALE_EXTERNAL_STORE,
+            "history_recovered": False,
+            "previous_manifest": str(binding.get("configured_manifest") or ""),
+            "previous_key": str(binding.get("configured_key") or ""),
+        }
     project_id = project_id or _project_id(root)
     if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", project_id):
         raise AG2CError("project id must contain only lowercase letters, digits, dots, underscores, and hyphens")
@@ -723,6 +802,110 @@ def _externalize_project(
     }
 
 
+def _enrollment_file(root: Path) -> Path | None:
+    manifest_path = configured_manifest(root) or registered_manifest(root)
+    if manifest_path is None or not Path(manifest_path).is_file():
+        found = resolve_enrollment_binding(root).get("manifest")
+        manifest_path = Path(str(found)) if found else None
+    if manifest_path is None:
+        return None
+    path = Path(manifest_path).parent / "enrollment.json"
+    return path if path.is_file() else None
+
+
+def stored_tool_version(root: Path) -> str:
+    path = _enrollment_file(root)
+    if path is None:
+        return ""
+    try:
+        return str(_read_json(path).get("tool_version") or "")
+    except (AG2CError, OSError, json.JSONDecodeError, TypeError):
+        return ""
+
+
+def needs_engine_align(start: Path) -> bool:
+    try:
+        root = repository_root(start)
+    except AG2CError:
+        return False
+    path = _enrollment_file(root)
+    if path is None:
+        return False
+    if stored_tool_version(root) != __version__:
+        return True
+    activation_path = path.parent / "state" / "activation.json"
+    if not activation_path.is_file():
+        return True
+    try:
+        activation = _read_json(activation_path)
+    except (AG2CError, OSError, json.JSONDecodeError, TypeError):
+        return True
+    recorded = {
+        str(item.get("harness"))
+        for item in activation.get("skills") or []
+        if isinstance(item, dict) and item.get("harness")
+    }
+    return bool(set(SUPPORTED_HARNESSES) - recorded)
+
+
+def align_engine(
+    start: Path,
+    *,
+    skill_root: Path | None = None,
+    harnesses: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
+    root = repository_root(start)
+    if root != canonical_worktree(root):
+        raise AG2CError(f"align AG2C from the canonical worktree: {canonical_worktree(root)}")
+    enrollment_path = _enrollment_file(root)
+    if enrollment_path is None:
+        raise AG2CError("project is not enrolled in AG2C")
+    enrollment = _read_json(enrollment_path)
+    from_version = str(enrollment.get("tool_version") or "")
+    policy_path = enrollment_path.parent / "policy.json"
+    policy_changed = False
+    if policy_path.is_file():
+        policy = _read_json(policy_path)
+        policy_changed = _upgrade_python_checkers(policy)
+        if policy_changed:
+            _write_json(policy_path, policy)
+    activation = activate_project(root, skill_root=skill_root, harnesses=harnesses)
+    enrollment.update(
+        {
+            "schema": ENROLLMENT_SCHEMA,
+            "skill": SKILL_NAME,
+            "tool_version": __version__,
+            "aligned_at": _now(),
+        }
+    )
+    _write_json(enrollment_path, enrollment)
+    action = "current" if from_version == __version__ and not policy_changed else "aligned"
+    event_digest = None
+    if action == "aligned":
+        manifest = load_manifest(enrollment_path.parent / "manifest.json")
+        event = append_event(
+            manifest.ledger_path,
+            "engine-aligned",
+            {
+                "from_version": from_version or "unknown",
+                "to_version": __version__,
+                "resliced": False,
+            },
+        )
+        event_digest = event["event_digest"]
+    return {
+        "action": action,
+        "root": str(root),
+        "name": root.name,
+        "from_version": from_version or "unknown",
+        "to_version": __version__,
+        "resliced": False,
+        "policy_migrated": policy_changed,
+        "skill_path": activation["skill_path"],
+        "ledger_event": event_digest,
+    }
+
+
 def upgrade_project(
     start: Path,
     *,
@@ -735,8 +918,17 @@ def upgrade_project(
     recovery = recover_lifecycle(root) if (root / ".ag2c").exists() or (root / ".deg").exists() else {"action": "none"}
     if (root / ".deg" / "enrollment.json").is_file() and not (root / ".ag2c" / "enrollment.json").is_file():
         return migrate_project(root, skill_root=skill_root, harnesses=harnesses)
+    binding = resolve_enrollment_binding(root)
+    if binding["state"] == BINDING_RELOCATED:
+        rebound = recover_relocated_enrollment(root, binding, skill_root=skill_root, harnesses=harnesses)
+        rebound["version"] = __version__
+        rebound["commit"] = None
+        return rebound
+    if binding["state"] == BINDING_STALE:
+        result = enroll_project(root, skill_root=skill_root, harnesses=harnesses)
+        return {"action": "reenrolled", "version": __version__, "commit": None, **result}
     external = configured_manifest(root)
-    if external is not None:
+    if external is not None and external.is_file():
         manifest = load_manifest(external)
         enrollment_path = external.parent / "enrollment.json"
         enrollment = _read_json(enrollment_path)
@@ -819,7 +1011,11 @@ def setup_project(
             "skills": skills,
         }
     root = repository_root(project)
-    if configured_manifest(root) is not None:
+    binding = resolve_enrollment_binding(root)
+    if binding["state"] == BINDING_STALE:
+        result = enroll_project(root, project_id=project_id, skill_root=skill_root, harnesses=harnesses)
+        return {"action": "enrolled", "version": __version__, **result}
+    if binding["state"] in {BINDING_HEALTHY, BINDING_RELOCATED}:
         return upgrade_project(root, skill_root=skill_root, harnesses=harnesses)
     stored = registered_manifest(root)
     if stored is not None:
@@ -843,18 +1039,43 @@ def repair_project(
     recovery = recover_lifecycle(root)
     if (root / ".deg" / "enrollment.json").is_file() and not (root / ".ag2c" / "enrollment.json").is_file():
         return migrate_project(root, skill_root=skill_root, harnesses=harnesses)
-    activation = activate_project(root, skill_root=skill_root, harnesses=harnesses)
+    binding = resolve_enrollment_binding(root)
+    if binding["state"] == BINDING_STALE:
+        recovered = enroll_project(root, skill_root=skill_root, harnesses=harnesses)
+        recovery = recovered.get("recovery") or recovery
+    elif binding["state"] == BINDING_RELOCATED:
+        recovered = recover_relocated_enrollment(root, binding, skill_root=skill_root, harnesses=harnesses)
+        recovery = recovered.get("recovery") or recovery
+    aligned = align_engine(root, skill_root=skill_root, harnesses=harnesses)
     status = activation_status(root)
     if not status["managed"]:
         raise AG2CError("AG2C repair did not restore management: " + "; ".join(status["issues"]))
-    return {"action": "repaired", "root": str(root), "version": __version__, "activation": activation, "recovery": recovery}
+    return {
+        "action": "repaired",
+        "root": str(root),
+        "version": __version__,
+        "activation": status.get("activation") or {},
+        "recovery": recovery,
+        "alignment": aligned,
+    }
 
 
 def activation_status(start: Path) -> dict[str, Any]:
     root = repository_root(start)
-    canonical = canonical_worktree(root)
+    canonical = canonical_worktree(root, root=root)
     issues: list[str] = []
-    manifest_path = configured_manifest(canonical)
+    binding = resolve_enrollment_binding(canonical, root=canonical)
+    if binding["state"] == BINDING_STALE:
+        issues.append(
+            f"{STALE_EXTERNAL_STORE}: configured AG2C store is missing on this computer"
+        )
+    elif binding["state"] == BINDING_RELOCATED:
+        issues.append(
+            f"{RELOCATED_PROJECT}: Git still points at another computer's AG2C store"
+        )
+    manifest_path = Path(str(binding["configured_manifest"])) if binding.get("configured_manifest") else None
+    if manifest_path is not None and not manifest_path.is_file() and binding.get("manifest"):
+        manifest_path = Path(str(binding["manifest"]))
     if manifest_path is None:
         legacy_manifest = canonical / ".ag2c" / "manifest.json"
         manifest_path = legacy_manifest if legacy_manifest.is_file() else None
@@ -869,9 +1090,10 @@ def activation_status(start: Path) -> dict[str, Any]:
     if (canonical / ".ag2c").exists() and lifecycle_pending(canonical):
         issues.append("an interrupted AG2C lifecycle transaction needs repair")
     if manifest is None or enrollment_path is None or not enrollment_path.is_file():
-        issues.append("project is not enrolled")
+        if binding["state"] not in {BINDING_STALE, BINDING_RELOCATED}:
+            issues.append("project is not enrolled")
     expected_hooks = str((manifest.state_dir / "hooks").resolve()) if manifest is not None else ""
-    actual_hooks = str(git(canonical, "config", "--get", "core.hooksPath", check=False)).strip()
+    actual_hooks = str(binding.get("configured_hooks") or "").strip()
     if not expected_hooks or actual_hooks != expected_hooks:
         issues.append("AG2C Git guard is not active")
     activation: dict[str, Any] = {}

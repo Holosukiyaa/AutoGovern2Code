@@ -9,7 +9,7 @@ import bootstrap
 
 from ag2c.enrollment import enroll_project
 from ag2c.gitops import git, head, status_entries
-from ag2c.management import add_project, managed_projects, project_details, project_status, stop_managing
+from ag2c.management import add_project, align_managed_projects, managed_projects, project_details, project_status, stop_managing
 from ag2c.storage import configured_manifest, find_project_record, project_store
 
 from support import git_project
@@ -89,9 +89,16 @@ class ManagementTests(unittest.TestCase):
             self.assertEqual("stopped", record["governance"])
             listed = next(item for item in managed_projects() if item["root"] == str(root))
             self.assertEqual("stopped", listed["state"])
+            self.assertFalse(any(item.get("root") == str(root) for item in align_managed_projects()))
             details = project_details(root)
             self.assertTrue(details["available"])
             self.assertTrue(details["cards"])
+            from ag2c.tasks import evidence
+
+            report = evidence(root, verify_local=False)
+            self.assertEqual("managed-project", report["project"])
+            self.assertFalse(report["managed"])
+            self.assertTrue(report["ledger_valid"])
             resumed = add_project(root)
             self.assertTrue(resumed["managed"])
             self.assertEqual("active", resumed["governance"])

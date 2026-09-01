@@ -18,6 +18,7 @@ from . import __version__
 from .errors import AG2CError
 from .management import (
     add_project,
+    align_managed_projects,
     managed_projects,
     project_details,
     repair_and_check_project,
@@ -173,6 +174,53 @@ def _windows_guid(value: str):
     return guid
 
 
+def _windows_owner_hwnd() -> int:
+    import ctypes
+    from ctypes.wintypes import HWND, LPCWSTR
+
+    user32 = ctypes.windll.user32
+    user32.FindWindowW.argtypes = [LPCWSTR, LPCWSTR]
+    user32.FindWindowW.restype = HWND
+    user32.GetForegroundWindow.restype = HWND
+    hwnd = user32.FindWindowW(None, "AutoGovern2Code")
+    if hwnd:
+        return int(hwnd)
+    foreground = user32.GetForegroundWindow()
+    return int(foreground) if foreground else 0
+
+
+def _force_foreground(hwnd: int) -> None:
+    import ctypes
+    from ctypes.wintypes import BOOL, DWORD, HWND
+
+    if not hwnd:
+        return
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    user32.AllowSetForegroundWindow(0xFFFFFFFF)
+    user32.GetForegroundWindow.restype = HWND
+    user32.GetWindowThreadProcessId.restype = DWORD
+    user32.AttachThreadInput.argtypes = [DWORD, DWORD, BOOL]
+    user32.AttachThreadInput.restype = BOOL
+    kernel32.GetCurrentThreadId.restype = DWORD
+    current = kernel32.GetCurrentThreadId()
+    foreground = user32.GetForegroundWindow()
+    target_tid = user32.GetWindowThreadProcessId(hwnd, None)
+    attached: list[int] = []
+    for other in {user32.GetWindowThreadProcessId(foreground, None) if foreground else 0, target_tid}:
+        if other and other != current:
+            if user32.AttachThreadInput(current, other, True):
+                attached.append(other)
+    try:
+        user32.ShowWindow(hwnd, 9)
+        user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 3)
+        user32.SetForegroundWindow(hwnd)
+        user32.SetWindowPos(hwnd, -2, 0, 0, 0, 0, 3)
+    finally:
+        for other in attached:
+            user32.AttachThreadInput(current, other, False)
+
+
 def _focus_window_with_title(title: str, stop: threading.Event) -> None:
     import ctypes
     import time
@@ -180,23 +228,26 @@ def _focus_window_with_title(title: str, stop: threading.Event) -> None:
 
     user32 = ctypes.windll.user32
     callback_type = ctypes.WINFUNCTYPE(BOOL, HWND, LPARAM)
+    raised = {"done": False}
 
     def each(hwnd: int, _lparam: int) -> bool:
+        if not user32.IsWindowVisible(hwnd):
+            return True
         length = user32.GetWindowTextLengthW(hwnd)
         if length <= 0:
             return True
         buffer = ctypes.create_unicode_buffer(length + 1)
         user32.GetWindowTextW(hwnd, buffer, length + 1)
-        if buffer.value != title or not user32.IsWindowVisible(hwnd):
+        text = buffer.value or ""
+        if text != title and title not in text and "选择文件夹" not in text:
             return True
-        user32.ShowWindow(hwnd, 9)
-        user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 3)
-        user32.SetForegroundWindow(hwnd)
+        _force_foreground(int(hwnd))
+        raised["done"] = True
         return False
 
     enumerate_windows = callback_type(each)
     for _ in range(40):
-        if stop.is_set():
+        if stop.is_set() or raised["done"]:
             return
         user32.EnumWindows(enumerate_windows, 0)
         time.sleep(0.05)
@@ -204,7 +255,12 @@ def _focus_window_with_title(title: str, stop: threading.Event) -> None:
 
 def _windows_dialog_cancelled(status: int) -> bool:
     code = status & 0xFFFFFFFF
-    return code in {0x800704C7, 0x800704C8} or code == 1223
+    return code in {0x80004004, 0x800704C7, 0x800704C8} or code in {1223, 0x4C7}
+
+
+def _windows_show_result(status: int) -> None:
+    if status:
+        raise _PickerCancelled()
 
 
 def _release_com(pointer: object) -> None:
@@ -250,6 +306,9 @@ def _pick_folder_windows_dialog() -> str:
         if set_options(dialog, options.value | 0x20 | 0x40 | 0x800):
             raise _PickerUnavailable("Windows folder dialog could not pick folders")
         set_title(dialog, FOLDER_PICKER_TITLE)
+        owner = _windows_owner_hwnd()
+        if owner:
+            _force_foreground(owner)
         focus = threading.Thread(
             target=_focus_window_with_title,
             args=(FOLDER_PICKER_TITLE, stop),
@@ -257,12 +316,9 @@ def _pick_folder_windows_dialog() -> str:
             daemon=True,
         )
         focus.start()
-        shown = show(dialog, None)
+        shown = show(dialog, owner or None)
         stop.set()
-        if shown:
-            if _windows_dialog_cancelled(int(shown)):
-                raise _PickerCancelled()
-            raise _PickerUnavailable(f"Windows folder dialog failed: {int(shown) & 0xFFFFFFFF:#010x}")
+        _windows_show_result(int(shown))
         if get_result(dialog, byref(item)) or not item.value:
             raise _PickerCancelled()
         item_table = _vtable(item)
@@ -403,8 +459,11 @@ class DesktopHandler(BaseHTTPRequestHandler):
         self._headers(status, "application/json; charset=utf-8", len(payload))
         self.wfile.write(payload)
 
-    def _error(self, status: int, message: str) -> None:
-        self._json(status, {"error": message})
+    def _error(self, status: int, message: str, *, code: str | None = None) -> None:
+        payload: dict[str, object] = {"error": message}
+        if code:
+            payload["code"] = code
+        self._json(status, payload)
 
     def _read_json(self) -> dict[str, object]:
         try:
@@ -476,7 +535,15 @@ class DesktopHandler(BaseHTTPRequestHandler):
             self._error(HTTPStatus.UNAUTHORIZED, "desktop session token is required")
             return
         if path == "/api/projects":
-            self._json(HTTPStatus.OK, {"projects": managed_projects()})
+            migrations = align_managed_projects()
+            self._json(
+                HTTPStatus.OK,
+                {
+                    "projects": managed_projects(),
+                    "migrations": migrations,
+                    "version": __version__,
+                },
+            )
             return
         self._error(HTTPStatus.NOT_FOUND, "not found")
 
@@ -521,14 +588,14 @@ class DesktopHandler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK, {"project": repair_and_check_project(self._request_path(body))})
                 return
             if path == "/api/evidence":
-                self._json(HTTPStatus.OK, evidence(self._request_path(body)))
+                self._json(HTTPStatus.OK, evidence(self._request_path(body), verify_local=False))
                 return
             if path == "/api/shutdown":
                 self._json(HTTPStatus.OK, {"status": "stopping"})
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
         except (AG2CError, OSError, ValueError) as exc:
-            self._error(HTTPStatus.BAD_REQUEST, str(exc))
+            self._error(HTTPStatus.BAD_REQUEST, str(exc), code=getattr(exc, "code", None))
             return
         self._error(HTTPStatus.NOT_FOUND, "not found")
 

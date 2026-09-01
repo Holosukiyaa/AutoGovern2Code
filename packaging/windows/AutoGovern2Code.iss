@@ -50,6 +50,9 @@ Name: "{group}\AutoGovern2Code"; Filename: "{app}\AutoGovern2Code.exe"
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "AutoGovern2Code"; ValueData: """{app}\AutoGovern2Code.exe"""; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\AutoGovern2Code.exe"; ValueType: string; ValueName: ""; ValueData: "{app}\AutoGovern2Code.exe"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\AutoGovern2Code.exe"; ValueType: string; ValueName: "Path"; ValueData: "{app}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\AutoGovern2Code"; ValueType: string; ValueName: "InstallPath"; ValueData: "{app}"; Flags: uninsdeletekey
 
 [Run]
 Filename: "{app}\AutoGovern2Code.exe"; Description: "Launch AutoGovern2Code"; Flags: nowait postinstall skipifsilent

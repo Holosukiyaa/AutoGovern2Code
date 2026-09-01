@@ -12,7 +12,7 @@ from .errors import AG2CError
 SKILL_NAME = "ag2c-governed-development"
 GOVERNANCE_SKILL_NAME = "ag2c-governance-update"
 PACKAGED_SKILLS = (SKILL_NAME, GOVERNANCE_SKILL_NAME)
-SUPPORTED_HARNESSES = ("codex", "claude", "agents")
+SUPPORTED_HARNESSES = ("codex", "claude", "cursor", "agents")
 
 
 def skill_source(name: str = SKILL_NAME) -> Path:
@@ -36,6 +36,7 @@ def default_skill_roots() -> dict[str, Path]:
     return {
         "codex": codex_home / "skills",
         "claude": Path.home() / ".claude" / "skills",
+        "cursor": Path.home() / ".cursor" / "skills",
         "agents": Path.home() / ".agents" / "skills",
     }
 
@@ -137,12 +138,15 @@ def remove_skills(
 def harness_status() -> list[dict[str, object]]:
     roots = default_skill_roots()
     packaged_digest = skill_digest(skill_source())
-    commands = {"codex": "codex", "claude": "claude", "agents": None}
+    commands = {"codex": "codex", "claude": "claude", "cursor": "cursor", "agents": None}
     result: list[dict[str, object]] = []
     for harness in SUPPORTED_HARNESSES:
         destination = roots[harness].resolve() / SKILL_NAME
         executable = shutil.which(commands[harness]) if commands[harness] else None
-        detected = bool(executable) or (harness == "agents" and roots[harness].parent.exists())
+        detected = bool(executable) or (
+            (harness == "agents" and roots[harness].parent.exists())
+            or (harness == "cursor" and (Path.home() / ".cursor").exists())
+        )
         installed = (destination / "SKILL.md").is_file()
         integrated = installed and skill_digest(destination) == packaged_digest
         if integrated:

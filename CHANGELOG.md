@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.8.4 - 2026-09-01
+
+- Listed actual records and project cards from stored task JSON and one ledger pass, without re-verifying every commit receipt or hashing knowledge files.
+- Read kept task records after Stop Governance even when Git no longer points at the store, skipped engine align on stopped projects, and still listed those deliveries on the project card.
+
+## 0.8.3 - 2026-09-01
+
+- Recovered projects copied from another computer when `.git/config` still pointed at a missing user-directory store.
+- Treated missing external manifests as stale or relocated instead of “already enrolled”, so enroll, upgrade, doctor --repair, and Add Project share the same recovery path.
+- Rebound a copied store under the original project key; when the store is gone, re-enrolled on this computer and said history was not recovered.
+
+## 0.8.2 - 2026-08-29
+
+- Aligned already-enrolled projects to a newer engine without re-slicing floors or rewriting task evidence.
+- Registered the Windows tray app in the Start Menu, App Paths, and Apps list so it can be reopened after close.
+- Showed a blocking loading overlay while a project is being enrolled or checked.
+- Stored what each finished task implemented or fixed, and listed those delivery records in the desktop viewer.
+
 ## 0.8.1 - 2026-08-26
 
 - Split process delivery from product acceptance so a finished task no longer reads as product-complete.

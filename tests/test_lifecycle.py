@@ -10,7 +10,8 @@ from unittest.mock import patch
 import bootstrap
 
 import ag2c.enrollment as enrollment_module
-from ag2c.enrollment import activation_status, enroll_project, migrate_project, upgrade_project
+from ag2c import __version__
+from ag2c.enrollment import activation_status, align_engine, enroll_project, migrate_project, upgrade_project
 from ag2c.errors import AG2CError
 from ag2c.gitops import git, status_entries
 from ag2c.ledger import verify_ledger
@@ -27,16 +28,27 @@ class LifecycleTests(unittest.TestCase):
             workspace = Path(directory)
             root = git_project(workspace / "project")
             before_head = str(git(root, "rev-parse", "HEAD")).strip()
-            (root / "src" / "value.py").write_text("VALUE = 2\n", encoding="utf-8")
             before_status = status_entries(root)
             enroll_project(root, project_id="pristine-enrollment", skill_root=workspace / "skills")
+            (root / "src" / "value.py").write_text("VALUE = 2\n", encoding="utf-8")
 
             self.assertEqual(before_head, str(git(root, "rev-parse", "HEAD")).strip())
             self.assertFalse((root / "AGENTS.md").exists())
             self.assertFalse((root / "CLAUDE.md").exists())
             self.assertFalse((root / ".ag2c").exists())
-            self.assertEqual(before_status, status_entries(root))
+            self.assertEqual(["src/value.py"], status_entries(root))
             self.assertTrue(discover_manifest(root).is_file())
+            self.assertNotEqual(before_status, status_entries(root))
+
+    def test_enrollment_refuses_a_dirty_canonical_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            root = git_project(workspace / "project")
+            (root / "src" / "value.py").write_text("VALUE = 2\n", encoding="utf-8")
+            with self.assertRaisesRegex(AG2CError, "commit or stash before enrolling"):
+                enroll_project(root, project_id="dirty-enrollment", skill_root=workspace / "skills")
+            self.assertIsNone(configured_manifest(root))
+            self.assertFalse(project_store(root).exists())
 
     def test_upgrade_refreshes_ag2c_managed_baseline_areas(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -56,6 +68,37 @@ class LifecycleTests(unittest.TestCase):
             self.assertIn("floor.docs", {card["id"] for card in policy["cards"]})
             self.assertEqual([], status_entries(root))
             self.assertEqual("docs: add project area", str(git(root, "log", "-1", "--pretty=%s")).strip())
+
+    def test_engine_align_keeps_existing_cards_without_reslicing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            root = git_project(workspace / "project")
+            enroll_project(root, project_id="align-project", skill_root=workspace / "skills")
+            manifest = load_manifest(discover_manifest(root))
+            policy = json.loads(manifest.policy_path.read_text(encoding="utf-8"))
+            enrollment_path = manifest.path.parent / "enrollment.json"
+            enrollment = json.loads(enrollment_path.read_text(encoding="utf-8"))
+            enrollment["tool_version"] = "0.8.0"
+            enrollment_path.write_text(json.dumps(enrollment, indent=2) + "\n", encoding="utf-8")
+            (root / "docs").mkdir()
+            (root / "docs" / "guide.md").write_text("# Guide\n", encoding="utf-8")
+            git(root, "add", "docs/guide.md")
+            git(root, "-c", "core.hooksPath=", "commit", "-m", "docs: add project area")
+            before_cards = {card["id"] for card in policy["cards"]}
+
+            result = align_engine(root, skill_root=workspace / "skills")
+            aligned_policy = json.loads(manifest.policy_path.read_text(encoding="utf-8"))
+            aligned_enrollment = json.loads(enrollment_path.read_text(encoding="utf-8"))
+
+            self.assertEqual("aligned", result["action"])
+            self.assertFalse(result["resliced"])
+            self.assertEqual("0.8.0", result["from_version"])
+            self.assertEqual(__version__, result["to_version"])
+            self.assertEqual(__version__, aligned_enrollment["tool_version"])
+            self.assertEqual(before_cards, {card["id"] for card in aligned_policy["cards"]})
+            self.assertNotIn("docs", aligned_policy["coverage"]["areas"])
+            self.assertNotIn("floor.docs", {card["id"] for card in aligned_policy["cards"]})
+            self.assertTrue(activation_status(root)["managed"])
 
     def test_enrollment_failure_removes_external_binding_and_store(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

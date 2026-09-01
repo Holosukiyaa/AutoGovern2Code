@@ -43,6 +43,8 @@ This distinction avoids claiming that an installed Skill has already controlled 
 
 Enrollment is intentionally local and does not travel with Git. On another machine, install AG2C, open the tray, and add that clone as a separate project. Its policy and evidence are independent because each clone can have different paths, tools, and worktrees.
 
+If the folder was copied with `.git` intact, local Git config may still point at the previous computer's user-directory store. Add Project or `ag2c doctor --repair` now treats that as stale or relocated: a copied store is rebound to the original project key, and a missing store is re-enrolled on this computer with history marked unrecoverable.
+
 ## Stop managing or uninstall
 
 **Stop managing** in the tray restores the previous `core.hooksPath`, removes AG2C's local Git pointers, and removes the project from the list. Evidence remains in the external store by default.

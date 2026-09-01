@@ -5,9 +5,9 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .errors import ConfigurationError
+from .errors import ConfigurationError, STALE_EXTERNAL_STORE
 from .model import Card, Checker, ContractBinding, Coverage, Manifest, Policy, Relation, Scope, Target
-from .storage import configured_manifest
+from .storage import configured_manifest, resolve_enrollment_binding
 from .util import relative_config_path
 
 MANIFEST_SCHEMA = "ag2c.manifest.v1"
@@ -58,7 +58,16 @@ def discover_manifest(start: Path | None = None, explicit: Path | None = None) -
     if external is not None:
         if external.is_file():
             return external
-        raise ConfigurationError(f"configured AG2C manifest does not exist: {external}")
+        binding = resolve_enrollment_binding(current)
+        found = binding.get("manifest")
+        if found and Path(str(found)).is_file():
+            return Path(str(found)).resolve()
+        raise ConfigurationError(
+            f"{STALE_EXTERNAL_STORE}: configured AG2C store is missing on this computer: {external}. "
+            "Add the project again or run `ag2c doctor --repair`. "
+            "History is recovered only if the old external store was copied here.",
+            code=STALE_EXTERNAL_STORE,
+        )
     for directory in (current, *current.parents):
         candidate = directory / ".ag2c" / "manifest.json"
         if candidate.is_file():

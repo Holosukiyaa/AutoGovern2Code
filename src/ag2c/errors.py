@@ -1,5 +1,13 @@
+STALE_EXTERNAL_STORE = "AG2C_STALE_EXTERNAL_STORE"
+RELOCATED_PROJECT = "AG2C_RELOCATED_PROJECT"
+
+
 class AG2CError(RuntimeError):
     """Base error for user-facing AG2C failures."""
+
+    def __init__(self, message: str = "", *, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class ConfigurationError(AG2CError):

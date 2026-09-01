@@ -106,6 +106,7 @@ class CLITests(unittest.TestCase):
             self.assertEqual([], status_entries(root))
             self.assertTrue((workspace / ".codex" / "skills" / "ag2c-governed-development" / "SKILL.md").is_file())
             self.assertTrue((workspace / ".claude" / "skills" / "ag2c-governed-development" / "SKILL.md").is_file())
+            self.assertTrue((workspace / ".cursor" / "skills" / "ag2c-governed-development" / "SKILL.md").is_file())
             self.assertTrue((workspace / ".agents" / "skills" / "ag2c-governed-development" / "SKILL.md").is_file())
 
 

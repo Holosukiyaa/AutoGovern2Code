@@ -142,6 +142,8 @@ def mark_version(start: Path, *, task: dict[str, Any]) -> dict[str, Any]:
         "marked_at": _now(),
         "task_id": task.get("id"),
         "goal": task.get("goal"),
+        "outcome": (task.get("delivery") or {}).get("outcome") if isinstance(task.get("delivery"), dict) else "",
+        "kind": (task.get("delivery") or {}).get("kind") if isinstance(task.get("delivery"), dict) else "",
         "commit": result.get("commit") or result.get("merged_head"),
         "card_changes": card_changes,
         "cards": current_cards,

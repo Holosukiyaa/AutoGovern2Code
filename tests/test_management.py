@@ -9,7 +9,15 @@ import bootstrap
 
 from ag2c.enrollment import enroll_project
 from ag2c.gitops import git, head, status_entries
-from ag2c.management import add_project, align_managed_projects, managed_projects, project_details, project_status, stop_managing
+from ag2c.management import (
+    add_project,
+    align_managed_projects,
+    managed_projects,
+    project_details,
+    project_status,
+    projects_revision,
+    stop_managing,
+)
 from ag2c.storage import configured_manifest, find_project_record, project_store
 
 from support import git_project
@@ -67,6 +75,31 @@ class ManagementTests(unittest.TestCase):
             self.assertEqual(original_head, head(root))
             self.assertEqual([], status_entries(root))
             self.assertFalse((root / ".ag2c").exists())
+
+    def test_project_list_does_not_walk_full_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            root = git_project(workspace / "project")
+            enroll_project(root, project_id="managed-project", skill_root=workspace / "skills")
+            with patch("ag2c.management.harness_status", return_value=READY_AGENTS), patch(
+                "ag2c.management.evidence"
+            ) as evidence_fn:
+                listed = next(item for item in managed_projects() if item["root"] == str(root))
+            evidence_fn.assert_not_called()
+            self.assertEqual("protected", listed["state"])
+            self.assertTrue(listed["delivery_enforced"])
+
+    def test_projects_revision_changes_when_the_canonical_head_moves(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            root = git_project(workspace / "project")
+            enroll_project(root, project_id="managed-project", skill_root=workspace / "skills")
+            before = projects_revision()["revision"]
+            (root / "README.md").write_text("moved\n", encoding="utf-8")
+            git(root, "add", "README.md")
+            git(root, "-c", "core.hooksPath=", "commit", "-m", "docs: move head")
+            after = projects_revision()["revision"]
+            self.assertNotEqual(before, after)
 
     def test_stop_management_removes_only_local_binding_and_keeps_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

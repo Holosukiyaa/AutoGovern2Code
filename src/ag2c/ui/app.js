@@ -19,6 +19,11 @@
   var evidenceCacheRoot = null;
   var evidenceCacheValue = null;
   var evidenceInFlightRoot = null;
+  var listInFlight = false;
+  var listQueued = false;
+  var lastRevision = "";
+  var pollTimer = null;
+  var didStartupAlign = false;
 
   function $(id) { return document.getElementById(id); }
   function queryValue(name) {
@@ -339,21 +344,69 @@
     }
     window.location.href = "ag2c://choose-project";
   }
-  function refreshProjects(keepSelection) {
-    request("GET", "/api/projects", null, function (ok, value) {
-      setBusy(false);
-      if (!ok) { showToast(requestError(value, "无法读取治理项目")); return; }
-      projects = value.projects || [];
-      if (!keepSelection || !selectedRoot) selectedRoot = projects.length ? projects[0].root : null;
-      if (selectedRoot) {
-        var found = false;
-        for (var i = 0; i < projects.length; i += 1) if (projects[i].root === selectedRoot) found = true;
-        if (!found) selectedRoot = projects.length ? projects[0].root : null;
-      }
-      if (value.version) text($("engineVersion"), "治理引擎 v" + value.version);
-      render();
-      migrationToast(value.migrations);
+  function documentIsHidden() {
+    return Boolean(document.hidden || document.msHidden);
+  }
+  function applyProjectList(value, keepSelection) {
+    evidenceCacheRoot = null;
+    evidenceCacheValue = null;
+    projects = value.projects || [];
+    if (!keepSelection || !selectedRoot) selectedRoot = projects.length ? projects[0].root : null;
+    if (selectedRoot) {
+      var found = false;
+      for (var i = 0; i < projects.length; i += 1) if (projects[i].root === selectedRoot) found = true;
+      if (!found) selectedRoot = projects.length ? projects[0].root : null;
+    }
+    if (value.version) text($("engineVersion"), "治理引擎 v" + value.version);
+    render();
+    migrationToast(value.migrations);
+    rememberRevision();
+  }
+  function rememberRevision() {
+    request("GET", "/api/projects/revision", null, function (ok, value) {
+      if (ok && value && value.revision) lastRevision = value.revision;
     });
+  }
+  function refreshProjects(keepSelection) {
+    if (listInFlight) { listQueued = true; return; }
+    listInFlight = true;
+    request("GET", "/api/projects", null, function (ok, value) {
+      listInFlight = false;
+      setBusy(false);
+      if (!ok) {
+        showToast(requestError(value, "无法读取治理项目"));
+        if (listQueued) { listQueued = false; refreshProjects(keepSelection); }
+        return;
+      }
+      applyProjectList(value, keepSelection);
+      if (!didStartupAlign) {
+        didStartupAlign = true;
+        request("POST", "/api/projects/align", {}, function (alignOk, alignValue) {
+          if (!alignOk || !alignValue) return;
+          if (alignValue.migrations && alignValue.migrations.length) {
+            if (alignValue.projects) applyProjectList(alignValue, true);
+            else refreshProjects(true);
+          }
+        });
+      }
+      if (listQueued) { listQueued = false; refreshProjects(keepSelection); }
+    });
+  }
+  function startProjectWatch() {
+    if (pollTimer) return;
+    pollTimer = window.setInterval(function () {
+      if (documentIsHidden()) return;
+      if ($("busyOverlay") && !$("busyOverlay").hidden) return;
+      if (listInFlight) return;
+      request("GET", "/api/projects/revision", null, function (ok, value) {
+        if (!ok || !value || !value.revision) return;
+        if (!lastRevision) { lastRevision = value.revision; return; }
+        if (value.revision !== lastRevision) {
+          lastRevision = value.revision;
+          refreshProjects(true);
+        }
+      });
+    }, 4000);
   }
   function projectGlyph(name) {
     var value = String(name || "?");
@@ -431,62 +484,96 @@
       if (document.body) document.body.scrollTop = 0;
     }, 0);
   }
+  function paintHeader(project) {
+    if (!project) return;
+    text($("detailName"), project.name);
+    text($("detailPath"), project.root);
+    $("detailStateDot").className = "state-dot " + project.state;
+    var agents = project.agents || [];
+    text($("entryState"), agents.length);
+    text($("entryHint"), yesNo(project.entry_ready, "已就绪", "未就绪"));
+    text($("deliveryState"), yesNo(project.delivery_enforced, "已控制", "未生效"));
+    text($("deliveryHint"), project.delivery_enforced ? "交付门禁已接通" : "还没有接通交付门禁");
+    text($("observedState"), project.completed_tasks || 0);
+    var lastDelivery = project.last_task && project.last_task.delivery;
+    text($("observedHint"), lastDelivery && lastDelivery.outcome
+      ? lastDelivery.outcome
+      : yesNo(project.agent_observed, "已有入库记录", "尚未观察"));
+    if ($("healthyCopy")) {
+      var productStatus = project.product && project.product.status;
+      if (productStatus === "checked") text($("healthyCopy"), "施工检查已通过，产品验收已通过");
+      else if (productStatus === "blocked") text($("healthyCopy"), "施工检查已通过，但规则过期，不能当产品通过");
+      else if (productStatus === "incomplete") text($("healthyCopy"), "施工检查已通过，产品验收还没跑完");
+      else text($("healthyCopy"), "施工检查已通过，产品验收还未登记");
+    }
+    text($("stateLabel"), stateName(project.state));
+    var checked = taskTime(project.last_task);
+    text($("healthMeta"), checked ? ("最后检查  " + checked) : "");
+    var issueValues = project.issues || [];
+    renderPreview($("issueList"), issueValues, issueRow, "需要处理", "");
+    if ($("issueList")) $("issueList").hidden = issueValues.length === 0;
+    if ($("healthyState")) $("healthyState").hidden = issueValues.length !== 0;
+    if ($("detailHealth")) $("detailHealth").className = "detail-health " + project.state;
+    renderAgents(agents);
+    renderEvidenceSummary(project.last_task, project.product);
+    updateGovernanceActions(project);
+  }
+  function applyProjectSnapshot(snapshot) {
+    if (!snapshot || !snapshot.root) return null;
+    for (var index = 0; index < projects.length; index += 1) {
+      if (projects[index].root !== snapshot.root) continue;
+      var merged = {};
+      var old = projects[index];
+      var key;
+      for (key in old) if (Object.prototype.hasOwnProperty.call(old, key)) merged[key] = old[key];
+      for (key in snapshot) if (Object.prototype.hasOwnProperty.call(snapshot, key)) merged[key] = snapshot[key];
+      projects[index] = merged;
+      return merged;
+    }
+    return snapshot;
+  }
+  function refreshProjectRail() {
+    var list = $("projectList");
+    if (!list) return;
+    clear(list);
+    for (var index = 0; index < projects.length; index += 1) list.appendChild(projectCard(projects[index]));
+    renderProjectDots();
+  }
   function renderDetail(project) {
     $("detailEmpty").hidden = !!project;
     $("detailContent").hidden = !project;
     if (!project) {
       detailRequestSerial += 1;
       renderDetail.shownRoot = null;
+      currentDetails = null;
       closeListDialog();
       renderDetails(null);
       return;
     }
     try {
-      text($("detailName"), project.name);
-      text($("detailPath"), project.root);
-      $("detailStateDot").className = "state-dot " + project.state;
-      var agents = project.agents || [];
-      text($("entryState"), agents.length);
-      text($("entryHint"), yesNo(project.entry_ready, "已就绪", "未就绪"));
-      text($("deliveryState"), yesNo(project.delivery_enforced, "已控制", "未生效"));
-      text($("deliveryHint"), project.delivery_enforced ? "交付门禁已接通" : "还没有接通交付门禁");
-      text($("observedState"), project.completed_tasks || 0);
-      var lastDelivery = project.last_task && project.last_task.delivery;
-      text($("observedHint"), lastDelivery && lastDelivery.outcome
-        ? lastDelivery.outcome
-        : yesNo(project.agent_observed, "已有入库记录", "尚未观察"));
-      if ($("healthyCopy")) {
-        var productStatus = project.product && project.product.status;
-        if (productStatus === "checked") text($("healthyCopy"), "施工检查已通过，产品验收已通过");
-        else if (productStatus === "blocked") text($("healthyCopy"), "施工检查已通过，但规则过期，不能当产品通过");
-        else if (productStatus === "incomplete") text($("healthyCopy"), "施工检查已通过，产品验收还没跑完");
-        else text($("healthyCopy"), "施工检查已通过，产品验收还未登记");
+      var sameProject = renderDetail.shownRoot === project.root;
+      if (!sameProject) {
+        currentDetails = null;
+        evidenceCacheRoot = null;
+        evidenceCacheValue = null;
+        evidenceInFlightRoot = null;
+        closeListDialog();
+        if ($("agentList")) $("agentList").hidden = true;
+        if ($("evidencePanel")) $("evidencePanel").hidden = true;
+        if ($("inspectPanel")) $("inspectPanel").hidden = true;
+        if ($("journalPanel")) $("journalPanel").hidden = true;
+        renderOverview(project, null);
+        clear($("indexFindings"));
+        emptyDetail($("pendingList"), "正在读取待更新规则");
+        fillStat($("knowledgeList"), "…", "正在读取", "muted");
+        fillStat($("relationList"), "…", "正在读取", "muted");
+        fillStat($("worktreeList"), "…", "正在读取", "muted");
+        renderJournalSummary([]);
       }
-      text($("stateLabel"), stateName(project.state));
-      var checked = taskTime(project.last_task);
-      text($("healthMeta"), checked ? ("最后检查  " + checked) : "");
-      var issueValues = project.issues || [];
-      renderPreview($("issueList"), issueValues, issueRow, "需要处理", "");
-      if ($("issueList")) $("issueList").hidden = issueValues.length === 0;
-      if ($("healthyState")) $("healthyState").hidden = issueValues.length !== 0;
-      if ($("detailHealth")) $("detailHealth").className = "detail-health " + project.state;
-      if ($("agentList")) $("agentList").hidden = true;
-      if ($("evidencePanel")) $("evidencePanel").hidden = true;
-      if ($("inspectPanel")) $("inspectPanel").hidden = true;
-      if (!project || renderDetail.shownRoot !== project.root) closeListDialog();
       renderDetail.shownRoot = project.root;
-      renderAgents(agents);
-      renderOverview(project, null);
-      clear($("indexFindings"));
-      emptyDetail($("pendingList"), "正在读取待更新规则");
-      fillStat($("knowledgeList"), "…", "正在读取", "muted");
-      fillStat($("relationList"), "…", "正在读取", "muted");
-      fillStat($("worktreeList"), "…", "正在读取", "muted");
-      loadDetails(project);
-      renderEvidenceSummary(project.last_task, project.product);
-      renderJournalSummary((currentDetails && currentDetails.journals) || []);
-      updateGovernanceActions(project);
-      if ($("journalPanel")) $("journalPanel").hidden = true;
+      paintHeader(project);
+      if (sameProject && currentDetails) renderDetails(currentDetails);
+      loadDetails(project, { keepPainted: sameProject && !!currentDetails });
     } catch (error) {
       emptyDetail($("cardList"), "页面渲染失败：" + (error && error.message ? error.message : error));
     }
@@ -741,6 +828,14 @@
   }
   function renderDetails(details) {
     var project = activeProject();
+    if (details && details.project && details.project.root === selectedRoot) {
+      var merged = applyProjectSnapshot(details.project);
+      if (merged) {
+        project = merged;
+        paintHeader(merged);
+        refreshProjectRail();
+      }
+    }
     clear($("indexFindings")); clear($("pendingList")); clear($("cardList")); clear($("knowledgeList")); clear($("relationList")); clear($("worktreeList"));
     currentDetails = details && details.available ? details : null;
     text($("indexStateLabel"), ""); text($("pendingCountLabel"), ""); text($("cardCountLabel"), ""); text($("contractCountLabel"), ""); text($("worktreeCountLabel"), "");
@@ -828,25 +923,29 @@
     cardHeader.appendChild(cardTitle); cardHeader.appendChild(cardType); cardItem.appendChild(cardHeader);
     return cardItem;
   }
-  function loadDetails(project) {
+  function loadDetails(project, options) {
     var root = project.root;
+    var keepPainted = options && options.keepPainted;
     detailRequestSerial += 1;
     var requestSerial = detailRequestSerial;
-    emptyDetail($("cardList"), "正在读取治理卡片...");
+    if (!keepPainted) emptyDetail($("cardList"), "正在读取治理卡片...");
     window.setTimeout(function () {
       if (requestSerial !== detailRequestSerial) return;
+      if (keepPainted) return;
       if ($("cardList") && $("cardList").textContent.indexOf("正在读取治理卡片") >= 0) {
-        emptyDetail($("cardList"), "治理详情还在读取，点右上角刷新重试");
+        emptyDetail($("cardList"), "治理详情还在读取，请稍候");
       }
     }, 8000);
     request("POST", "/api/project/details", { path: project.root }, function (ok, value) {
       if (requestSerial !== detailRequestSerial || selectedRoot !== root) return;
       if (!ok) {
-        renderOverview(project, null);
-        emptyDetail($("cardList"), value.error || "无法读取治理卡片");
-        fillStat($("knowledgeList"), "未知", "无法读取 Knowledge", "muted");
-        fillStat($("relationList"), "0 个契约", "0 个关系", "muted");
-        fillStat($("worktreeList"), "没有副本", "没有进行中的施工", "muted");
+        if (!keepPainted) {
+          renderOverview(project, null);
+          emptyDetail($("cardList"), value.error || "无法读取治理卡片");
+          fillStat($("knowledgeList"), "未知", "无法读取 Knowledge", "muted");
+          fillStat($("relationList"), "0 个契约", "0 个关系", "muted");
+          fillStat($("worktreeList"), "没有副本", "没有进行中的施工", "muted");
+        }
         showToast(requestError(value, "无法读取治理详情"));
         return;
       }
@@ -1077,6 +1176,14 @@
   window.ag2cSetDesktopHost = function () { window.ag2cDesktopHost = true; };
   window.ag2cProjectSelected = addSelectedProject;
   window.refreshStatus = function () { refreshProjects(true); };
+  window.alignAndRefresh = function () {
+    setBusy(true, "正在检查并对齐已有项目", "版本更新会保留规则和记录，不会重新切片");
+    request("POST", "/api/projects/align", {}, function (ok, value) {
+      setBusy(false);
+      if (!ok) { showToast(requestError(value, "对齐失败")); refreshProjects(true); return; }
+      applyProjectList(value, true);
+    });
+  };
   $("addButton").onclick = chooseProject;
   $("emptyAddButton").onclick = chooseProject;
   $("closeFolderButton").onclick = closeFolderPicker;
@@ -1137,7 +1244,8 @@
       showToast("无法连接本地治理服务");
     }
     loadEngineVersion();
-    setBusy(true, "正在检查并对齐已有项目", "版本更新会保留规则和记录，不会重新切片");
+    setBusy(true, "正在读取治理项目", "请稍候");
     refreshProjects(false);
+    startProjectWatch();
   });
 }());

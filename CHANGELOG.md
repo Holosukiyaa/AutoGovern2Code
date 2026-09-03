@@ -4,6 +4,7 @@
 
 - Prefer the user's Git when it is on PATH; otherwise download MinGit into the AG2C data directory. Remember each project's Git source so a moved folder keeps bundled Git, or falls back to a download if the original system Git is gone.
 - Stop claiming macOS or Linux support in the public README. This release is Windows-only.
+- Keep the desktop list cheap, refresh when the window is shown or the store/HEAD changes, and stop wiping details on every redraw.
 - Rewrote the GitHub README around v0.8.4: current tray dashboard, process vs product, stop/resume/uninstall, and copied-store recovery. Corrected the matching adoption pages.
 
 ## 0.8.4 - 2026-09-01

@@ -21,6 +21,7 @@ from .management import (
     align_managed_projects,
     managed_projects,
     project_details,
+    projects_revision,
     repair_and_check_project,
     stop_managing,
     uninstall_project,
@@ -535,15 +536,17 @@ class DesktopHandler(BaseHTTPRequestHandler):
             self._error(HTTPStatus.UNAUTHORIZED, "desktop session token is required")
             return
         if path == "/api/projects":
-            migrations = align_managed_projects()
             self._json(
                 HTTPStatus.OK,
                 {
                     "projects": managed_projects(),
-                    "migrations": migrations,
+                    "migrations": [],
                     "version": __version__,
                 },
             )
+            return
+        if path == "/api/projects/revision":
+            self._json(HTTPStatus.OK, projects_revision())
             return
         self._error(HTTPStatus.NOT_FOUND, "not found")
 
@@ -568,6 +571,17 @@ class DesktopHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/filesystem/pick":
                 self._json(HTTPStatus.OK, pick_project_folder())
+                return
+            if path == "/api/projects/align":
+                migrations = align_managed_projects()
+                self._json(
+                    HTTPStatus.OK,
+                    {
+                        "migrations": migrations,
+                        "projects": managed_projects(),
+                        "version": __version__,
+                    },
+                )
                 return
             if path == "/api/projects/add":
                 self._json(HTTPStatus.OK, {"project": add_project(self._request_path(body))})

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -19,38 +20,69 @@ from .storage import (
     PROJECT_KEY_CONFIG_KEY,
     find_project_record,
     project_records,
+    project_store,
     registered_manifest,
+    registry_path,
     set_project_governance,
     unregister_project,
 )
 from .tasks import evidence, list_tasks
 
 
-def project_status(start: Path, *, agents: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    root = repository_root(start)
-    status = activation_status(root)
-    if agents is None:
-        agents = harness_status()
-    record = find_project_record(root)
+def _unavailable_project(record: dict[str, Any], agents: list[dict[str, Any]], *, issue: str, state: str) -> dict[str, Any]:
+    root = Path(str(record.get("root", "")))
+    return {
+        **record,
+        "name": record.get("name") or root.name,
+        "root": str(root),
+        "state": state,
+        "governance": record.get("governance") or "active",
+        "managed": False,
+        "issues": [issue],
+        "entry_ready": False,
+        "delivery_enforced": False,
+        "agent_observed": False,
+        "agents": agents,
+        "active_tasks": 0,
+        "verified_tasks": 0,
+        "open_tasks": 0,
+        "abandoned_tasks": 0,
+        "completed_tasks": 0,
+        "last_task": None,
+        "ledger_valid": False,
+        "coverage": None,
+        "product": None,
+        "pending_count": 0,
+        "pending": [],
+    }
+
+
+def _compose_project_card(
+    *,
+    root: Path,
+    record: dict[str, Any] | None,
+    status: dict[str, Any],
+    agents: list[dict[str, Any]],
+    dirty: list[str],
+    tasks: list[dict[str, Any]],
+    pending_items: list[dict[str, Any]],
+    evidence_error: str | None = None,
+    report: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     governance = str((record or {}).get("governance") or "active")
-    report: dict[str, Any] | None = None
-    evidence_error: str | None = None
-    try:
-        report = evidence(root, verify_local=False, activation=status)
-    except (AG2CError, OSError, ValueError) as exc:
-        evidence_error = str(exc)
-    tasks = report.get("tasks", []) if report else []
     completed = [item for item in tasks if item.get("state") == "completed"]
     active = [item for item in tasks if item.get("state") == "active"]
     verified = [item for item in tasks if item.get("state") == "verified"]
     abandoned = [item for item in tasks if item.get("state") == "abandoned"]
     last = completed[0] if completed else (tasks[0] if tasks else None)
-    dirty = status_entries(root)
     entry_ready = any(bool(item.get("integrated")) for item in agents)
     delivery_enforced = bool(status.get("managed"))
-    agent_observed = any(item.get("management_result") == "successful" for item in completed)
+    agent_observed = any(item.get("management_result") == "successful" for item in completed) or (
+        bool(completed) and report is None
+    )
     if governance == GOVERNANCE_STOPPED:
         issues = ["governance is stopped"]
+        diverged: list[str] = []
     else:
         issues = list(status.get("issues", []))
         if evidence_error:
@@ -58,7 +90,7 @@ def project_status(start: Path, *, agents: list[dict[str, Any]] | None = None) -
         if dirty:
             issues.append("canonical worktree has uncommitted changes")
         diverged = [
-            item["id"]
+            str(item.get("id") or "")
             for item in tasks
             if item.get("state") in {"active", "verified"} and (item.get("worktree") or {}).get("lifecycle") == "diverged"
         ]
@@ -66,9 +98,6 @@ def project_status(start: Path, *, agents: list[dict[str, Any]] | None = None) -
             issues.append("open task worktree has diverged from the canonical branch")
         if not entry_ready:
             issues.append("no supported AI harness has a current AG2C Skill")
-    from .govern import stored_pending
-
-    pending_items = list((stored_pending(root) or {}).get("items") or [])
     if governance == GOVERNANCE_STOPPED:
         state = "stopped"
     elif delivery_enforced and entry_ready and not dirty and not diverged:
@@ -78,7 +107,7 @@ def project_status(start: Path, *, agents: list[dict[str, Any]] | None = None) -
     else:
         state = "inactive"
     return {
-        "project_id": report.get("project") if report else root.name,
+        "project_id": (report or {}).get("project") or root.name,
         "name": root.name,
         "root": str(root),
         "state": state,
@@ -100,12 +129,76 @@ def project_status(start: Path, *, agents: list[dict[str, Any]] | None = None) -
         "last_task": last,
         "ledger_valid": bool(report and report.get("ledger_valid")),
         "coverage": report.get("coverage") if report else None,
-        "product": report.get("product") if report else None,
+        "product": report.get("product") if report else ((last or {}).get("product") if last else None),
         "pending_count": len(pending_items),
         "pending": pending_items,
         "engine_version": __version__,
         "tool_version": stored_tool_version(root),
     }
+
+
+def _pending_items(root: Path) -> list[dict[str, Any]]:
+    from .govern import stored_pending
+
+    try:
+        return list((stored_pending(root) or {}).get("items") or [])
+    except (AG2CError, OSError, ValueError):
+        return []
+
+
+def project_list_item(start: Path, *, agents: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    root = repository_root(start)
+    status = activation_status(root)
+    if agents is None:
+        agents = harness_status()
+    record = find_project_record(root)
+    try:
+        tasks = list_tasks(root)
+    except (AG2CError, OSError, ValueError):
+        tasks = []
+    try:
+        dirty = status_entries(root)
+    except (AG2CError, OSError, ValueError):
+        dirty = []
+    return _compose_project_card(
+        root=root,
+        record=record,
+        status=status,
+        agents=agents,
+        dirty=dirty,
+        tasks=tasks,
+        pending_items=_pending_items(root),
+    )
+
+
+def project_status(start: Path, *, agents: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    root = repository_root(start)
+    status = activation_status(root)
+    if agents is None:
+        agents = harness_status()
+    record = find_project_record(root)
+    report: dict[str, Any] | None = None
+    evidence_error: str | None = None
+    try:
+        report = evidence(root, verify_local=False, activation=status)
+    except (AG2CError, OSError, ValueError) as exc:
+        evidence_error = str(exc)
+    tasks = report.get("tasks", []) if report else []
+    try:
+        dirty = status_entries(root)
+    except (AG2CError, OSError, ValueError):
+        dirty = []
+    return _compose_project_card(
+        root=root,
+        record=record,
+        status=status,
+        agents=agents,
+        dirty=dirty,
+        tasks=tasks,
+        pending_items=_pending_items(root),
+        evidence_error=evidence_error,
+        report=report,
+    )
 
 
 def managed_projects() -> list[dict[str, Any]]:
@@ -114,54 +207,60 @@ def managed_projects() -> list[dict[str, Any]]:
     for record in project_records():
         root = Path(str(record.get("root", "")))
         if not root.is_dir():
-            result.append(
-                {
-                    **record,
-                    "name": record.get("name") or root.name,
-                    "state": "missing",
-                    "governance": record.get("governance") or "active",
-                    "managed": False,
-                    "issues": ["project folder is unavailable"],
-                    "entry_ready": False,
-                    "delivery_enforced": False,
-                    "agent_observed": False,
-                    "agents": agents,
-                    "active_tasks": 0,
-                    "verified_tasks": 0,
-                    "open_tasks": 0,
-                    "abandoned_tasks": 0,
-                    "completed_tasks": 0,
-                    "last_task": None,
-                    "ledger_valid": False,
-                }
-            )
+            result.append(_unavailable_project(record, agents, issue="project folder is unavailable", state="missing"))
             continue
         try:
-            current = project_status(root, agents=agents)
+            current = project_list_item(root, agents=agents)
         except (AG2CError, OSError, ValueError) as exc:
-            current = {
-                **record,
-                "name": record.get("name") or root.name,
-                "root": str(root),
-                "state": "inactive",
-                "governance": record.get("governance") or "active",
-                "managed": False,
-                "issues": [str(exc)],
-                "entry_ready": False,
-                "delivery_enforced": False,
-                "agent_observed": False,
-                "agents": agents,
-                "active_tasks": 0,
-                "verified_tasks": 0,
-                "open_tasks": 0,
-                "abandoned_tasks": 0,
-                "completed_tasks": 0,
-                "last_task": None,
-                "ledger_valid": False,
-            }
+            current = _unavailable_project(record, agents, issue=str(exc), state="inactive")
         result.append({**record, **current})
     order = {"attention": 0, "inactive": 1, "stopped": 2, "missing": 3, "protected": 4}
     return sorted(result, key=lambda item: (order.get(str(item.get("state")), 9), str(item.get("name", "")).lower()))
+
+
+def _mtime_token(path: Path) -> str:
+    try:
+        stat = path.stat()
+    except OSError:
+        return "0"
+    return f"{int(stat.st_mtime)}:{stat.st_size}"
+
+
+def _directory_token(path: Path) -> str:
+    if not path.is_dir():
+        return "0"
+    marks = [_mtime_token(path)]
+    try:
+        children = list(path.iterdir())
+    except OSError:
+        return marks[0]
+    for child in children:
+        if child.is_file():
+            marks.append(f"{child.name}:{_mtime_token(child)}")
+        elif child.is_dir() and child.name in {"tasks", "state"}:
+            marks.append(f"{child.name}:{_directory_token(child)}")
+    return ";".join(sorted(marks))
+
+
+def projects_revision() -> dict[str, str]:
+    parts = [_mtime_token(registry_path())]
+    for record in project_records():
+        root = Path(str(record.get("root", "")))
+        parts.append(str(record.get("key", "")))
+        parts.append(str(record.get("governance", "")))
+        if root.is_dir():
+            try:
+                parts.append(str(git(root, "rev-parse", "HEAD", check=False)).strip())
+                parts.append("\0".join(status_entries(root)))
+            except (AG2CError, OSError, ValueError):
+                parts.append("git-unavailable")
+            try:
+                parts.append(_directory_token(project_store(root, record.get("key"))))
+            except (AG2CError, OSError, TypeError, ValueError):
+                parts.append("store-unavailable")
+        else:
+            parts.append("missing")
+    return {"revision": hashlib.sha256("\n".join(parts).encode("utf-8", errors="replace")).hexdigest()}
 
 
 def align_managed_projects() -> list[dict[str, Any]]:

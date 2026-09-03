@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .errors import IndexError as GovernanceIndexError
+from .errors import AG2CError, IndexError as GovernanceIndexError
+from .gitops import git_command_env, git_executable
 from .model import Card, Manifest, Policy, Scope, Target
 from .util import canonical_json, digest_file, digest_json, path_matches
 
@@ -60,12 +61,17 @@ def index_path(manifest: Manifest) -> Path:
 
 def _git(root: Path, *args: str, binary: bool = False) -> str | bytes | None:
     try:
+        executable = git_executable(root)
+    except AG2CError:
+        return None
+    try:
         completed = subprocess.run(
-            ["git", "-C", str(root), *args],
+            [executable, "-C", str(root), *args],
             check=False,
             capture_output=True,
             text=not binary,
             encoding=None if binary else "utf-8",
+            env=git_command_env(executable=executable),
         )
     except OSError:
         return None

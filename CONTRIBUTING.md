@@ -1,6 +1,6 @@
 # Contributing
 
-AutoGovern2Code requires Python 3.11 or newer.
+AutoGovern2Code is a Windows product. Development requires Python 3.11 or newer. On Windows, AG2C uses Git from PATH when present and otherwise downloads MinGit into its data directory.
 
 ```bash
 python -m venv .venv

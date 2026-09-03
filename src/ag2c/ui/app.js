@@ -121,6 +121,9 @@
     if (message.indexOf("manifest") >= 0 || message.indexOf("project key") >= 0) return "工程的外部治理连接不完整";
     if (message.indexOf("ledger") >= 0 || message.indexOf("evidence") >= 0) return "治理证据需要检查";
     if (message.indexOf("unavailable") >= 0 || message.indexOf("missing") >= 0) return "工程目录或治理数据当前不可用";
+    if (message.indexOf("Git is not available") >= 0 || message.indexOf("cannot execute Git") >= 0 || message.indexOf("could not download bundled Git") >= 0) {
+      return "本机没有 Git。AG2C 可以下载一份仅自己使用的内置 Git，也可以先安装 Git 并加入 PATH。";
+    }
     return message;
   }
   function addProjectError(value) {
@@ -134,6 +137,9 @@
     }
     if (code === "AG2C_RELOCATED_PROJECT" || message.indexOf("AG2C_RELOCATED_PROJECT") >= 0) {
       return "这个项目的治理档案已在本机找到，但 Git 还指着旧电脑路径。再添加或重新检查一次即可接上。";
+    }
+    if (code === "AG2C_GIT_MISSING" || message.indexOf("Git is not available") >= 0 || message.indexOf("cannot execute Git") >= 0 || message.indexOf("could not download bundled Git") >= 0) {
+      return "本机没有 Git。AG2C 可以下载一份仅自己使用的内置 Git，也可以先安装 Git 并加入 PATH。";
     }
     return requestError(value, "添加项目失败");
   }
@@ -1008,7 +1014,7 @@
   }
   function addSelectedProject(path, done) {
     if (!path) return;
-    setBusy(true, "正在纳入治理", "入库可能需要一点时间，请不要关闭窗口");
+    setBusy(true, "正在纳入治理", "如需内置 Git 会先下载。请不要关闭窗口");
     request("POST", "/api/projects/add", { path: path }, function (ok, value) {
       if (!ok) {
         setBusy(false);

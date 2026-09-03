@@ -161,9 +161,25 @@ try {
     & git -C $projectRoot add .
     & git -C $projectRoot commit -m 'test: initialize installer project' | Out-Null
     $headBeforeSetup = (& git -C $projectRoot rev-parse HEAD | Out-String).Trim()
-    & $runtime setup --project $projectRoot --project-id installer-smoke | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw 'The installed runtime could not enroll a Git project.'
+    $pathWithGit = $env:PATH
+    try {
+        $env:PATH = (
+            ($env:PATH -split ';' | Where-Object {
+                $entry = $_.Trim()
+                $entry -and -not (Test-Path -LiteralPath (Join-Path $entry 'git.exe'))
+            }) -join ';'
+        )
+        & $runtime setup --project $projectRoot --project-id installer-smoke | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw 'The installed runtime could not enroll a Git project without system Git on PATH.'
+        }
+        $downloadedGit = Join-Path $env:AG2C_DATA_ROOT 'runtime\git\cmd\git.exe'
+        if (-not (Test-Path -LiteralPath $downloadedGit)) {
+            throw 'AG2C did not download bundled Git after system Git was removed from PATH.'
+        }
+    }
+    finally {
+        $env:PATH = $pathWithGit
     }
     Push-Location $projectRoot
     try {

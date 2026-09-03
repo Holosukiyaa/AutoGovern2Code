@@ -7,7 +7,7 @@
 
 [English](README.md) · [接入说明](docs/zh-CN/ADOPTION.md) · [架构](docs/ARCHITECTURE.md) · [Releases](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)
 
-当前版本：**v0.8.4**（2026-09-01）。Alpha。Windows 优先。单人、本机。
+当前版本：**v0.8.4**（2026-09-01）。Alpha。仅 Windows。单人、本机。
 
 AutoGovern2Code 是一层本地、开源的 AI 编程治理工具。把 Git 工程加入一次即可。兼容的编程 AI 会通过已安装的 Skill 发现 AG2C，在工程外的 Git worktree 施工，运行项目自己的检查，并只把验证过的提交 fast-forward 回原分支。完整证据留在这台电脑上。
 
@@ -15,7 +15,7 @@ AutoGovern2Code 是一层本地、开源的 AI 编程治理工具。把 Git 工�
 
 ## Windows 怎么安装
 
-需要 Windows 10/11 x64 和 Git，不需要 Python。
+需要 Windows 10/11 x64，不需要 Python。本机 PATH 里已有 Git 时用你的 Git；没有时 AG2C 会下载一份内置 Git 到自己的数据目录，不会改用户 PATH。
 
 1. 从[最新 GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)下载 `AutoGovern2Code-Setup-Windows-x64.exe`。
 2. 双击安装。安装器只写入当前用户，会加入开始菜单，并启动托盘程序。
@@ -24,7 +24,7 @@ AutoGovern2Code 是一层本地、开源的 AI 编程治理工具。把 Git 工�
 
 托盘程序会随 Windows 启动。关掉窗口只是缩回托盘；已经纳管工程的 Git 交付门禁仍然生效。
 
-社区安装器目前没有代码签名，Windows SmartScreen 可能会警告。请只从本仓库下载，先按 `SHA256SUMS.txt` 核对文件，再选择「更多信息 > 仍要运行」。
+社区安装器目前没有代码签名，Windows SmartScreen 可能会警告。请只从本仓库下载，先按 `SHA256SUMS.txt` 核对文件，再选择「更多信息 > 仍要运行」。下载的 Git 仍是独立的 GPL-2.0 程序，放在 `%LOCALAPPDATA%\AutoGovern2Code\runtime\git`。每个工程会记住当时用的是系统 Git 还是内置 Git，文件夹搬走后仍按这个选择处理。
 
 ## 加入工程之后能看到什么
 
@@ -80,28 +80,7 @@ Windows 默认位置：
 - 对没有 Skill 机制的未知工具，Git 交付门禁仍可能挡住不合规提交，但不能保证它在编辑前就会进入 AG2C。
 - 本机 Guard 是 Git 交付边界，不是操作系统文件权限。故意改 Git 配置的进程仍然可以绕过它。
 
-当前版本先做单人、本地工作流；多人协调和跨机器证据交换还不包含。
-
-## macOS、Linux 与源码开发
-
-桌面安装器目前只支持 Windows。macOS、Linux 和源码开发需要 Python 3.11 或更高版本：
-
-```bash
-python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.8.4"
-ag2c setup
-```
-
-从本地源码运行：
-
-```bash
-python -m pip install -e .
-ag2c setup
-ag2c viewer --open
-```
-
-Windows 也可以双击仓库根目录的 `start-governance-viewer.cmd`（本机端口 `18995`）。请从资源管理器或普通终端启动，不要从受限的代码运行器里托管；治理服务需要写入用户级档案、项目 Git 配置和 AI Skill 目录。
-
-查看器只监听 `127.0.0.1`，启动时生成一次性访问 token。Release 里的 wheel 和源码包是开发产物；Windows 普通用户只下载安装器。
+当前版本只做 Windows、单人、本地工作流；多人协调和跨机器证据交换还不包含。
 
 ## 证据和 CI
 

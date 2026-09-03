@@ -28,6 +28,7 @@ class CheckerTests(unittest.TestCase):
             self.assertEqual(verify_ledger(manifest.ledger_path), [])
             self.assertEqual(report["ledger_sequence"], 1)
             self.assertIn("python", report["environment"])
+            self.assertTrue(report["environment"]["has_git"])
 
     def test_checker_can_skip_with_an_explicit_reason(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

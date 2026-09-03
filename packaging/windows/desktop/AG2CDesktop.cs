@@ -470,7 +470,7 @@ namespace AutoGovern2CodeDesktop
             var menu = new ContextMenuStrip();
             menu.Items.Add("\u6253\u5f00 AutoGovern2Code", null, delegate { ShowWindow(); });
             menu.Items.Add("\u6dfb\u52a0\u9879\u76ee...", null, delegate { ChooseProject(); });
-            menu.Items.Add("\u68c0\u67e5\u6240\u6709\u9879\u76ee", null, delegate { RefreshWebUi(); ShowWindow(); });
+            menu.Items.Add("\u68c0\u67e5\u6240\u6709\u9879\u76ee", null, delegate { AlignAndRefreshWebUi(); ShowWindow(); });
             menu.Items.Add(new ToolStripSeparator());
             _startupItem = new ToolStripMenuItem("\u767b\u5f55 Windows \u540e\u542f\u52a8") { Checked = StartupEnabled(), CheckOnClick = true };
             _startupItem.CheckedChanged += delegate { ApplyStartup(_startupItem.Checked); };
@@ -483,17 +483,33 @@ namespace AutoGovern2CodeDesktop
 
         private void ShowWindow()
         {
+            bool wasHidden = !Visible || WindowState == FormWindowState.Minimized;
             Show();
             if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
             ShowInTaskbar = true;
             Activate();
             SetForegroundWindow(Handle);
+            if (wasHidden) RefreshWebUi();
         }
 
         private void RefreshWebUi()
         {
             try { if (_browser.Document != null) _browser.Document.InvokeScript("refreshStatus"); }
             catch { }
+        }
+
+        private void AlignAndRefreshWebUi()
+        {
+            try
+            {
+                if (_browser.Document != null)
+                {
+                    _browser.Document.InvokeScript("alignAndRefresh");
+                    return;
+                }
+            }
+            catch { }
+            RefreshWebUi();
         }
 
         private static bool StartupEnabled()

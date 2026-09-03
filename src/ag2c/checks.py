@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import AG2CError
+from .gitops import git_command_env, git_executable, peek_git_executable
 from .index import index_path, summary as index_summary, verify_freshness
 from .ledger import append_event
 from .model import Checker, Manifest, Policy
@@ -32,9 +33,12 @@ def _checker_cwd(manifest: Manifest, checker: Checker) -> Path:
 
 
 def environment_snapshot() -> dict[str, Any]:
+    git_path = peek_git_executable()
     return {
         "python": sys.version.split()[0],
         "platform": sys.platform,
+        "has_git": git_path is not None,
+        "git": git_path,
         "has_node": shutil.which("node") is not None,
         "has_go": shutil.which("go") is not None,
         "data_roots": {
@@ -104,7 +108,7 @@ def run_checks(
         if not cwd.is_dir():
             stderr = f"checker working directory does not exist: {cwd}"
         else:
-            env = os.environ.copy()
+            env = git_command_env(executable=git_executable(manifest.project_root))
             env.update(
                 {
                     "AG2C_PROJECT_ROOT": str(manifest.project_root),

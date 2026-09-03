@@ -6,7 +6,7 @@ Windows 用户接入 AG2C 只有一个动作：在托盘程序里选择 Git 工�
 
 从[最新 GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)下载 `AutoGovern2Code-Setup-Windows-x64.exe` 并双击。安装器会：
 
-- 给当前用户安装自带运行环境的 AG2C，不要求 Python、管理员权限；
+- 给当前用户安装自带运行环境的 AG2C，不要求 Python、管理员权限；本机有 Git 就用本机的，没有则下载到 AG2C 数据目录；
 - 把同一份 Skill 安装到 Codex、Claude Code、Cursor 和通用 Agent Skills 目录；
 - 把运行时加入用户 PATH，供 AI 自动调用；
 - 启动托盘程序，并让它随当前用户登录启动。

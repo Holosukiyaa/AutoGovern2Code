@@ -70,6 +70,9 @@ class DesktopServerTests(unittest.TestCase):
         self.assertIn(b"function isDesktopHost", script)
         self.assertIn(b"ag2cSetDesktopHost", script)
         self.assertIn(b"ag2c://choose-project", script)
+        self.assertIn(b"alignAndRefresh", script)
+        self.assertIn(b"/api/projects/revision", script)
+        self.assertIn(b"keepPainted", script)
         self.assertIn("产品验收".encode("utf-8"), script)
         self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
         status, body, headers = self.request("GET", "/api/status")
@@ -84,15 +87,17 @@ class DesktopServerTests(unittest.TestCase):
         self.assertEqual(401, status)
         status, _, _ = self.request("GET", "/api/projects", token=True, origin="http://example.com")
         self.assertEqual(403, status)
-        with patch("ag2c.desktop.managed_projects", return_value=[{"name": "Project", "root": "C:/Project"}]), patch(
-            "ag2c.desktop.align_managed_projects", return_value=[]
-        ):
+        with patch("ag2c.desktop.managed_projects", return_value=[{"name": "Project", "root": "C:/Project"}]) as listed, patch(
+            "ag2c.desktop.align_managed_projects"
+        ) as align:
             status, body, _ = self.request("GET", "/api/projects", token=True)
         self.assertEqual(200, status)
         payload = json.loads(body)
         self.assertEqual("Project", payload["projects"][0]["name"])
         self.assertEqual([], payload["migrations"])
         self.assertIn("version", payload)
+        listed.assert_called_once()
+        align.assert_not_called()
 
     def test_session_endpoint_returns_current_token_for_local_tabs(self) -> None:
         status, body, _ = self.request("GET", "/api/session", origin="http://127.0.0.1")
@@ -229,6 +234,24 @@ class DesktopServerTests(unittest.TestCase):
         self.assertTrue(directories["repository"]["is_git"])
         self.assertFalse(directories["plain"]["is_git"])
         self.assertNotIn("file.txt", directories)
+
+    def test_projects_revision_endpoint_is_available(self) -> None:
+        with patch("ag2c.desktop.projects_revision", return_value={"revision": "abc123"}) as revision:
+            status, body, _ = self.request("GET", "/api/projects/revision", token=True)
+        self.assertEqual(200, status)
+        self.assertEqual("abc123", json.loads(body)["revision"])
+        revision.assert_called_once()
+
+    def test_align_endpoint_runs_separately_from_the_project_list(self) -> None:
+        with patch("ag2c.desktop.align_managed_projects", return_value=[{"action": "aligned"}]) as align, patch(
+            "ag2c.desktop.managed_projects", return_value=[{"name": "Project", "root": "C:/Project"}]
+        ):
+            status, body, _ = self.request("POST", "/api/projects/align", body={}, token=True)
+        self.assertEqual(200, status)
+        payload = json.loads(body)
+        self.assertEqual([{"action": "aligned"}], payload["migrations"])
+        self.assertEqual("Project", payload["projects"][0]["name"])
+        align.assert_called_once()
 
     def test_recheck_repairs_activation_before_returning_status(self) -> None:
         expected = {"name": "Project", "root": "C:/Project", "state": "protected"}

@@ -7,7 +7,7 @@
 
 [中文](README.zh-CN.md) · [Adoption](docs/ADOPTION.md) · [Architecture](docs/ARCHITECTURE.md) · [Releases](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)
 
-Current release: **v0.8.4** (2026-09-01). Alpha. Windows-first. Single-user and local.
+Current release: **v0.8.4** (2026-09-01). Alpha. Windows only. Single-user and local.
 
 AutoGovern2Code is a local open-source governance layer for AI coding. Add a Git project once. A compatible agent discovers AG2C through an installed Skill, works in an external Git worktree, runs the project's own checks, and fast-forwards only verified bytes. Evidence stays on this machine.
 
@@ -15,7 +15,7 @@ The project never receives an `.ag2c` directory, AG2C-generated `AGENTS.md` or `
 
 ## Install on Windows
 
-Requirements: Windows 10 or 11 x64, and Git. Python is not required.
+Requirements: Windows 10 or 11 x64. Python is not required. If Git is already on PATH, AG2C uses it. If not, AG2C downloads a bundled Git for Windows into its own data directory and does not change your user PATH.
 
 1. Download `AutoGovern2Code-Setup-Windows-x64.exe` from the [latest GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest).
 2. Double-click the installer. It installs for the current user, puts AG2C in the Start Menu, and starts the tray app.
@@ -24,7 +24,7 @@ Requirements: Windows 10 or 11 x64, and Git. Python is not required.
 
 The tray starts with Windows. Closing the window hides it; Git delivery guards on enrolled projects stay active.
 
-The community installer is unsigned, so Windows SmartScreen may warn. Download it only from this repository, compare the file with `SHA256SUMS.txt`, then choose **More info > Run anyway**.
+The community installer is unsigned, so Windows SmartScreen may warn. Download it only from this repository, compare the file with `SHA256SUMS.txt`, then choose **More info > Run anyway**. A downloaded Git remains a separate GPL-2.0 program under `%LOCALAPPDATA%\AutoGovern2Code\runtime\git`. Each project remembers whether it used your Git or the bundled copy, so a moved folder keeps that choice.
 
 ## What you see after adding a project
 
@@ -80,28 +80,7 @@ The installer places the same Agent Skills-compatible Skills in Codex, Claude Co
 - An unknown harness may still be stopped by the Git delivery guard, but AG2C cannot promise it will select the Skill before editing.
 - The local guard is a Git delivery boundary, not an operating-system write ACL. A process that edits Git configuration can bypass it.
 
-This release is single-user. Multi-user coordination and remote evidence exchange are not included.
-
-## macOS, Linux, and source builds
-
-The desktop installer is Windows-only. Python 3.11 or newer can run the CLI from a tagged source release:
-
-```bash
-python -m pip install "git+https://github.com/Holosukiyaa/AutoGovern2Code.git@v0.8.4"
-ag2c setup
-```
-
-From a local checkout:
-
-```bash
-python -m pip install -e .
-ag2c setup
-ag2c viewer --open
-```
-
-On Windows you can also double-click `start-governance-viewer.cmd` (loopback port `18995`). Start it from Explorer or a normal terminal, not a restricted runner: the service writes the user-level store, project Git config, and Skill directories.
-
-The viewer listens only on `127.0.0.1` and creates a session token at startup. The wheel and source archive on a Release are developer artifacts. Ordinary Windows users only need the installer.
+This release is Windows-only and single-user. Multi-user coordination and remote evidence exchange are not included.
 
 ## Evidence and CI
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import secrets
-import shutil
 import sys
 import webbrowser
 from pathlib import Path
@@ -279,6 +278,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _doctor(manifest, policy) -> int:
     from .enrollment import activation_status
+    from .gitops import which_command
 
     issues: list[str] = []
     issues.extend(activation_status(manifest.project_root)["issues"])
@@ -286,7 +286,7 @@ def _doctor(manifest, policy) -> int:
         if not manifest.target_root(target.target_id).is_dir():
             issues.append(f"missing target directory: {target.target_id}:{manifest.target_root(target.target_id)}")
     for checker in policy.checkers:
-        if shutil.which(checker.command[0]) is None:
+        if which_command(checker.command[0]) is None:
             issues.append(f"checker executable is not available: {checker.checker_id}:{checker.command[0]}")
     current_errors = verify_freshness(manifest, policy, index_path(manifest))
     issues.extend(current_errors)

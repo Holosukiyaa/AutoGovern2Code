@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Rewrote the GitHub README around v0.8.4: current tray dashboard, process vs product, stop/resume/uninstall, and copied-store recovery. Corrected the matching adoption pages.
+
 ## 0.8.4 - 2026-09-01
 
 - Listed actual records and project cards from stored task JSON and one ledger pass, without re-verifying every commit receipt or hashing knowledge files.

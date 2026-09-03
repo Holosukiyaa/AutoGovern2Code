@@ -7,7 +7,7 @@ AG2C adoption has one user-facing action: choose a Git project in the tray appli
 Download `AutoGovern2Code-Setup-Windows-x64.exe` from the [latest GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest) and double-click it. The per-user installer:
 
 - installs a self-contained AG2C runtime without requiring Python or administrator rights;
-- installs the same Skill for Codex, Claude Code, and generic Agent Skills locations;
+- installs the same Skill for Codex, Claude Code, Cursor, and generic Agent Skills locations;
 - adds the runtime to the user PATH for agent use;
 - starts the tray application and registers it for user startup.
 
@@ -33,11 +33,11 @@ After adoption, use the coding agent normally. A compatible harness selects `ag2
 
 The tray separates three facts:
 
-- **Agent entry ready**: at least one supported harness has the current Skill.
-- **Delivery enforced**: the project has a valid external store and active Git guard.
-- **Agent observed**: at least one completed task contains successful management evidence.
+- **Agent entry**: which supported harnesses have the current Skill.
+- **Delivery**: whether the external store and Git guard are connected.
+- **Observed records**: finished tasks and what they implemented or fixed.
 
-This distinction avoids claiming that an installed Skill has already controlled an AI task.
+A finished governed task is process delivery, not product acceptance. Until the project declares contracts or boundary/scenario checks, Product stays undeclared. This avoids treating “Skill installed” or “process finished” as “the product is done.”
 
 ## Another machine or clone
 
@@ -45,11 +45,13 @@ Enrollment is intentionally local and does not travel with Git. On another machi
 
 If the folder was copied with `.git` intact, local Git config may still point at the previous computer's user-directory store. Add Project or `ag2c doctor --repair` now treats that as stale or relocated: a copied store is rebound to the original project key, and a missing store is re-enrolled on this computer with history marked unrecoverable.
 
-## Stop managing or uninstall
+## Stop, resume, or uninstall
 
-**Stop managing** in the tray restores the previous `core.hooksPath`, removes AG2C's local Git pointers, and removes the project from the list. Evidence remains in the external store by default.
+The tray keeps three project actions separate:
 
-The Windows uninstaller removes the runtime, startup entry, PATH entry, and unmodified packaged Skills. It does not rewrite user repositories or erase external project evidence.
+- **Stop governance** leaves the project in the list, restores the previous `core.hooksPath`, and removes AG2C's local Git pointers. Evidence stays in the external store. **Resume** reconnects that store without a new enrollment while it is still present.
+- **Uninstall project** unregisters the clone and deletes that project's governance archive.
+- The Windows **uninstaller** removes the AG2C runtime, startup entry, PATH entry, and unmodified packaged Skills. It does not rewrite user repositories. External evidence remains unless you uninstalled the project first.
 
 ## Legacy migration
 

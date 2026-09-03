@@ -1,6 +1,6 @@
 # Local evidence and CI
 
-AG2C 0.6 keeps full governance evidence outside the project. This is the deliberate cost of leaving user repositories free of policy, Ledger, and receipt files.
+AG2C keeps full governance evidence outside the project. This is the deliberate cost of leaving user repositories free of policy, Ledger, and receipt files.
 
 ## What local evidence binds
 

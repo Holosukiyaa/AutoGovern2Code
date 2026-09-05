@@ -1,0 +1,7 @@
+The AutoGovern2Code tray host uses Dear ImGui via imgui-bundle / Hello ImGui
+(MIT License). It does not bundle Qt, PySide, ImGuizmo, ImmVision, or 3D
+plotting modules.
+
+imgui-bundle: https://github.com/pthom/imgui_bundle
+Hello ImGui: https://github.com/pthom/hello_imgui
+Dear ImGui: https://github.com/ocornut/imgui

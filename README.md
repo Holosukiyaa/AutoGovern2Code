@@ -15,7 +15,7 @@ The project never receives an `.ag2c` directory, AG2C-generated `AGENTS.md` or `
 
 ## Install on Windows
 
-Requirements: Windows 10 or 11 x64. Python is not required. The tray is a Qt window (PySide6 stock widgets) and does not embed a browser. A portable copy is a folder with `AutoGovern2Code.exe`, `git\`, and `data\`; drop `portable.ini` beside the exe (or pass `--portable`) and it will not write PATH, Start Menu, or login startup. Shipped MinGit is used even if another Git is on PATH.
+Requirements: Windows 10 or 11 x64. Python is not required. The tray is a Dear ImGui window (Hello ImGui docking shell) and does not embed a browser or Qt. A portable copy is a folder with `AutoGovern2Code.exe`, `git\`, and `data\`; drop `portable.ini` beside the exe (or pass `--portable`) and it will not write PATH, Start Menu, or login startup. Shipped MinGit is used even if another Git is on PATH.
 
 1. Download `AutoGovern2Code-Setup-Windows-x64.exe` from the [latest GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest).
 2. Double-click the installer. It installs for the current user, puts AG2C in the Start Menu, and starts the tray app.

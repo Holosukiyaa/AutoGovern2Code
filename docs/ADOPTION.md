@@ -6,7 +6,7 @@ AG2C adoption has one user-facing action: choose a Git project in the tray appli
 
 Download `AutoGovern2Code-Setup-Windows-x64.exe` from the [latest GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest) and double-click it. The per-user installer:
 
-- installs a self-contained AG2C runtime without requiring Python, administrator rights, or Edge WebView2; the tray is a Qt window frozen with PySide6 and the package ships MinGit next to the app;
+- installs a self-contained AG2C runtime without requiring Python, administrator rights, or Edge WebView2; the tray is a Dear ImGui window (Hello ImGui) and the package ships MinGit next to the app;
 - installs the same Skill for Codex, Claude Code, Cursor, and generic Agent Skills locations;
 - adds the runtime to the user PATH for agent use;
 - starts the tray application and registers it for user startup.

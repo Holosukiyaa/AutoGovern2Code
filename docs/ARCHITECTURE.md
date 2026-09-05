@@ -65,9 +65,9 @@ The full self-digesting receipt binds route, checks, acceptance, Manifest, Polic
 
 ## Desktop boundary
 
-The Windows tray host is a Python Qt (PySide6) application. It starts the frozen AG2C runtime as a child process on a random `127.0.0.1` port, uses a per-session token, and shows projects, the file tree, knowledge cards, and an inspector with stock Qt widgets. It does not embed Edge WebView2. The Python runtime still serves the local API (and the old HTML assets for `ag2c viewer`); the tray host never opens a system browser. The server rejects non-local hosts and origins and sends a restrictive content security policy. Bundled Qt libraries are LGPL and remain replaceable next to the tray executable.
+The Windows tray host is a Dear ImGui application through Hello ImGui (`imgui-bundle`, MIT). It starts the frozen AG2C runtime as a child process on a random `127.0.0.1` port, uses a per-session token, and shows projects, the file tree, knowledge cards, and an inspector in Hello ImGui dock spaces. Network calls run on a worker thread. It does not embed Edge WebView2, does not use PySide/Qt, and does not import ImGuizmo, ImmVision, or 3D plotting modules. The Python runtime still serves the local API (and the old HTML assets for `ag2c viewer`). The server rejects non-local hosts and origins and sends a restrictive content security policy.
 
-The UI can add, inspect, recheck, open, and stop managing projects. It cannot edit Policy or evidence. Qt's folder dialog handles project selection, so users never type paths. Knowledge cards, unowned directories, stale or abandoned cards, undeclared product checks, and open AI worktrees are flagged in the tree, card list, and inspector.
+The UI can add, inspect, recheck, open, and stop managing projects. It cannot edit Policy or evidence. Hello ImGui's portable folder dialog handles project selection, so users never type paths. Knowledge cards, unowned directories, stale or abandoned cards, undeclared product checks, and open AI worktrees are flagged in the tree, card list, and inspector.
 
 ## Git guard and limits
 

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Replace the PySide tray with Dear ImGui / Hello ImGui (`imgui-bundle`). Docking, theme, and the folder dialog come from that MIT shell. Network work runs off the UI thread. 3D add-ons (ImGuizmo, ImmVision, implot3d) are not imported and are excluded from the freeze.
 - Add `start-tray.bat` (and `打开管理界面.bat`) so the Qt tray can be started with a double-click from the repo.
 - Replace the WinForms tray with a Python Qt host (PySide6). The window uses stock Qt widgets and Qt Style Sheets instead of a hand-drawn control set or an embedded browser. The governance engine stays Python; Qt is an optional `gui` extra and is frozen only into the Windows tray.
 - Skin the native tray to the previous light-console look: blue AG mark, 236×76 project cards, pill filters, white file-tree pane and mint knowledge-card pane. Still no browser.

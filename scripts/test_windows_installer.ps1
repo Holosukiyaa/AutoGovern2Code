@@ -142,8 +142,8 @@ try {
             throw "Installer still ships an Edge WebView2 host file: $hostFile"
         }
     }
-    if (-not (Test-Path -LiteralPath (Join-Path $installRoot 'NOTICE-qt.txt'))) {
-        throw 'Installer did not ship the Qt license notice.'
+    if (-not (Test-Path -LiteralPath (Join-Path $installRoot 'NOTICE-imgui.txt'))) {
+        throw 'Installer did not ship the Dear ImGui license notice.'
     }
     $startupInstalled = Get-StartupState
     if (-not $startupInstalled.Exists -or $startupInstalled.Value -notmatch [regex]::Escape($desktop)) {

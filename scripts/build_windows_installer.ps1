@@ -16,7 +16,7 @@ $skillData = "${skillSource}:ag2c\skills"
 $uiSource = Join-Path $repoRoot 'src\ag2c\ui'
 $uiData = "${uiSource}:ag2c\ui"
 $desktopEntry = Join-Path $repoRoot 'packaging\windows\desktop\app.py'
-$desktopNotice = Join-Path $repoRoot 'packaging\windows\desktop\NOTICE-qt.txt'
+$desktopNotice = Join-Path $repoRoot 'packaging\windows\desktop\NOTICE-imgui.txt'
 
 if (-not (Test-Path -LiteralPath (Join-Path $skillSource 'ag2c-governed-development\SKILL.md'))) {
     throw "Packaged AG2C Skill source is missing from $skillSource."
@@ -98,9 +98,9 @@ if (Test-Path -LiteralPath $ag2cGit) {
     Remove-Item -LiteralPath $ag2cGit -Recurse -Force
 }
 Copy-Item -LiteralPath $gitRoot -Destination $ag2cGit -Recurse -Force
-& python -m pip install --disable-pip-version-check "PySide6>=6.6"
+& python -m pip install --disable-pip-version-check "imgui-bundle>=1.5"
 if ($LASTEXITCODE -ne 0) {
-    throw "PySide6 install failed with exit code $LASTEXITCODE."
+    throw "imgui-bundle install failed with exit code $LASTEXITCODE."
 }
 $trayDist = Join-Path $buildRoot 'tray'
 & python -m PyInstaller `
@@ -110,9 +110,12 @@ $trayDist = Join-Path $buildRoot 'tray'
     --onedir `
     --name AutoGovern2Code `
     --paths (Join-Path $repoRoot 'src') `
-    --collect-all PySide6 `
-    --hidden-import ag2c.qt_tray `
+    --hidden-import ag2c.imgui_tray `
     --hidden-import ag2c.tray_host `
+    --exclude-module imgui_bundle.imguizmo `
+    --exclude-module imgui_bundle.immvision `
+    --exclude-module imgui_bundle.implot3d `
+    --exclude-module PySide6 `
     --distpath $trayDist `
     --workpath (Join-Path $buildRoot 'pyinstaller-tray') `
     --specpath (Join-Path $buildRoot 'spec-tray') `
@@ -129,7 +132,7 @@ if (Test-Path -LiteralPath $trayHost) {
     Remove-Item -LiteralPath $trayHost -Recurse -Force
 }
 Copy-Item -LiteralPath $trayOut -Destination $trayHost -Recurse -Force
-Copy-Item -LiteralPath $desktopNotice -Destination (Join-Path $trayHost 'NOTICE-qt.txt') -Force
+Copy-Item -LiteralPath $desktopNotice -Destination (Join-Path $trayHost 'NOTICE-imgui.txt') -Force
 
 $isccCandidates = @(
     (Get-Command iscc.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),

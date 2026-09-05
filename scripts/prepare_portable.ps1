@@ -33,9 +33,9 @@ Get-ChildItem -LiteralPath $trayDir | ForEach-Object {
     if ($_.Name -eq 'ag2c') { return }
     Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $OutputRoot $_.Name) -Recurse -Force
 }
-$notice = Join-Path $repoRoot 'packaging\windows\desktop\NOTICE-qt.txt'
+$notice = Join-Path $repoRoot 'packaging\windows\desktop\NOTICE-imgui.txt'
 if (Test-Path -LiteralPath $notice) {
-    Copy-Item -LiteralPath $notice -Destination (Join-Path $OutputRoot 'NOTICE-qt.txt') -Force
+    Copy-Item -LiteralPath $notice -Destination (Join-Path $OutputRoot 'NOTICE-imgui.txt') -Force
 }
 
 $ag2cSource = $null

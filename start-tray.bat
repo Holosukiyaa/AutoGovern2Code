@@ -16,12 +16,12 @@ if not exist "%AG2C_APP%" (
   exit /b 1
 )
 
-"%AG2C_PYTHON%" -c "from PySide6.QtWidgets import QApplication" 1>nul 2>nul
+"%AG2C_PYTHON%" -c "from imgui_bundle import hello_imgui" 1>nul 2>nul
 if errorlevel 1 (
-  echo PySide6 is missing. Installing...
-  "%AG2C_PYTHON%" -m pip install --disable-pip-version-check "PySide6>=6.6"
+  echo imgui-bundle is missing. Installing...
+  "%AG2C_PYTHON%" -m pip install --disable-pip-version-check "imgui-bundle>=1.5"
   if errorlevel 1 (
-    echo Could not install PySide6. Run: python -m pip install PySide6
+    echo Could not install imgui-bundle. Run: python -m pip install imgui-bundle
     pause
     exit /b 1
   )

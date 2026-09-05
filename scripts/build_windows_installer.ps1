@@ -13,8 +13,6 @@ $launcher = Join-Path $repoRoot 'packaging\windows\launcher.py'
 $installerScript = Join-Path $repoRoot 'packaging\windows\AutoGovern2Code.iss'
 $skillSource = Join-Path $repoRoot 'src\ag2c\skills'
 $skillData = "${skillSource}:ag2c\skills"
-$uiSource = Join-Path $repoRoot 'src\ag2c\ui'
-$uiData = "${uiSource}:ag2c\ui"
 $desktopEntry = Join-Path $repoRoot 'packaging\windows\tray.py'
 $desktopNotice = Join-Path $repoRoot 'packaging\windows\NOTICE-imgui.txt'
 
@@ -52,7 +50,6 @@ New-Item -ItemType Directory -Path $installerRoot -Force | Out-Null
     --name ag2c `
     --paths (Join-Path $repoRoot 'src') `
     --add-data $skillData `
-    --add-data $uiData `
     --distpath $runtimeRoot `
     --workpath (Join-Path $buildRoot 'pyinstaller') `
     --specpath (Join-Path $buildRoot 'spec') `

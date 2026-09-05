@@ -10,7 +10,6 @@ recursive-include docs *.md
 recursive-include tests *.py
 recursive-include packaging *.iss *.py *.txt
 recursive-include scripts *.ps1
-recursive-include src/ag2c/ui *.html *.css *.js *.txt
 
 include examples/minimal/README.md
 include examples/minimal-governance/README.md

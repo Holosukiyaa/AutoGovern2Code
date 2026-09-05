@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import mimetypes
 import os
 import string
 import subprocess
@@ -10,7 +9,6 @@ import threading
 from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from importlib.resources import files
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -487,42 +485,13 @@ class DesktopHandler(BaseHTTPRequestHandler):
             raise AG2CError("project path is required")
         return Path(value).expanduser().resolve()
 
-    def _static(self, relative: str, content_type: str | None = None) -> None:
-        allowed = {"index.html", "styles.css", "app.js", "graph.js", "vendor/g6.min.js"}
-        if relative not in allowed:
-            self._error(HTTPStatus.NOT_FOUND, "not found")
-            return
-        resource = files("ag2c").joinpath("ui", *relative.split("/"))
-        try:
-            payload = resource.read_bytes()
-        except (FileNotFoundError, OSError):
-            self._error(HTTPStatus.NOT_FOUND, "desktop asset is missing")
-            return
-        media = content_type or mimetypes.guess_type(relative)[0] or "application/octet-stream"
-        if media.startswith("text/") or media in {"application/javascript"}:
-            media += "; charset=utf-8"
-        self._headers(HTTPStatus.OK, media, len(payload))
-        self.wfile.write(payload)
-
     def do_GET(self) -> None:
         if not self._host_allowed() or not self._origin_allowed():
             self._error(HTTPStatus.FORBIDDEN, "request origin is not allowed")
             return
         path = urlparse(self.path).path
-        if path == "/":
-            self._static("index.html", "text/html")
-            return
-        if path == "/assets/styles.css" or path.startswith("/assets/styles.css"):
-            self._static("styles.css", "text/css")
-            return
-        if path == "/assets/app.js" or path.startswith("/assets/app.js"):
-            self._static("app.js", "application/javascript")
-            return
-        if path == "/assets/graph.js" or path.startswith("/assets/graph.js"):
-            self._static("graph.js", "application/javascript")
-            return
-        if path == "/assets/vendor/g6.min.js" or path.startswith("/assets/vendor/g6.min.js"):
-            self._static("vendor/g6.min.js", "application/javascript")
+        if path == "/" or path.startswith("/assets/"):
+            self._error(HTTPStatus.NOT_FOUND, "not found")
             return
         if path == "/api/status":
             self._json(
@@ -535,8 +504,7 @@ class DesktopHandler(BaseHTTPRequestHandler):
             )
             return
         if path == "/api/session":
-            # Loopback viewers can recover after a restart or a missing bootstrap
-            # query. Host and Origin checks already keep this off the network.
+            # Loopback clients can recover a session token after a restart.
             self._json(HTTPStatus.OK, {"token": self.server.token})
             return
         if not self._authorized():

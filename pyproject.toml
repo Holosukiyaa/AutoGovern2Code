@@ -40,4 +40,4 @@ ag2c = "ag2c.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-ag2c = ["py.typed", "skills/*/SKILL.md", "skills/*/agents/*.yaml", "ui/*.html", "ui/*.css", "ui/*.js", "ui/vendor/*"]
+ag2c = ["py.typed", "skills/*/SKILL.md", "skills/*/agents/*.yaml"]

@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import secrets
 import sys
-import webbrowser
 from pathlib import Path
 from typing import Any
 
@@ -161,11 +159,6 @@ def build_parser() -> argparse.ArgumentParser:
     desktop_serve = desktop_commands.add_parser("serve")
     desktop_serve.add_argument("--port", type=int, default=18992)
     desktop_serve.add_argument("--token", required=True)
-
-    viewer = subparsers.add_parser("viewer", help="serve the governance viewer in a local browser")
-    viewer.add_argument("--port", type=int, default=18992)
-    viewer.add_argument("--token", help="local session token; generated when omitted")
-    viewer.add_argument("--open", action="store_true", help="open the viewer in the default browser")
 
     guard = subparsers.add_parser("guard", help="internal activation and Git enforcement")
     guard_commands = guard.add_subparsers(dest="guard_command", required=True)
@@ -502,20 +495,6 @@ def main(argv: list[str] | None = None) -> int:
             from .desktop import serve_desktop
 
             return serve_desktop(port=args.port, token=args.token)
-        if args.command == "viewer":
-            from urllib.parse import quote
-
-            from .desktop import serve_desktop
-
-            token = args.token or secrets.token_urlsafe(32)
-            url = f"http://127.0.0.1:{args.port}/?bootstrap={quote(token, safe='')}"
-
-            def viewer_ready(_port: int) -> None:
-                print(f"AG2C browser viewer: {url}", flush=True)
-                if args.open:
-                    webbrowser.open(url)
-
-            return serve_desktop(port=args.port, token=token, on_ready=viewer_ready)
         if args.command == "guard":
             from .enrollment import activation_status, guard_pre_commit
 

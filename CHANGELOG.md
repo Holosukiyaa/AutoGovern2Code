@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Keep only the Hello ImGui tray. The HTTP service no longer serves HTML/G6 assets, `ag2c viewer` is gone, and the old governance-viewer launcher starts the ImGui tray.
 - Drop the leftover Qt tray alias so `ag2c.qt_tray` is not a live host. The desktop entry is `ag2c.imgui_tray`. Abandoned WinForms/WebView2/Qt files under `packaging/windows/desktop` are already gone.
 - Stop the tray from drawing two selection boxes on mouse click: unique ImGui ids per row, one selected key, no nav cursor, and hover no longer uses the same fill as selected.
 - Load Microsoft YaHei (or SimSun) as the Hello ImGui default font from `C:\Windows\Fonts`, then merge Font Awesome. The previous loader used the Latin-only default font and looked for YaHei in demo assets, so Chinese labels rendered as tofu boxes.

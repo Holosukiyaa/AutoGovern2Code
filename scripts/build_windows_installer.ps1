@@ -18,10 +18,7 @@ $uiData = "${uiSource}:ag2c\ui"
 $desktopSource = Join-Path $repoRoot 'packaging\windows\desktop\AG2CDesktop.cs'
 $desktopManifest = Join-Path $repoRoot 'packaging\windows\desktop\app.manifest'
 $desktopConfig = Join-Path $repoRoot 'packaging\windows\desktop\AutoGovern2Code.exe.config'
-$webviewDir = Join-Path $repoRoot 'packaging\windows\desktop\webview2'
-$webviewCore = Join-Path $webviewDir 'Microsoft.Web.WebView2.Core.dll'
-$webviewWinForms = Join-Path $webviewDir 'Microsoft.Web.WebView2.WinForms.dll'
-$webviewLoader = Join-Path $webviewDir 'WebView2Loader.dll'
+$webExtensions = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\System.Web.Extensions.dll'
 
 if (-not (Test-Path -LiteralPath (Join-Path $skillSource 'ag2c-governed-development\SKILL.md'))) {
     throw "Packaged AG2C Skill source is missing from $skillSource."
@@ -89,11 +86,31 @@ if (-not $cscCandidates) {
     throw '.NET Framework csc.exe was not found; the desktop tray host cannot be built.'
 }
 $csc = $cscCandidates | Select-Object -First 1
-foreach ($webviewFile in @($webviewCore, $webviewWinForms, $webviewLoader, $desktopConfig)) {
-    if (-not (Test-Path -LiteralPath $webviewFile)) {
-        throw "Embedded Edge host file is missing: $webviewFile"
+if (-not (Test-Path -LiteralPath $desktopConfig)) {
+    throw "Desktop host config is missing: $desktopConfig"
+}
+if (-not (Test-Path -LiteralPath $webExtensions)) {
+    throw "System.Web.Extensions.dll was not found at $webExtensions"
+}
+$gitRoot = Join-Path $runtimeRoot 'git'
+$env:PYTHONPATH = Join-Path $repoRoot 'src'
+try {
+    & python -c "from pathlib import Path; from ag2c.gitops import install_git_runtime; print(install_git_runtime(Path(r'$gitRoot')))"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Bundled MinGit materialize failed with exit code $LASTEXITCODE."
     }
 }
+finally {
+    $env:PYTHONPATH = $previousPythonPath
+}
+if (-not (Test-Path -LiteralPath (Join-Path $gitRoot 'cmd\git.exe'))) {
+    throw "Bundled MinGit was not placed at $gitRoot"
+}
+$ag2cGit = Join-Path $runtimeRoot 'ag2c\git'
+if (Test-Path -LiteralPath $ag2cGit) {
+    Remove-Item -LiteralPath $ag2cGit -Recurse -Force
+}
+Copy-Item -LiteralPath $gitRoot -Destination $ag2cGit -Recurse -Force
 $desktop = Join-Path $runtimeRoot 'AutoGovern2Code.exe'
 & $csc `
     /nologo `
@@ -104,17 +121,13 @@ $desktop = Join-Path $runtimeRoot 'AutoGovern2Code.exe'
     /reference:System.Drawing.dll `
     /reference:System.Net.Http.dll `
     /reference:System.Windows.Forms.dll `
-    "/reference:$webviewCore" `
-    "/reference:$webviewWinForms" `
+    "/reference:$webExtensions" `
     "/win32manifest:$desktopManifest" `
     $desktopSource
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $desktop)) {
     throw "Desktop tray host build failed with exit code $LASTEXITCODE."
 }
 Copy-Item -LiteralPath $desktopConfig -Destination (Join-Path $runtimeRoot 'AutoGovern2Code.exe.config') -Force
-Copy-Item -LiteralPath $webviewCore -Destination (Join-Path $runtimeRoot 'Microsoft.Web.WebView2.Core.dll') -Force
-Copy-Item -LiteralPath $webviewWinForms -Destination (Join-Path $runtimeRoot 'Microsoft.Web.WebView2.WinForms.dll') -Force
-Copy-Item -LiteralPath $webviewLoader -Destination (Join-Path $runtimeRoot 'WebView2Loader.dll') -Force
 
 $isccCandidates = @(
     (Get-Command iscc.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),

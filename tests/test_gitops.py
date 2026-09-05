@@ -19,6 +19,7 @@ from ag2c.gitops import (
     git_executable,
     head,
     read_local_git_source,
+    shipped_git_executable,
 )
 
 from support import git_project
@@ -82,12 +83,22 @@ class GitExecutableTests(unittest.TestCase):
         with patch.dict(os.environ, {"AG2C_GIT": real, "AG2C_GIT_ROOT": ""}, clear=False):
             self.assertEqual(Path(git_executable()).resolve(), Path(real).resolve())
 
+    def test_portable_git_wins_over_system_git(self) -> None:
+        real = shutil.which("git")
+        self.assertIsNotNone(real)
+        with tempfile.TemporaryDirectory() as directory:
+            bundled, fake = _fake_bundled_git(str(Path(directory) / "portable"))
+            with patch.dict(os.environ, {"AG2C_GIT": "", "AG2C_GIT_ROOT": "", "AG2C_PORTABLE_GIT": str(bundled)}, clear=False):
+                self.assertEqual(Path(git_executable()).resolve(), fake.resolve())
+                self.assertEqual(Path(shipped_git_executable()).resolve(), fake.resolve())
+                self.assertNotEqual(Path(git_executable()).resolve(), Path(real).resolve())
+
     def test_system_git_is_preferred_when_source_is_unset(self) -> None:
         real = shutil.which("git")
         self.assertIsNotNone(real)
         with tempfile.TemporaryDirectory() as directory:
             bundled, _fake = _fake_bundled_git(directory)
-            with patch.dict(os.environ, {"AG2C_GIT": "", "AG2C_GIT_ROOT": str(bundled)}, clear=False):
+            with patch.dict(os.environ, {"AG2C_GIT": "", "AG2C_GIT_ROOT": str(bundled), "AG2C_PORTABLE_GIT": ""}, clear=False):
                 self.assertEqual(Path(git_executable()).resolve(), Path(real).resolve())
 
     def test_sticky_bundled_source_keeps_bundled_git(self) -> None:

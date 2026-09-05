@@ -63,14 +63,43 @@ def _git_exe_in(root: Path | None) -> str | None:
     return None
 
 
+def _shipped_git_roots() -> list[Path]:
+    roots: list[Path] = []
+    override = os.environ.get("AG2C_PORTABLE_GIT", "").strip()
+    if override:
+        roots.append(Path(override).expanduser().resolve())
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        roots.append(exe_dir / "git")
+        roots.append(exe_dir.parent / "git")
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for root in roots:
+        if root in seen:
+            continue
+        seen.add(root)
+        unique.append(root)
+    return unique
+
+
+def shipped_git_root() -> Path | None:
+    for root in _shipped_git_roots():
+        if _git_exe_in(root):
+            return root
+    return None
+
+
+def shipped_git_executable() -> str | None:
+    return _git_exe_in(shipped_git_root())
+
+
 def _candidate_bundled_roots() -> list[Path]:
     roots: list[Path] = []
     override = os.environ.get("AG2C_GIT_ROOT", "").strip()
     if override:
         roots.append(Path(override).expanduser().resolve())
+    roots.extend(_shipped_git_roots())
     roots.append(_default_bundled_root())
-    if getattr(sys, "frozen", False):
-        roots.append(Path(sys.executable).resolve().parent / "git")
     unique: list[Path] = []
     seen: set[Path] = set()
     for root in roots:
@@ -285,21 +314,19 @@ def _install_lock(path: Path):
         path.unlink(missing_ok=True)
 
 
-def ensure_bundled_git() -> str:
-    existing = _git_exe_in(bundled_git_root())
+def install_git_runtime(destination: Path) -> str:
+    destination = destination.expanduser().resolve()
+    existing = _git_exe_in(destination)
     if existing:
         return existing
-    if os.environ.get("AG2C_GIT_ROOT", "").strip():
-        raise AG2CError(_MISSING_GIT, code=GIT_MISSING)
     if os.name != "nt":
         raise AG2CError(_MISSING_GIT_UNIX, code=GIT_MISSING)
     if os.environ.get("AG2C_SKIP_GIT_DOWNLOAD") == "1":
         raise AG2CError(_MISSING_GIT, code=GIT_MISSING)
-    install_root = _default_bundled_root()
-    cache = install_root.parent / "cache"
+    cache = destination.parent / "cache"
     lock = cache / f"{MINGIT_ZIP_NAME}.lock"
     with _install_lock(lock):
-        existing = _git_exe_in(bundled_git_root())
+        existing = _git_exe_in(destination)
         if existing:
             return existing
         zip_override = os.environ.get("AG2C_MINGIT_ZIP", "").strip()
@@ -311,20 +338,37 @@ def ensure_bundled_git() -> str:
                 raise AG2CError("bundled Git archive failed SHA-256 verification", code=GIT_MISSING)
         elif not zip_path.is_file() or _sha256_file(zip_path) != MINGIT_SHA256:
             _download_mingit_zip(zip_path)
-        _extract_mingit(zip_path, install_root)
-    installed = _git_exe_in(install_root)
+        _extract_mingit(zip_path, destination)
+    installed = _git_exe_in(destination)
     if not installed:
         raise AG2CError(_MISSING_GIT, code=GIT_MISSING)
     return installed
 
 
+def ensure_bundled_git() -> str:
+    existing = _git_exe_in(bundled_git_root())
+    if existing:
+        return existing
+    if os.environ.get("AG2C_GIT_ROOT", "").strip():
+        raise AG2CError(_MISSING_GIT, code=GIT_MISSING)
+    if os.name != "nt":
+        raise AG2CError(_MISSING_GIT_UNIX, code=GIT_MISSING)
+    if os.environ.get("AG2C_SKIP_GIT_DOWNLOAD") == "1":
+        raise AG2CError(_MISSING_GIT, code=GIT_MISSING)
+    return install_git_runtime(_default_bundled_root())
+
+
 def _classify_executable(executable: str) -> str:
-    bundled = _git_exe_in(bundled_git_root())
     try:
-        if bundled and Path(executable).resolve() == Path(bundled).resolve():
-            return GIT_SOURCE_BUNDLED
+        resolved = Path(executable).resolve()
     except OSError:
-        pass
+        return GIT_SOURCE_SYSTEM
+    for candidate in (shipped_git_executable(), _git_exe_in(bundled_git_root())):
+        try:
+            if candidate and resolved == Path(candidate).resolve():
+                return GIT_SOURCE_BUNDLED
+        except OSError:
+            continue
     return GIT_SOURCE_SYSTEM
 
 
@@ -335,6 +379,9 @@ def git_executable(root: Path | None = None) -> str:
         if path.is_file():
             return str(path.resolve())
         raise AG2CError(_MISSING_GIT, code=GIT_MISSING)
+    shipped = shipped_git_executable()
+    if shipped:
+        return shipped
     source = read_local_git_source(root) if root is not None else ""
     system = system_git_executable()
     if source == GIT_SOURCE_BUNDLED:

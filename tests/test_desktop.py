@@ -105,8 +105,9 @@ class DesktopServerTests(unittest.TestCase):
         self.assertTrue(headers["X-AG2C-Desktop"].startswith("desktop/"))
         capabilities = json.loads(body)["capabilities"]
         self.assertIn("knowledge-graph", capabilities)
-        self.assertIn("web-folder-picker", capabilities)
+        self.assertIn("native-ui", capabilities)
         self.assertIn("native-folder-picker", capabilities)
+        self.assertNotIn("web-folder-picker", capabilities)
 
     def test_project_data_requires_session_token_and_same_origin(self) -> None:
         status, _, _ = self.request("GET", "/api/projects")
@@ -332,25 +333,20 @@ class DesktopServerTests(unittest.TestCase):
 
 
 class TrayHostSourceTests(unittest.TestCase):
-    def test_tray_host_embeds_edge_and_never_opens_a_system_browser(self) -> None:
+    def test_tray_host_is_native_winforms_without_webview2(self) -> None:
         root = Path(__file__).resolve().parents[1]
         source = (root / "packaging" / "windows" / "desktop" / "AG2CDesktop.cs").read_text(encoding="utf-8")
         build = (root / "scripts" / "build_windows_installer.ps1").read_text(encoding="utf-8")
         installer = (root / "packaging" / "windows" / "AutoGovern2Code.iss").read_text(encoding="utf-8")
-        self.assertIn("using Microsoft.Web.WebView2.WinForms;", source)
-        self.assertIn("window.ag2cDesktopHost = true", source)
-        self.assertIn("choose-project", source)
+        self.assertNotIn("WebView2", source)
+        self.assertNotIn("Microsoft.Web.WebView2", source)
         self.assertNotIn("new WebBrowser", source)
-        self.assertIn("Microsoft.Web.WebView2.WinForms.dll", build)
-        self.assertIn("WebView2Loader.dll", build)
-        self.assertIn("Microsoft.Web.WebView2.WinForms.dll", installer)
-        self.assertIn("WebView2Loader.dll", installer)
-        for name in (
-            "Microsoft.Web.WebView2.Core.dll",
-            "Microsoft.Web.WebView2.WinForms.dll",
-            "WebView2Loader.dll",
-        ):
-            self.assertTrue((root / "packaging" / "windows" / "desktop" / "webview2" / name).is_file(), name)
+        self.assertIn("new TreeView", source)
+        self.assertIn("FolderBrowserDialog", source)
+        self.assertIn("install_git_runtime", build)
+        self.assertIn("{app}\\git", installer)
+        self.assertNotIn("WebView2Loader.dll", build)
+        self.assertNotIn("WebView2Loader.dll", installer)
 
 
 if __name__ == "__main__":

@@ -530,7 +530,7 @@ class DesktopHandler(BaseHTTPRequestHandler):
                 {
                     "status": "ready",
                     "version": __version__,
-                    "capabilities": ["web-folder-picker", "native-folder-picker", "project-details", "knowledge-graph"],
+                    "capabilities": ["native-folder-picker", "native-ui", "project-details", "knowledge-graph"],
                 },
             )
             return

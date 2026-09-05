@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The tray window is native WinForms: project list, file tree, and knowledge cards. It no longer embeds Edge WebView2. Windows installers and portable copies ship MinGit next to the runtime; a portable Git wins over whatever Git happens to be on PATH so moving project folders does not switch Git implementations.
+
 - Directory households now have exploring, named, and opaque identities. `census --record` refuses opaque claims. `govern tighten` is monotonic; `renew-exploring` keeps construction visible without product acceptance. Narrow `task start` refuses unresolved household debt. Feature tasks cannot delete active households; leftover deletion uses `govern retire` and an optional confirm fuse. New enrollment hangs top-level directories as exploring without naming them, seeds that child set so nested trees stay startable, and later household registration absorbs or carves those placeholders instead of dual-owning. README cards no longer explain every floor.
 
 - Show the tray coverage view as a scrollable project file tree on the left and knowledge cards on the right, with lines between a selected file and the card that covers it. Stop periodic refresh from yanking the view. Each file shows who manages it, which floor owns the path, the latest commit, and whether it looks like leftover work. Search `frontend` to isolate the frontend tree.

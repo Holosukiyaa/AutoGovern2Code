@@ -44,9 +44,7 @@ AppMutex=Local\AutoGovern2Code.Desktop
 Source: "{#BuildRoot}\runtime\ag2c\*"; DestDir: "{app}\ag2c"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#BuildRoot}\runtime\AutoGovern2Code.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildRoot}\runtime\AutoGovern2Code.exe.config"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#BuildRoot}\runtime\Microsoft.Web.WebView2.Core.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#BuildRoot}\runtime\Microsoft.Web.WebView2.WinForms.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#BuildRoot}\runtime\WebView2Loader.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#BuildRoot}\runtime\git\*"; DestDir: "{app}\git"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 Source: "{#SourceRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]

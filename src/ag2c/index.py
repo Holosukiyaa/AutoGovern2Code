@@ -13,7 +13,7 @@ from typing import Any
 from .errors import AG2CError, IndexError as GovernanceIndexError
 from .gitops import git_command_env, git_executable
 from .model import Card, Manifest, Policy, Scope, Target
-from .util import canonical_json, digest_file, digest_json, path_matches
+from .util import canonical_json, digest_file, digest_json, hidden_process_kwargs, path_matches
 
 INDEX_SCHEMA = "ag2c.index.v1"
 INDEX_FILENAME = "index.sqlite"
@@ -72,6 +72,7 @@ def _git(root: Path, *args: str, binary: bool = False) -> str | bytes | None:
             text=not binary,
             encoding=None if binary else "utf-8",
             env=git_command_env(executable=executable),
+            **hidden_process_kwargs(),
         )
     except OSError:
         return None

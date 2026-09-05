@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import http.client
 import json
+import os
 import socket
+import subprocess
 import sys
+import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from types import ModuleType
@@ -195,6 +199,9 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("restore_previous_geometry = False", ui)
         self.assertNotIn("show_view_menu", ui)
         self.assertIn("_dialog_lock", ui)
+        self.assertIn("enable_idling = False", ui)
+        self.assertIn("background_color = (0.13, 0.14, 0.16, 1.0)", ui)
+        self.assertIn("photoshop_style", ui)
         self.assertIn("from ag2c.imgui_tray import main", entry)
         self.assertIn("packaging\\windows\\tray.py", build)
         self.assertIn("NOTICE-imgui.txt", build)
@@ -205,6 +212,13 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("packaging\\windows\\tray.py", launcher)
         self.assertIn("imgui-bundle", launcher)
         self.assertIn("pythonw.exe", launcher)
+        self.assertIn("AG2C_CHECK", launcher)
+        self.assertIn('"%AG2C_CHECK%" -c "from imgui_bundle import hello_imgui"', launcher)
+        self.assertIn("hidden_process_kwargs", host)
+        self.assertIn("_windowless_python", host)
+        self.assertNotIn("post_init = lambda: _start_backend(state)", ui)
+        self.assertIn("state.run_job(lambda: _start_backend(state))", ui)
+        self.assertLess(ui.index("state.run_job(lambda: _start_backend(state))"), ui.index("hello_imgui.run(runner)"))
         self.assertFalse((root / "src" / "ag2c" / "qt_tray.py").exists())
         self.assertFalse((root / "src" / "ag2c" / "ui").exists())
         self.assertFalse((root / "start-governance-viewer.cmd").exists())
@@ -302,6 +316,74 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertEqual(["k1"], [card["id"] for card in cards])
         self.assertTrue(node_matches(details["graph"]["nodes"][0], "front", "exploring"))
         self.assertFalse(node_matches(details["graph"]["nodes"][2], "", "exploring"))
+
+
+class HiddenConsoleTests(unittest.TestCase):
+    def test_hidden_process_kwargs_hide_windows_consoles(self) -> None:
+        from ag2c.util import hidden_process_kwargs
+
+        kwargs = hidden_process_kwargs()
+        if os.name != "nt":
+            self.assertEqual({}, kwargs)
+            return
+        self.assertEqual(subprocess.CREATE_NO_WINDOW, kwargs["creationflags"])
+        self.assertTrue(kwargs["startupinfo"].dwFlags & subprocess.STARTF_USESHOWWINDOW)
+        self.assertEqual(0, kwargs["startupinfo"].wShowWindow)
+
+    def test_git_index_and_checks_pass_hidden_console_flags(self) -> None:
+        from ag2c.gitops import _run_git
+        from ag2c.index import _git
+        from ag2c.util import hidden_process_kwargs
+
+        hidden = hidden_process_kwargs()
+        completed = MagicMock(returncode=0, stdout="ok", stderr="")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch("ag2c.gitops.subprocess.run", return_value=completed) as git_run:
+                _run_git("git", root, "status", check=False)
+            with patch("ag2c.index.git_executable", return_value="git"), patch(
+                "ag2c.index.subprocess.run", return_value=completed
+            ) as index_run:
+                _git(root, "rev-parse", "HEAD")
+        for mocked in (git_run, index_run):
+            kwargs = mocked.call_args.kwargs
+            if os.name == "nt":
+                self.assertEqual(hidden["creationflags"], kwargs["creationflags"])
+                self.assertTrue(kwargs["startupinfo"].dwFlags & subprocess.STARTF_USESHOWWINDOW)
+            else:
+                self.assertNotIn("creationflags", kwargs)
+
+    def test_runtime_and_desktop_server_do_not_open_a_console(self) -> None:
+        from ag2c.tray_host import runtime_command, start_desktop_server
+
+        command = runtime_command([], Path("."))
+        self.assertEqual("-m", command[1])
+        self.assertEqual("ag2c", command[2])
+        if os.name == "nt":
+            pythonw = Path(sys.executable).with_name("pythonw.exe")
+            if Path(sys.executable).name.lower() == "python.exe" and pythonw.is_file():
+                self.assertEqual(str(pythonw), command[0])
+        with patch("subprocess.Popen") as popped:
+            start_desktop_server(command, 9, "token-token-token-token-token")
+        kwargs = popped.call_args.kwargs
+        if os.name == "nt":
+            self.assertEqual(subprocess.CREATE_NO_WINDOW, kwargs["creationflags"])
+            self.assertTrue(kwargs["startupinfo"].dwFlags & subprocess.STARTF_USESHOWWINDOW)
+
+    def test_checker_runner_hides_console_windows(self) -> None:
+        source = (Path(__file__).resolve().parents[1] / "src" / "ag2c" / "checks.py").read_text(encoding="utf-8")
+        self.assertIn("**hidden_process_kwargs()", source)
+
+    def test_wait_for_status_can_be_cancelled(self) -> None:
+        from ag2c.tray_host import wait_for_status
+
+        class DeadApi:
+            def request(self, *args: object, **kwargs: object) -> dict[str, str]:
+                raise ConnectionError("down")
+
+        started = time.perf_counter()
+        self.assertFalse(wait_for_status(DeadApi(), attempts=20, pause=0.05, cancelled=lambda: True))
+        self.assertLess(time.perf_counter() - started, 0.2)
 
 
 if __name__ == "__main__":

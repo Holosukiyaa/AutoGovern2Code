@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from .errors import GIT_MISSING, AG2CError
+from .util import hidden_process_kwargs
 
 _GIT_NAMES = ("git.exe", "git")
 _BUNDLED_GIT_BIN_RELATIVE = ("cmd", "mingw64/bin", "usr/bin", "bin")
@@ -156,8 +157,18 @@ def git_command_env(base: dict[str, str] | None = None, *, executable: str | Non
 
 
 def system_git_executable() -> str | None:
-    found = shutil.which("git")
-    return str(Path(found).resolve()) if found else None
+    for name in ("git.exe", "git"):
+        found = shutil.which(name)
+        if not found:
+            continue
+        path = Path(found)
+        if path.suffix.lower() in {".cmd", ".bat"}:
+            sibling = path.with_suffix(".exe")
+            if sibling.is_file():
+                return str(sibling.resolve())
+            continue
+        return str(path.resolve())
+    return None
 
 
 def peek_git_executable() -> str | None:
@@ -433,6 +444,7 @@ def _run_git(
             input=stdin,
             env=run_env,
             shell=False,
+            **hidden_process_kwargs(),
         )
     except FileNotFoundError as exc:
         raise AG2CError(_MISSING_GIT, code=GIT_MISSING) from exc

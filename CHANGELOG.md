@@ -6,6 +6,8 @@
 - Drop the heavy enroll/worktree/verify integration tests. Remaining tests are the tray host, CLI surface, and in-memory engine checks.
 - Fix `ag2c project uninstall` crashing on a missing `--remove-data` flag. The coverage payload is files and knowledge cards only (no G6 combo/edges). The local project list no longer returns an empty HTML `migrations` field.
 - Stop the Hello ImGui tray from spawning extra tiny loading windows: apply the dock layout only on first use, keep one 1280×860 window, and skip font reloads after a DPI rebuild.
+- Hide Windows console flashes from git, checkers, and the desktop server (`CREATE_NO_WINDOW`, prefer `pythonw`).
+- Show the Hello ImGui window immediately: start the local API on a background thread before GLFW, list projects first, then align/details without blocking the first frame.
 - Stop the tray from drawing two selection boxes on mouse click: unique ImGui ids per row, one selected key, no nav cursor, and hover no longer uses the same fill as selected.
 - Load Microsoft YaHei (or SimSun) as the Hello ImGui default font from `C:\Windows\Fonts`, then merge Font Awesome.
 - Move the Hello ImGui freeze entry and license notice to `packaging/windows/`. Portable copies no longer fall back to `build/dev-tray`.

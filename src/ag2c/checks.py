@@ -14,7 +14,7 @@ from .gitops import git_command_env, git_executable, peek_git_executable
 from .index import index_path, summary as index_summary, verify_freshness
 from .ledger import append_event
 from .model import Checker, Manifest, Policy
-from .util import digest_file
+from .util import digest_file, hidden_process_kwargs
 
 SKIP_EXIT_CODE = 78
 SKIP_MARK = "AG2C_SKIP:"
@@ -132,6 +132,7 @@ def run_checks(
                     timeout=checker.timeout,
                     check=False,
                     shell=False,
+                    **hidden_process_kwargs(),
                 )
                 exit_code = completed.returncode
                 stdout = completed.stdout

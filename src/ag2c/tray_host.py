@@ -10,8 +10,11 @@ import sys
 import threading
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from .util import hidden_process_kwargs
 
 FILTERS = (
     ("", "全部"),
@@ -69,6 +72,18 @@ def is_portable(args: list[str] | None, app_dir: Path | None = None) -> bool:
     return (root / "portable.ini").is_file()
 
 
+def _windowless_python() -> str:
+    executable = sys.executable
+    if os.name != "nt" or getattr(sys, "frozen", False):
+        return executable
+    path = Path(executable)
+    if path.name.lower() == "python.exe":
+        pythonw = path.with_name("pythonw.exe")
+        if pythonw.is_file():
+            return str(pythonw)
+    return executable
+
+
 def runtime_command(args: list[str] | None, app_dir: Path | None = None) -> list[str]:
     if args:
         for arg in args:
@@ -78,7 +93,7 @@ def runtime_command(args: list[str] | None, app_dir: Path | None = None) -> list
     frozen = root / "ag2c" / "ag2c.exe"
     if frozen.is_file():
         return [str(frozen)]
-    return [sys.executable, "-m", "ag2c"]
+    return [_windowless_python(), "-m", "ag2c"]
 
 
 def session_token() -> str:
@@ -249,10 +264,17 @@ def _error_message(text_body: str, fallback: str) -> str:
     return fallback
 
 
-def wait_for_status(api: DesktopApi, attempts: int = 100, pause: float = 0.1) -> bool:
+def wait_for_status(
+    api: DesktopApi,
+    attempts: int = 100,
+    pause: float = 0.1,
+    cancelled: Callable[[], bool] | None = None,
+) -> bool:
     import time
 
     for _ in range(attempts):
+        if cancelled is not None and cancelled():
+            return False
         try:
             api.request("GET", "api/status")
             return True
@@ -355,16 +377,17 @@ def start_desktop_server(command: list[str], port: int, token: str, extra_env: d
         "env": env,
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
+        **hidden_process_kwargs(),
     }
-    if os.name == "nt":
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-        if len(command) == 1 and command[0].lower().endswith("ag2c.exe"):
-            kwargs["cwd"] = str(Path(command[0]).parent)
+    if os.name == "nt" and len(command) == 1 and command[0].lower().endswith("ag2c.exe"):
+        kwargs["cwd"] = str(Path(command[0]).parent)
     return subprocess.Popen(**kwargs)
 
 
-def stop_desktop_server(api: DesktopApi, process) -> None:
+def stop_desktop_server(api: DesktopApi | None, process) -> None:
     def _shutdown() -> None:
+        if api is None:
+            return
         try:
             api.request("POST", "api/shutdown", {})
         except Exception:

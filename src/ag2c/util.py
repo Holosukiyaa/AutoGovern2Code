@@ -15,6 +15,21 @@ _FALSE = {"0", "false", "no", "off"}
 _TRUE = {"1", "true", "yes", "on"}
 
 
+def hidden_process_kwargs() -> dict[str, Any]:
+    """Hide the console window Windows creates for each git/checker child."""
+    if os.name != "nt":
+        return {}
+    import subprocess
+
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = 0
+    return {
+        "startupinfo": startupinfo,
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
+    }
+
+
 def portable_home() -> Path | None:
     configured = os.environ.get("AG2C_PORTABLE", "").strip()
     if configured.lower() in _FALSE:

@@ -59,6 +59,7 @@ class AppState:
         self._worker: threading.Thread | None = None
         self.really_exit = False
         self._dialog_lock = False
+        self.stopping = False
 
     def run_job(self, fn: Callable[[], None]) -> None:
         with self.lock:
@@ -111,7 +112,9 @@ def main(argv: list[str] | None = None) -> int:
     runner.app_window_params.window_geometry.window_size_state = hello_imgui.WindowSizeState.standard
     runner.ini_folder_type = hello_imgui.IniFolderType.app_user_config_folder
     runner.ini_filename = "AutoGovern2Code/tray.ini"
-    runner.fps_idling.enable_idling = True
+    runner.fps_idling.enable_idling = False
+    runner.fps_idling.remember_enable_idling = False
+    runner.fps_idling.vsync_to_monitor = True
     runner.imgui_window_params.default_imgui_window_type = (
         hello_imgui.DefaultImGuiWindowType.provide_full_screen_dock_space
     )
@@ -123,30 +126,30 @@ def main(argv: list[str] | None = None) -> int:
     runner.imgui_window_params.show_status_fps = False
     runner.imgui_window_params.enable_viewports = False
     runner.imgui_window_params.remember_theme = False
+    runner.imgui_window_params.background_color = (0.13, 0.14, 0.16, 1.0)
+    runner.imgui_window_params.tweaked_theme.theme = hello_imgui.ImGuiTheme_.photoshop_style
+    runner.imgui_window_params.tweaked_theme.tweaks.rounding = 6.0
     runner.callbacks.setup_imgui_style = _setup_theme
     runner.callbacks.load_additional_fonts = _load_fonts
     runner.callbacks.show_menus = lambda: _menus(state)
     runner.callbacks.show_status = lambda: _status_bar(state)
     runner.callbacks.before_imgui_render = _hide_nav_cursor
-    runner.callbacks.post_init = lambda: state.run_job(lambda: _start_backend(state))
     runner.callbacks.before_exit = lambda: _shutdown(state)
     runner.docking_params.layout_condition = hello_imgui.DockingLayoutCondition.first_use_ever
     runner.docking_params.docking_splits = _splits()
     runner.docking_params.dockable_windows = _windows(state)
+    # Align/details can take many seconds. Do that off the UI thread so GLFW
+    # can show the window immediately instead of waiting for post_init.
+    state.run_job(lambda: _start_backend(state))
     hello_imgui.run(runner)
     return 0
 
 
 def _setup_theme() -> None:
-    from imgui_bundle import hello_imgui, imgui
+    from imgui_bundle import imgui
 
-    hello_imgui.imgui_default_settings.setup_default_imgui_style()
-    theme = hello_imgui.ImGuiTweakedTheme()
-    theme.theme = hello_imgui.ImGuiTheme_.photoshop_style
-    theme.tweaks.rounding = 6.0
-    hello_imgui.apply_tweaked_theme(theme)
-    # Photoshop header-hovered is almost as strong as selected, so hover + selected
-    # look like two selected rows. Nav cursor adds a second box on the clicked row.
+    # Theme is set on RunnerParams before the first frame. Only patch selection
+    # colors here so Hello ImGui does not flash its default style first.
     style = imgui.get_style()
     style.set_color_(int(imgui.Col_.header), (0.28, 0.50, 0.78, 0.55))
     style.set_color_(int(imgui.Col_.header_hovered), (0.0, 0.0, 0.0, 0.0))
@@ -448,18 +451,45 @@ def _start_backend(state: AppState) -> None:
         return
     port = free_port()
     extra = portable_env(state.app_dir) if state.portable else None
-    state.process = start_desktop_server(command, port, state.token, extra)
-    state.api = DesktopApi(f"http://127.0.0.1:{port}/", state.token)
-    if not wait_for_status(state.api):
+    process = start_desktop_server(command, port, state.token, extra)
+    api = DesktopApi(f"http://127.0.0.1:{port}/", state.token)
+    with state.lock:
+        state.process = process
+        state.api = api
+        stopping = state.stopping
+    if stopping:
+        return
+    if not wait_for_status(api, cancelled=lambda: state.stopping):
         with state.lock:
+            if state.stopping:
+                return
             state.error = "AG2C 本地服务启动超时。"
             state.status = state.error
             state.loading = False
         return
     with state.lock:
+        if state.stopping:
+            return
         state.loading = False
         state.status = "已连接"
+    _load_projects(state)
     _refresh(state)
+
+
+def _load_projects(state: AppState) -> None:
+    if state.api is None:
+        return
+    payload = state.api.request("GET", "api/projects")
+    rows = payload.get("projects") if isinstance(payload.get("projects"), list) else []
+    projects = [row for row in rows if isinstance(row, dict)]
+    with state.lock:
+        state.projects = projects
+        if not state.busy:
+            state.status = "还没有治理项目" if not projects else f"已接入 {len(projects)} 个项目"
+        elif projects and state.status in {"正在启动", "已连接"}:
+            state.status = f"已接入 {len(projects)} 个项目"
+        if not state.selected_root and projects:
+            state.selected_root = text(projects[0], "root")
 
 
 def _refresh(state: AppState) -> None:
@@ -468,15 +498,11 @@ def _refresh(state: AppState) -> None:
     with state.lock:
         state.status = "正在刷新"
     state.api.request("POST", "api/projects/align", {})
-    payload = state.api.request("GET", "api/projects")
-    rows = payload.get("projects") if isinstance(payload.get("projects"), list) else []
-    projects = [row for row in rows if isinstance(row, dict)]
+    _load_projects(state)
     with state.lock:
-        state.projects = projects
-        state.status = "还没有治理项目" if not projects else f"已接入 {len(projects)} 个项目"
-        if not state.selected_root and projects:
-            state.selected_root = text(projects[0], "root")
         selected = state.selected_root
+        if not state.stopping:
+            state.status = "还没有治理项目" if not state.projects else f"已接入 {len(state.projects)} 个项目"
     if selected:
         _load_details(state, selected)
 
@@ -527,5 +553,9 @@ def _open_folder(state: AppState, root: str) -> None:
 
 
 def _shutdown(state: AppState) -> None:
-    if state.api is not None:
-        stop_desktop_server(state.api, state.process)
+    with state.lock:
+        state.stopping = True
+        api = state.api
+        process = state.process
+    if api is not None or process is not None:
+        stop_desktop_server(api, process)

@@ -52,6 +52,8 @@ class DesktopServerTests(unittest.TestCase):
         self.assertIn("待更新规则".encode("utf-8"), body)
         self.assertIn("治理日志".encode("utf-8"), body)
         self.assertIn("治理图谱".encode("utf-8"), body)
+        self.assertIn(b"graphCoverageList", body)
+        self.assertIn("覆盖关系".encode("utf-8"), body)
         self.assertIn(b"listDialog", body)
         self.assertIn(b"busyOverlay", body)
         for element in (b"graphSearch", b"graphNodePicker", b"graphInspectFreshness", b"graphInspectVersion", b"graphInspectHistory", b"graphInspectRelations"):
@@ -82,6 +84,9 @@ class DesktopServerTests(unittest.TestCase):
         status, graph_script, _ = self.request("GET", "/assets/graph.js")
         self.assertEqual(200, status)
         self.assertIn(b"AG2CKnowledgeGraph", graph_script)
+        self.assertIn(b"renderCoverageList", graph_script)
+        self.assertIn(b"coveredBy", graph_script)
+        self.assertIn("覆盖".encode("utf-8"), graph_script)
         status, g6, _ = self.request("GET", "/assets/vendor/g6.min.js")
         self.assertEqual(200, status)
         self.assertGreater(len(g6), 1000)

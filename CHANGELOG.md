@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Show each code directory next to the knowledge card that covers it, including uncovered directories, so the tray graph answers “which directory is covered by which card”.
 - Show a G6 force-directed knowledge graph in the tray window so unowned paths, stale knowledge, abandoned cards, undeclared product checks, and AI-writing work cannot hide in lists.
 - Render that graph inside the Windows tray host with embedded Edge WebView2 instead of the IE WebBrowser control.
 - Prefer the user's Git when it is on PATH; otherwise download MinGit into the AG2C data directory. Remember each project's Git source so a moved folder keeps bundled Git, or falls back to a download if the original system Git is gone.

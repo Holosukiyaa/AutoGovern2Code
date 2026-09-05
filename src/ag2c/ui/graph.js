@@ -7,7 +7,7 @@
   var searchQuery = "";
   var signature = "";
   var showDirectories = false;
-  var RELATIONS = { covers: "管辖", implements: "实现", replaced_by: "被替代为", explains: "归属楼层", governs: "治理", depends_on: "依赖", related_to: "关联", exposes: "暴露空洞" };
+  var RELATIONS = { covers: "覆盖", implements: "实现", replaced_by: "被替代为", explains: "归属楼层", governs: "治理", depends_on: "依赖", related_to: "关联", exposes: "暴露空洞", contains: "包含" };
   var ISSUES = { "floor-link-missing": "没有连接楼层", "floor-scope-mismatch": "楼层不覆盖实际代码范围", "replacement-missing": "旧实现没有替代者", "retired-code-remains": "标记已退役，但代码仍在", "implementation-check-missing": "没有本实现的检测", "implementation-check-mismatch": "检测属于另一套实现，或仅检查 diff 格式", "entrypoint-missing": "入口缺失或不在管辖范围", "source-outside-target": "源码链接指向项目外", "competing-current-implementations": "同一产品能力有多套当前实现" };
 
   var PALETTE = {
@@ -31,8 +31,12 @@
     var colors = PALETTE[primary] || PALETTE.current;
     var writing = (node.flags || []).indexOf("writing") >= 0;
     var kind = node.kind || "knowledge";
-    var width = kind === "gap" || kind === "work" ? 208 : kind === "floor" ? 164 : 188;
-    var height = kind === "floor" || kind === "constitution" ? 58 : 86;
+    var width = kind === "directory" ? 240 : kind === "gap" || kind === "work" ? 208 : kind === "floor" ? 164 : 200;
+    var height = kind === "directory" ? 72 : kind === "floor" || kind === "constitution" ? 58 : 86;
+    var coverage = node.coverageLabel || (kind === "directory" ? "无知识卡覆盖" : "");
+    var label = kind === "directory"
+      ? (node.title || node.path || node.id) + "\n" + coverage
+      : (node.kindLabel || "") + "\n" + (node.title || node.id) + "\n" + (coverage || node.statusLabel || "");
     return {
       id: node.id,
       data: node,
@@ -42,7 +46,7 @@
         stroke: writing && primary !== "writing" ? "#087a53" : colors.stroke,
         lineWidth: writing || node.lazy ? 2.2 : 1,
         radius: 12,
-        labelText: (node.kindLabel || "") + "\n" + (node.title || node.id) + "\n" + (node.statusLabel || ""),
+        labelText: label,
         labelFill: colors.label,
         labelFontSize: 11,
         labelFontWeight: 600,
@@ -108,6 +112,7 @@
     text($("graphInspectProtocol"), node ? (node.protocol || "无") : "—");
     text($("graphInspectDetection"), node ? (node.detection || "无") : "—");
     text($("graphInspectPath"), node ? (node.path || node.writingGoal || "—") : "—");
+    text($("graphInspectCoverage"), node ? (node.kind === "directory" ? ((node.coveredBy || []).join("、") || "无知识卡覆盖") : ((node.coversDirectories || []).map(function (path) { return "覆盖 " + path; }).join("\n") || "未覆盖代码目录")) : "点目录看知识卡，点知识卡看目录");
     var household = node && node.household || {};
     var declaration = household.jurisdiction || {};
     var census = household.last_census || {};
@@ -158,11 +163,40 @@
       button.disabled = Boolean(flag) && count === 0;
     }
     text($("graphHeadline"), payload.headline || "");
+    renderCoverageList();
     var census = payload.census || {};
     var countsCensus = census.counts || {};
     text($("graphCensusSummary"), census.observed_at ? "目录户口 " + (countsCensus.jurisdictions || 0) + " · 代码文件 " + (countsCensus.code_files || 0) + " · 未认领文件 " + (countsCensus.unowned || 0) + " · 重复认领文件 " + (countsCensus.ambiguous || 0) + " · 门禁：" + (census.required ? "强制" : "观察模式，尚未阻断交付") + "\n当前项目：" + revisionText(census.revisions) : "普查数据尚未加载");
     var banner = $("graphBanner");
     if (banner) banner.className = "graph-banner" + (payload.lazy ? " is-lazy" : "");
+  }
+
+  function renderCoverageList() {
+    var root = $("graphCoverageList");
+    if (!root) return;
+    root.textContent = "";
+    var rows = (payload.nodes || []).filter(function (node) { return node.kind === "directory" && !node.detailOnly; });
+    rows.sort(function (left, right) { return String(left.title || "").localeCompare(String(right.title || "")); });
+    if (!rows.length) {
+      var empty = document.createElement("div");
+      empty.className = "graph-coverage-row is-empty";
+      empty.textContent = "还没有代码目录可对照知识卡。";
+      root.appendChild(empty);
+      return;
+    }
+    rows.forEach(function (node) {
+      var row = document.createElement("button");
+      row.type = "button";
+      row.className = "graph-coverage-row" + ((node.coveredBy || []).length ? "" : " is-empty");
+      var directory = document.createElement("strong");
+      directory.textContent = node.title || node.path || node.id;
+      var cards = document.createElement("span");
+      cards.textContent = (node.coveredBy && node.coveredBy.length) ? node.coveredBy.join("、") : "无知识卡覆盖";
+      row.appendChild(directory);
+      row.appendChild(cards);
+      row.addEventListener("click", function () { choose(node.id); });
+      root.appendChild(row);
+    });
   }
 
   function bindFilters() {

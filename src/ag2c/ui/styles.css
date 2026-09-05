@@ -241,6 +241,12 @@ button:focus { outline: 2px solid rgba(37, 99, 235, .28); outline-offset: 2px; }
 .graph-search-row input, .graph-search-row select { min-height: 34px; min-width: 150px; flex: 1; border: 1px solid #d5dad8; border-radius: 6px; padding: 6px 8px; background: #fff; }
 .graph-search-row button { min-height: 34px; padding: 6px 12px; }
 .graph-census-summary { margin: 6px 0 12px; color: #4b5563; font-size: 12px; line-height: 1.6; }
+.graph-coverage-list { max-height: 168px; overflow: auto; margin: 0 0 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
+.graph-coverage-row { display: flex; width: 100%; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 7px 10px; border: 0; border-bottom: 1px solid #f3f4f6; background: #fff; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.graph-coverage-row:last-child { border-bottom: 0; }
+.graph-coverage-row strong { color: #111827; font-size: 12px; }
+.graph-coverage-row span { color: #1d4ed8; font-size: 12px; }
+.graph-coverage-row.is-empty span, .graph-coverage-row.is-empty { color: #b42318; }
 .graph-inspector details { border-top: 1px solid #e5e7eb; padding-top: 10px; margin-top: 12px; font-size: 12px; }
 .graph-inspector summary { cursor: pointer; font-weight: 600; }
 .graph-inspector .graph-detail-item { white-space: pre-wrap; overflow-wrap: anywhere; padding: 6px 0; line-height: 1.5; font-size: 12px; border-bottom: 1px solid #f3f4f6; }

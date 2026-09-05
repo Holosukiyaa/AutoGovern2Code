@@ -72,7 +72,7 @@
                 <header class="dash-head">
                   <div>
                     <h3>治理图谱</h3>
-                    <p id="graphHeadline" class="graph-headline">知识卡散开成叶。无主、过期、废弃和正在写不会缩进列表。</p>
+                    <p id="graphHeadline" class="graph-headline">每个目录旁边写出罩住它的知识卡。没有知识卡的目录就是空洞。</p>
                   </div>
                   <span id="graphBanner" class="status-label">G6</span>
                 </header>
@@ -80,9 +80,10 @@
                   <label for="graphSearch">查户口</label><input id="graphSearch" type="search" placeholder="职责、目录、卡片 ID 或实现名称" />
                   <select id="graphNodePicker" aria-label="选择户口"><option value="">选择一张卡或一个目录</option></select>
                   <button id="graphFit" type="button">全图</button>
-                  <label class="graph-detail-toggle"><input id="graphShowDirectories" type="checkbox" />展开目录明细</label>
+                  <label class="graph-detail-toggle"><input id="graphShowDirectories" type="checkbox" />展开更细的子目录</label>
                 </div>
                 <p id="graphCensusSummary" class="graph-census-summary"></p>
+                <div id="graphCoverageList" class="graph-coverage-list" aria-label="目录被哪张知识卡覆盖"></div>
                 <div id="graphFilters" class="graph-filters" role="toolbar" aria-label="户口状态过滤器">
                   <button type="button" data-graph-filter="" data-label="全部">全部</button>
                   <button type="button" data-graph-filter="unowned" data-label="无主">无主</button>
@@ -98,13 +99,14 @@
                   <div id="knowledgeGraph" class="knowledge-graph-canvas" aria-label="散开的知识图谱"></div>
                   <aside id="graphInspector" class="graph-inspector">
                     <strong id="graphInspectTitle">点一张卡</strong>
-                    <p id="graphInspectStatus">选择户口可查范围、替代者、检测与历次普查。刷新不等于重新普查。</p>
+                    <p id="graphInspectStatus">点目录看被哪张知识卡覆盖，点知识卡看它罩住哪些目录。</p>
                     <p id="graphInspectSummary"></p>
                     <dl>
                       <div><dt>叶子</dt><dd id="graphInspectKind">—</dd></div>
                       <div><dt>协议</dt><dd id="graphInspectProtocol">—</dd></div>
                       <div><dt>检测</dt><dd id="graphInspectDetection">—</dd></div>
                       <div><dt>路径</dt><dd id="graphInspectPath">—</dd></div>
+                      <div><dt>覆盖关系</dt><dd id="graphInspectCoverage">—</dd></div>
                       <div><dt>排除范围</dt><dd id="graphInspectExcludes">—</dd></div>
                       <div><dt>产品能力 / 实现身份</dt><dd id="graphInspectImplementation">—</dd></div>
                       <div><dt>普查新鲜度</dt><dd id="graphInspectFreshness">—</dd></div>

@@ -138,3 +138,71 @@ class GovernanceGraphTests(unittest.TestCase):
         self.assertEqual("knowledge", leaf["kind"])
         self.assertFalse(leaf["lazy"])
         self.assertFalse(any(node["id"] == "gap:src" for node in graph["nodes"]))
+
+    def test_graph_names_the_knowledge_card_that_covers_a_directory(self):
+        graph = build_governance_graph(
+            {
+                "cards": [_card("knowledge.workbench", "knowledge", "当前画布", include=["src/frontend/**"])],
+                "knowledge": [],
+                "relations": [],
+                "index": {"findings": []},
+                "pending": {"items": []},
+                "worktrees": [],
+                "checkers": [],
+                "census": {
+                    "households": [
+                        {
+                            "id": "knowledge.workbench",
+                            "kind": "knowledge",
+                            "title": "当前画布",
+                            "summary": "正牌前端",
+                            "scopes": [{"includes": ["src/frontend/**"], "excludes": []}],
+                            "checkers": ["check.frontend"],
+                            "issues": [],
+                            "jurisdiction": {
+                                "capability": "frontend",
+                                "implementation": "frontend.main",
+                                "status": "current",
+                            },
+                            "freshness": "never",
+                        }
+                    ],
+                    "directories": [
+                        {
+                            "target": "app",
+                            "path": "src/frontend",
+                            "files": ["src/frontend/main.tsx"],
+                            "owners": ["knowledge.workbench"],
+                            "unowned": 0,
+                            "ambiguous": 0,
+                        },
+                        {
+                            "target": "app",
+                            "path": "prototypes/demo-free-layout",
+                            "files": ["prototypes/demo-free-layout/src/app.tsx"],
+                            "owners": [],
+                            "unowned": 1,
+                            "ambiguous": 0,
+                        },
+                    ],
+                    "implementations": [],
+                },
+            }
+        )
+        covered = next(node for node in graph["nodes"] if node["id"] == "directory-group:app:src/frontend")
+        self.assertFalse(covered.get("detailOnly"))
+        self.assertIn("当前画布", covered["coveredBy"])
+        self.assertEqual("当前画布", covered["coverageLabel"])
+        hole = next(node for node in graph["nodes"] if node["id"] == "directory-group:app:prototypes/demo-free-layout")
+        self.assertEqual([], hole["coveredBy"])
+        self.assertEqual("无知识卡覆盖", hole["coverageLabel"])
+        card = next(node for node in graph["nodes"] if node["id"] == "knowledge.workbench")
+        self.assertIn("src/frontend", card["coversDirectories"])
+        self.assertTrue(
+            any(
+                edge["relation"] == "covers"
+                and edge["source"] == "knowledge.workbench"
+                and "src/frontend" in edge["target"]
+                for edge in graph["edges"]
+            )
+        )

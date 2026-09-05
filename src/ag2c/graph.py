@@ -89,6 +89,32 @@ def _covers(paths: Iterable[str], candidate: str) -> bool:
     return False
 
 
+def _annotate_coverage(nodes: dict[str, dict[str, Any]], edges: list[dict[str, Any]]) -> None:
+    for node in nodes.values():
+        node.setdefault("coveredBy", [])
+        node.setdefault("coversDirectories", [])
+    for edge in edges:
+        if edge.get("relation") != "covers":
+            continue
+        source = nodes.get(edge.get("source", ""))
+        target = nodes.get(edge.get("target", ""))
+        if not source or not target:
+            continue
+        title = _text(source.get("title")) or source["id"]
+        path = _text(target.get("title")) or _text(target.get("path")) or target["id"]
+        if title not in target["coveredBy"]:
+            target["coveredBy"].append(title)
+        if not target.get("detailOnly") and path not in source["coversDirectories"]:
+            source["coversDirectories"].append(path)
+    for node in nodes.values():
+        if node.get("kind") == "directory":
+            node["coverageLabel"] = "、".join(node["coveredBy"]) if node["coveredBy"] else "无知识卡覆盖"
+            owners = node["coverageLabel"]
+            node["summary"] = f"知识卡：{owners}。" + _text(node.get("summary"))
+        elif node.get("coversDirectories"):
+            node["coverageLabel"] = "覆盖 " + "、".join(node["coversDirectories"][:8])
+
+
 def _primary_flag(flags: Iterable[str]) -> str:
     ordered = [flag for flag in LAZINESS_FLAGS if flag in set(flags)]
     return ordered[0] if ordered else "current"
@@ -432,6 +458,8 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
                 add_edge(card_id, node_id, "implements")
         if census.get("error"):
             nodes["gap:census"] = _node("gap:census", kind="gap", title="普查不可用", summary=str(census["error"]), flags=["stale"])
+
+    _annotate_coverage(nodes, edges)
 
     counts = {flag: 0 for flag in (*LAZINESS_FLAGS, "current", "nodes", "edges", "leaves")}
     for node in nodes.values():

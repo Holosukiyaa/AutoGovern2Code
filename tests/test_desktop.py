@@ -433,6 +433,27 @@ class TrayFontTests(unittest.TestCase):
         hello.imgui_default_settings.load_default_font_with_font_awesome_icons.assert_not_called()
 
 
+class TraySelectionTests(unittest.TestCase):
+    def test_duplicate_titles_get_distinct_widget_ids(self) -> None:
+        from ag2c.imgui_tray import node_key, widget_id
+
+        label = "ADOPTION.md  ·  在册"
+        left = widget_id(label, node_key({"title": "ADOPTION.md", "path": "docs/ADOPTION.md"}))
+        right = widget_id(label, node_key({"title": "ADOPTION.md", "path": "docs/zh-CN/ADOPTION.md"}))
+        self.assertNotEqual(left, right)
+        self.assertTrue(left.startswith(label))
+        self.assertIn("docs/ADOPTION.md", left)
+        self.assertIn("docs/zh-CN/ADOPTION.md", right)
+
+    def test_tray_hides_nav_cursor_and_uses_unique_selectable_ids(self) -> None:
+        ui = (Path(__file__).resolve().parents[1] / "src" / "ag2c" / "imgui_tray.py").read_text(encoding="utf-8")
+        self.assertIn("set_nav_cursor_visible(False)", ui)
+        self.assertIn("Col_.nav_cursor", ui)
+        self.assertIn("widget_id(label, root)", ui)
+        self.assertIn("widget_id(label, key)", ui)
+        self.assertIn("inspect_key", ui)
+
+
 class TrayHostHelperTests(unittest.TestCase):
     def test_coverage_filter_keeps_exploring_cards(self) -> None:
         from ag2c.tray_host import coverage_rows, node_matches

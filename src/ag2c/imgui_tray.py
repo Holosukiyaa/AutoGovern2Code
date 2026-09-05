@@ -52,6 +52,7 @@ class AppState:
         self.selected_root = ""
         self.details: dict[str, Any] | None = None
         self.inspect: dict[str, str] = {}
+        self.inspect_key = ""
         self.search = ""
         self.filter_index = 0
         self.busy = False
@@ -119,6 +120,7 @@ def main(argv: list[str] | None = None) -> int:
     runner.callbacks.load_additional_fonts = _load_fonts
     runner.callbacks.show_menus = lambda: _menus(state)
     runner.callbacks.show_status = lambda: _status_bar(state)
+    runner.callbacks.before_imgui_render = _hide_nav_cursor
     runner.callbacks.post_init = lambda: state.run_job(lambda: _start_backend(state))
     runner.callbacks.before_exit = lambda: _shutdown(state)
     runner.docking_params.layout_condition = hello_imgui.DockingLayoutCondition.application_start
@@ -129,13 +131,38 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _setup_theme() -> None:
-    from imgui_bundle import hello_imgui
+    from imgui_bundle import hello_imgui, imgui
 
     hello_imgui.imgui_default_settings.setup_default_imgui_style()
     theme = hello_imgui.ImGuiTweakedTheme()
     theme.theme = hello_imgui.ImGuiTheme_.photoshop_style
     theme.tweaks.rounding = 6.0
     hello_imgui.apply_tweaked_theme(theme)
+    # Photoshop header-hovered is almost as strong as selected, so hover + selected
+    # look like two selected rows. Nav cursor adds a second box on the clicked row.
+    style = imgui.get_style()
+    style.set_color_(int(imgui.Col_.header), (0.28, 0.50, 0.78, 0.55))
+    style.set_color_(int(imgui.Col_.header_hovered), (0.0, 0.0, 0.0, 0.0))
+    style.set_color_(int(imgui.Col_.header_active), (0.28, 0.50, 0.78, 0.70))
+    style.set_color_(int(imgui.Col_.nav_cursor), (0.0, 0.0, 0.0, 0.0))
+    io = imgui.get_io()
+    io.config_nav_cursor_visible_always = False
+    io.config_nav_cursor_visible_auto = False
+
+
+def _hide_nav_cursor() -> None:
+    from imgui_bundle import imgui
+
+    imgui.set_nav_cursor_visible(False)
+
+
+def widget_id(label: str, key: str) -> str:
+    """ImGui ids must stay unique when two rows share a visible title."""
+    return f"{label}##{key}"
+
+
+def node_key(node: dict[str, Any], fallback: str = "") -> str:
+    return text(node, "id") or text(node, "path") or fallback
 
 
 def cjk_font_path() -> Path | None:
@@ -254,12 +281,13 @@ def _gui_projects(state: AppState) -> None:
     for row in rows:
         root = text(row, "root")
         label = f"{text(row, 'name')}  ·  {state_label(text(row, 'state'))}"
-        clicked, _ = imgui.selectable(label, selected == root)
+        clicked, _ = imgui.selectable(widget_id(label, root), selected == root)
         if imgui.is_item_hovered():
             imgui.set_tooltip(root)
         if clicked and root != selected:
             with state.lock:
                 state.selected_root = root
+                state.inspect_key = ""
             state.run_job(lambda path=root: _load_details(state, path))
 
 
@@ -275,6 +303,7 @@ def _gui_tree(state: AppState) -> None:
     with state.lock:
         details = state.details
         search = state.search
+        inspect_key = state.inspect_key
         flag = FILTERS[state.filter_index][0] if 0 <= state.filter_index < len(FILTERS) else ""
     files, _cards, _headline = coverage_rows(details, search, flag)
     folders: dict[str, list[tuple[str, dict[str, Any]]]] = {}
@@ -288,11 +317,16 @@ def _gui_tree(state: AppState) -> None:
 
     def draw(prefix: str, node: dict[str, Any], name: str) -> None:
         children = folders.get(prefix, [])
-        flags = imgui.TreeNodeFlags_.leaf if not children else imgui.TreeNodeFlags_.open_on_arrow
-        opened = imgui.tree_node_ex(f"{name}##{prefix}", flags)
+        key = node_key(node, prefix)
+        flags = imgui.TreeNodeFlags_.span_avail_width
+        flags |= imgui.TreeNodeFlags_.leaf if not children else imgui.TreeNodeFlags_.open_on_arrow
+        if inspect_key == key:
+            flags |= imgui.TreeNodeFlags_.selected
+        opened = imgui.tree_node_ex(widget_id(name, prefix), flags)
         if imgui.is_item_clicked():
             with state.lock:
                 state.inspect = inspect_fields(node)
+                state.inspect_key = key
         if opened:
             for child_rel, child in children:
                 draw(child_rel, child, child_rel.rsplit("/", 1)[-1])
@@ -308,15 +342,18 @@ def _gui_cards(state: AppState) -> None:
     with state.lock:
         details = state.details
         search = state.search
+        inspect_key = state.inspect_key
         flag = FILTERS[state.filter_index][0] if 0 <= state.filter_index < len(FILTERS) else ""
     _files, cards, _headline = coverage_rows(details, search, flag)
     for node in cards:
         title = text(node, "title") or text(node, "id")
         status = first_flag_label(node)
         label = title if not status else f"{title}  ·  {status}"
-        if imgui.selectable(label, False)[0]:
+        key = node_key(node, title)
+        if imgui.selectable(widget_id(label, key), inspect_key == key)[0]:
             with state.lock:
                 state.inspect = inspect_fields(node)
+                state.inspect_key = key
 
 
 def _gui_inspect(state: AppState) -> None:

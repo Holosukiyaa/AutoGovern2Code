@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Stop the tray from drawing two selection boxes on mouse click: unique ImGui ids per row, one selected key, no nav cursor, and hover no longer uses the same fill as selected.
 - Load Microsoft YaHei (or SimSun) as the Hello ImGui default font from `C:\Windows\Fonts`, then merge Font Awesome. The previous loader used the Latin-only default font and looked for YaHei in demo assets, so Chinese labels rendered as tofu boxes.
 - Move the Hello ImGui freeze entry and license notice to `packaging/windows/`. The old `packaging/windows/desktop` folder is only the abandoned WinForms host, vendored WebView2, and Qt notice. Portable copies no longer fall back to `build/dev-tray`.
 - Replace the PySide tray with Dear ImGui / Hello ImGui (`imgui-bundle`). Docking, theme, and the folder dialog come from that MIT shell. Network work runs off the UI thread. 3D add-ons (ImGuizmo, ImmVision, implot3d) are not imported and are excluded from the freeze.

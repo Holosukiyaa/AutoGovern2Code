@@ -1,4 +1,0 @@
-@antv/g6 is vendored for the local AG2C desktop viewer because the page
-Content-Security-Policy only allows same-origin scripts.
-
-G6 is MIT licensed: https://github.com/antvis/G6

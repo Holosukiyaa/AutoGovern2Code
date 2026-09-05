@@ -488,10 +488,11 @@ class DesktopHandler(BaseHTTPRequestHandler):
         return Path(value).expanduser().resolve()
 
     def _static(self, relative: str, content_type: str | None = None) -> None:
-        if relative not in {"index.html", "styles.css", "app.js"}:
+        allowed = {"index.html", "styles.css", "app.js", "graph.js", "vendor/g6.min.js"}
+        if relative not in allowed:
             self._error(HTTPStatus.NOT_FOUND, "not found")
             return
-        resource = files("ag2c").joinpath("ui", relative)
+        resource = files("ag2c").joinpath("ui", *relative.split("/"))
         try:
             payload = resource.read_bytes()
         except (FileNotFoundError, OSError):
@@ -517,13 +518,19 @@ class DesktopHandler(BaseHTTPRequestHandler):
         if path == "/assets/app.js" or path.startswith("/assets/app.js"):
             self._static("app.js", "application/javascript")
             return
+        if path == "/assets/graph.js" or path.startswith("/assets/graph.js"):
+            self._static("graph.js", "application/javascript")
+            return
+        if path == "/assets/vendor/g6.min.js" or path.startswith("/assets/vendor/g6.min.js"):
+            self._static("vendor/g6.min.js", "application/javascript")
+            return
         if path == "/api/status":
             self._json(
                 HTTPStatus.OK,
                 {
                     "status": "ready",
                     "version": __version__,
-                    "capabilities": ["web-folder-picker", "native-folder-picker", "project-details"],
+                    "capabilities": ["web-folder-picker", "native-folder-picker", "project-details", "knowledge-graph"],
                 },
             )
             return

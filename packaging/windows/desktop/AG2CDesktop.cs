@@ -1,5 +1,6 @@
 // AutoGovern2Code desktop host, adapted from CartridgeFlow Runtime Shell.
-// WinForms + WebBrowser + NotifyIcon, with no external desktop runtime DLLs.
+// WinForms + embedded Edge WebView2 + NotifyIcon. The G6 knowledge graph stays
+// inside this window; the host never opens a system browser.
 
 using System;
 using System.Diagnostics;
@@ -15,6 +16,8 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
 using Microsoft.Win32;
 
 [assembly: AssemblyTitle("AutoGovern2Code")]
@@ -27,23 +30,6 @@ using Microsoft.Win32;
 
 namespace AutoGovern2CodeDesktop
 {
-    internal static class BrowserControl
-    {
-        public static void Configure()
-        {
-            try
-            {
-                string executable = Path.GetFileName(Process.GetCurrentProcess().MainModule.FileName);
-                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(
-                    @"Software\Microsoft\Internet Explorer\Main\FeatureControl\FEATURE_BROWSER_EMULATION"))
-                {
-                    if (key != null) key.SetValue(executable, 11001, RegistryValueKind.DWord);
-                }
-            }
-            catch { }
-        }
-    }
-
     internal static class SingleInstance
     {
         private const int HWND_BROADCAST = 0xffff;
@@ -226,7 +212,6 @@ namespace AutoGovern2CodeDesktop
                     SingleInstance.NotifyExistingWindow();
                     return 0;
                 }
-                BrowserControl.Configure();
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 using (var form = new MainForm(args)) Application.Run(form);
@@ -248,7 +233,7 @@ namespace AutoGovern2CodeDesktop
     {
         private const string StartupKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         private const string StartupValue = "AutoGovern2Code";
-        private readonly WebBrowser _browser;
+        private readonly WebView2 _browser;
         private readonly Panel _loading;
         private readonly Label _loadingText;
         private readonly HttpClient _http;
@@ -259,6 +244,7 @@ namespace AutoGovern2CodeDesktop
         private Process _server;
         private string _baseUrl;
         private bool _reallyExit;
+        private bool _webviewReady;
 
         [DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr window);
@@ -304,27 +290,10 @@ namespace AutoGovern2CodeDesktop
                 mark.Location = new Point((_loading.ClientSize.Width - mark.Width) / 2, Math.Max(40, (_loading.ClientSize.Height - 150) / 2));
                 _loadingText.Location = new Point((_loading.ClientSize.Width - _loadingText.Width) / 2, mark.Bottom + 18);
             };
-            _browser = new WebBrowser
+            _browser = new WebView2
             {
                 Dock = DockStyle.Fill,
-                ScriptErrorsSuppressed = true,
-                IsWebBrowserContextMenuEnabled = false,
-                WebBrowserShortcutsEnabled = true,
                 Visible = false,
-            };
-            _browser.ObjectForScripting = new DesktopHost();
-            _browser.Navigating += OnBrowserNavigating;
-            _browser.DocumentCompleted += delegate
-            {
-                try
-                {
-                    if (_browser.Document != null)
-                        _browser.Document.InvokeScript("ag2cSetDesktopHost");
-                }
-                catch { }
-                _loading.Visible = false;
-                _browser.Visible = true;
-                _browser.BringToFront();
             };
             Controls.Add(_browser);
             Controls.Add(_loading);
@@ -391,7 +360,7 @@ namespace AutoGovern2CodeDesktop
                 }
                 if (await ServerReadyAsync())
                 {
-                    _browser.Navigate(_baseUrl + "?bootstrap=" + Uri.EscapeDataString(_token));
+                    await ShowViewerAsync();
                     return;
                 }
             }
@@ -409,24 +378,108 @@ namespace AutoGovern2CodeDesktop
             catch { return false; }
         }
 
+        private async Task ShowViewerAsync()
+        {
+            _loadingText.Text = "\u6b63\u5728\u52a0\u8f7d\u6cbb\u7406\u56fe\u8c31...";
+            if (!await EnsureWebViewAsync()) return;
+            _browser.CoreWebView2.Navigate(_baseUrl + "?bootstrap=" + Uri.EscapeDataString(_token));
+        }
+
+        private async Task<bool> EnsureWebViewAsync()
+        {
+            if (_webviewReady) return true;
+            try
+            {
+                string userData = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "AutoGovern2Code",
+                    "webview2");
+                Directory.CreateDirectory(userData);
+                CoreWebView2Environment environment = await CoreWebView2Environment.CreateAsync(null, userData);
+                await _browser.EnsureCoreWebView2Async(environment);
+            }
+            catch (WebView2RuntimeNotFoundException)
+            {
+                Fail("\u672a\u627e\u5230 Microsoft Edge WebView2 \u8fd0\u884c\u65f6\u3002\u8bf7\u5148\u5b89\u88c5 Edge \u6216 WebView2 Runtime\uff0c\u56fe\u8c31\u4f1a\u7559\u5728\u6b64\u6258\u76d8\u7a97\u53e3\u5185\u3002");
+                return false;
+            }
+            catch (Exception error)
+            {
+                Fail("\u65e0\u6cd5\u521d\u59cb\u5316\u6258\u76d8\u7a97\u53e3\uff1a" + error.Message);
+                return false;
+            }
+            CoreWebView2Settings settings = _browser.CoreWebView2.Settings;
+            settings.AreDefaultContextMenusEnabled = false;
+            settings.AreDevToolsEnabled = false;
+            settings.AreHostObjectsAllowed = false;
+            settings.IsStatusBarEnabled = false;
+            settings.IsSwipeNavigationEnabled = false;
+            settings.AreBrowserAcceleratorKeysEnabled = false;
+            await _browser.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
+                "window.ag2cDesktopHost = true; if (window.ag2cSetDesktopHost) ag2cSetDesktopHost();");
+            _browser.CoreWebView2.NavigationStarting += OnNavigationStarting;
+            _browser.CoreWebView2.NavigationCompleted += OnNavigationCompleted;
+            _browser.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
+            _webviewReady = true;
+            return true;
+        }
+
         private void Fail(string message)
         {
             _loadingText.Text = message;
+            _loading.Visible = true;
+            _loading.BringToFront();
             MessageBox.Show(this, message, "AutoGovern2Code", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
-        private void OnBrowserNavigating(object sender, WebBrowserNavigatingEventArgs e)
+        private void OnNavigationStarting(object sender, CoreWebView2NavigationStartingEventArgs e)
         {
-            if (!String.Equals(e.Url.Scheme, "ag2c", StringComparison.OrdinalIgnoreCase)) return;
+            Uri uri;
+            if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out uri))
+            {
+                e.Cancel = true;
+                return;
+            }
+            if (String.Equals(uri.Scheme, "ag2c", StringComparison.OrdinalIgnoreCase))
+            {
+                e.Cancel = true;
+                HandleHostUri(uri);
+                return;
+            }
+            if (String.Equals(uri.Scheme, "http", StringComparison.OrdinalIgnoreCase)
+                && String.Equals(uri.Host, "127.0.0.1", StringComparison.OrdinalIgnoreCase))
+                return;
             e.Cancel = true;
-            if (String.Equals(e.Url.Host, "choose-project", StringComparison.OrdinalIgnoreCase))
+        }
+
+        private void OnNavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
+        {
+            if (!e.IsSuccess)
+            {
+                _loadingText.Text = "\u65e0\u6cd5\u52a0\u8f7d\u6cbb\u7406\u754c\u9762\u3002";
+                return;
+            }
+            RunScript("if (window.ag2cSetDesktopHost) ag2cSetDesktopHost();");
+            _loading.Visible = false;
+            _browser.Visible = true;
+            _browser.BringToFront();
+        }
+
+        private void OnNewWindowRequested(object sender, CoreWebView2NewWindowRequestedEventArgs e)
+        {
+            e.Handled = true;
+        }
+
+        private void HandleHostUri(Uri uri)
+        {
+            if (String.Equals(uri.Host, "choose-project", StringComparison.OrdinalIgnoreCase))
             {
                 ChooseProject();
                 return;
             }
-            if (String.Equals(e.Url.Host, "open-folder", StringComparison.OrdinalIgnoreCase))
+            if (String.Equals(uri.Host, "open-folder", StringComparison.OrdinalIgnoreCase))
             {
-                string path = QueryValue(e.Url.Query, "path");
+                string path = QueryValue(uri.Query, "path");
                 if (Directory.Exists(path))
                 {
                     try { Process.Start(new ProcessStartInfo("explorer.exe", "\"" + path + "\"") { UseShellExecute = true }); }
@@ -454,12 +507,7 @@ namespace AutoGovern2CodeDesktop
                 dialog.Description = "\u9009\u62e9\u8981\u7eb3\u5165 AutoGovern2Code \u6cbb\u7406\u7684 Git \u9879\u76ee";
                 dialog.ShowNewFolderButton = false;
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                try
-                {
-                    if (_browser.Document != null)
-                        _browser.Document.InvokeScript("ag2cProjectSelected", new object[] { dialog.SelectedPath });
-                }
-                catch { }
+                RunScript("if (window.ag2cProjectSelected) ag2cProjectSelected(" + JsonString(dialog.SelectedPath) + ");");
                 ShowWindow();
             }
         }
@@ -492,24 +540,30 @@ namespace AutoGovern2CodeDesktop
             if (wasHidden) RefreshWebUi();
         }
 
+        private void RunScript(string script)
+        {
+            try
+            {
+                if (_browser.CoreWebView2 != null)
+                    _browser.ExecuteScriptAsync(script);
+            }
+            catch { }
+        }
+
+        private static string JsonString(string value)
+        {
+            if (value == null) return "\"\"";
+            return "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+        }
+
         private void RefreshWebUi()
         {
-            try { if (_browser.Document != null) _browser.Document.InvokeScript("refreshStatus"); }
-            catch { }
+            RunScript("if (window.refreshStatus) refreshStatus();");
         }
 
         private void AlignAndRefreshWebUi()
         {
-            try
-            {
-                if (_browser.Document != null)
-                {
-                    _browser.Document.InvokeScript("alignAndRefresh");
-                    return;
-                }
-            }
-            catch { }
-            RefreshWebUi();
+            RunScript("if (window.alignAndRefresh) alignAndRefresh(); else if (window.refreshStatus) refreshStatus();");
         }
 
         private static bool StartupEnabled()
@@ -570,7 +624,11 @@ namespace AutoGovern2CodeDesktop
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing) _http.Dispose();
+            if (disposing)
+            {
+                _http.Dispose();
+                if (_browser != null) _browser.Dispose();
+            }
             base.Dispose(disposing);
         }
 

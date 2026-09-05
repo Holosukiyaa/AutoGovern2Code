@@ -5,9 +5,9 @@ include SECURITY.md
 
 recursive-include docs *.md
 recursive-include tests *.py
-recursive-include packaging *.iss *.py *.cs *.manifest
+recursive-include packaging *.iss *.py *.cs *.manifest *.config *.dll *.txt
 recursive-include scripts *.ps1
-recursive-include src/ag2c/ui *.html *.css *.js
+recursive-include src/ag2c/ui *.html *.css *.js *.txt
 
 include examples/minimal/README.md
 include examples/minimal-governance/README.md

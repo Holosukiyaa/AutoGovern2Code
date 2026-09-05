@@ -133,6 +133,16 @@ try {
     if (-not (Test-Path -LiteralPath $desktop)) {
         throw 'Installer did not install the desktop tray application.'
     }
+    foreach ($hostFile in @(
+        'AutoGovern2Code.exe.config',
+        'Microsoft.Web.WebView2.Core.dll',
+        'Microsoft.Web.WebView2.WinForms.dll',
+        'WebView2Loader.dll'
+    )) {
+        if (-not (Test-Path -LiteralPath (Join-Path $installRoot $hostFile))) {
+            throw "Installer did not ship the embedded Edge host file: $hostFile"
+        }
+    }
     $startupInstalled = Get-StartupState
     if (-not $startupInstalled.Exists -or $startupInstalled.Value -notmatch [regex]::Escape($desktop)) {
         throw 'Installer did not register the desktop tray application for user startup.'

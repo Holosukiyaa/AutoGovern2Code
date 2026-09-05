@@ -410,6 +410,9 @@ def project_details(path: Path) -> dict[str, Any]:
         result["journals"] = list_journals(root)
     except (AG2CError, OSError, ValueError):
         result["journals"] = []
+    from .graph import build_governance_graph
+
+    result["graph"] = build_governance_graph(result)
     return result
 
 

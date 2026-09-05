@@ -847,6 +847,7 @@
       fillStat($("relationList"), "0 个契约", "0 个关系", "muted");
       fillStat($("worktreeList"), "没有副本", "没有进行中的施工", "muted");
       renderJournalSummary((details && details.journals) || []);
+      if (window.AG2CKnowledgeGraph) window.AG2CKnowledgeGraph.clear();
       return;
     }
     try {
@@ -910,9 +911,11 @@
       else if (mergedCount) fillStat($("worktreeList"), "已合并", "无未合并变更", "current");
       else fillStat($("worktreeList"), "没有副本", "没有进行中的施工", "muted");
       renderJournalSummary(details.journals || []);
+      if (window.AG2CKnowledgeGraph) window.AG2CKnowledgeGraph.render(details.graph);
     } catch (error) {
       renderOverview(project, null);
       emptyDetail($("cardList"), "治理详情无法显示：" + (error && error.message ? error.message : error));
+      if (window.AG2CKnowledgeGraph) window.AG2CKnowledgeGraph.clear();
     }
   }
   function typeRow(type, cards) {

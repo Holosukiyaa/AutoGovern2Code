@@ -67,6 +67,39 @@
           <div id="healthyState" class="healthy-state" hidden><span aria-hidden="true">&#x2713;</span><span id="healthyCopy">施工检查已通过</span></div>
 
           <div class="dash-grid">
+            <div class="dash-row dash-row-graph">
+              <article class="dash-card dash-card-graph">
+                <header class="dash-head">
+                  <div>
+                    <h3>治理图谱</h3>
+                    <p id="graphHeadline" class="graph-headline">知识卡散开成叶。无主、过期、废弃和正在写不会缩进列表。</p>
+                  </div>
+                  <span id="graphBanner" class="status-label">G6</span>
+                </header>
+                <div id="graphFilters" class="graph-filters" role="toolbar" aria-label="偷懒过滤器">
+                  <button type="button" data-graph-filter="" data-label="全部">全部</button>
+                  <button type="button" data-graph-filter="unowned" data-label="无主">无主</button>
+                  <button type="button" data-graph-filter="stale" data-label="过期">过期</button>
+                  <button type="button" data-graph-filter="abandoned" data-label="废弃未清">废弃未清</button>
+                  <button type="button" data-graph-filter="undeclared" data-label="未验收">未验收</button>
+                  <button type="button" data-graph-filter="writing" data-label="AI正在写">AI正在写</button>
+                </div>
+                <div class="knowledge-graph-shell">
+                  <div id="knowledgeGraph" class="knowledge-graph-canvas" aria-label="散开的知识图谱"></div>
+                  <aside id="graphInspector" class="graph-inspector">
+                    <strong id="graphInspectTitle">点一张卡</strong>
+                    <p id="graphInspectStatus">偷懒会以红、橙、紫和发光出现，不会缩在列表里。</p>
+                    <p id="graphInspectSummary"></p>
+                    <dl>
+                      <div><dt>叶子</dt><dd id="graphInspectKind">—</dd></div>
+                      <div><dt>协议</dt><dd id="graphInspectProtocol">—</dd></div>
+                      <div><dt>检测</dt><dd id="graphInspectDetection">—</dd></div>
+                      <div><dt>路径</dt><dd id="graphInspectPath">—</dd></div>
+                    </dl>
+                  </aside>
+                </div>
+              </article>
+            </div>
             <div class="dash-row dash-row-main">
               <article class="dash-card dash-card-tall" id="gateCard">
                 <button id="gateAgentsToggle" class="gate-row" type="button">
@@ -209,6 +242,8 @@
     </div>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </div>
+  <script src="/assets/vendor/g6.min.js?v=0.8.4"></script>
+  <script src="/assets/graph.js?v=0.8.4"></script>
   <script src="/assets/app.js?v=0.8.4"></script>
 </body>
 </html>

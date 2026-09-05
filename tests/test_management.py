@@ -56,6 +56,9 @@ class ManagementTests(unittest.TestCase):
             self.assertGreaterEqual(details["ledger"]["events"], 1)
             self.assertIn("items", details["pending"])
             self.assertIn("pending_count", details["project"])
+            self.assertIn("nodes", details["graph"])
+            self.assertIn("edges", details["graph"])
+            self.assertTrue(details["graph"]["nodes"])
 
     def test_project_list_reports_enforcement_without_touching_project(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

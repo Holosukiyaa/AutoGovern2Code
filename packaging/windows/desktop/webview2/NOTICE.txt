@@ -1,0 +1,10 @@
+Microsoft.Web.WebView2 1.0.2903.40 is vendored so the Windows tray host can
+embed Edge inside AutoGovern2Code.exe. The G6 knowledge graph is shown in
+that window; the host does not open a system browser.
+
+Package: https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.2903.40
+Shipped files: Microsoft.Web.WebView2.Core.dll, Microsoft.Web.WebView2.WinForms.dll,
+WebView2Loader.dll (win-x64). The Edge WebView2 Runtime remains the system
+Evergreen installation.
+
+LICENSE.txt in this directory is the Microsoft.Web.WebView2 BSD-style license.

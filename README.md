@@ -15,7 +15,7 @@ The project never receives an `.ag2c` directory, AG2C-generated `AGENTS.md` or `
 
 ## Install on Windows
 
-Requirements: Windows 10 or 11 x64. Python is not required. If Git is already on PATH, AG2C uses it. If not, AG2C downloads a bundled Git for Windows into its own data directory and does not change your user PATH.
+Requirements: Windows 10 or 11 x64 and the Microsoft Edge WebView2 Runtime that already ships with Edge. Python is not required. If Git is already on PATH, AG2C uses it. If not, AG2C downloads a bundled Git for Windows into its own data directory and does not change your user PATH. The tray window embeds Edge so the G6 knowledge graph stays in the app; it does not open a system browser.
 
 1. Download `AutoGovern2Code-Setup-Windows-x64.exe` from the [latest GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest).
 2. Double-click the installer. It installs for the current user, puts AG2C in the Start Menu, and starts the tray app.

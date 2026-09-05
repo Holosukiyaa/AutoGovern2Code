@@ -17,6 +17,11 @@ $uiSource = Join-Path $repoRoot 'src\ag2c\ui'
 $uiData = "${uiSource}:ag2c\ui"
 $desktopSource = Join-Path $repoRoot 'packaging\windows\desktop\AG2CDesktop.cs'
 $desktopManifest = Join-Path $repoRoot 'packaging\windows\desktop\app.manifest'
+$desktopConfig = Join-Path $repoRoot 'packaging\windows\desktop\AutoGovern2Code.exe.config'
+$webviewDir = Join-Path $repoRoot 'packaging\windows\desktop\webview2'
+$webviewCore = Join-Path $webviewDir 'Microsoft.Web.WebView2.Core.dll'
+$webviewWinForms = Join-Path $webviewDir 'Microsoft.Web.WebView2.WinForms.dll'
+$webviewLoader = Join-Path $webviewDir 'WebView2Loader.dll'
 
 if (-not (Test-Path -LiteralPath (Join-Path $skillSource 'ag2c-governed-development\SKILL.md'))) {
     throw "Packaged AG2C Skill source is missing from $skillSource."
@@ -84,20 +89,32 @@ if (-not $cscCandidates) {
     throw '.NET Framework csc.exe was not found; the desktop tray host cannot be built.'
 }
 $csc = $cscCandidates | Select-Object -First 1
+foreach ($webviewFile in @($webviewCore, $webviewWinForms, $webviewLoader, $desktopConfig)) {
+    if (-not (Test-Path -LiteralPath $webviewFile)) {
+        throw "Embedded Edge host file is missing: $webviewFile"
+    }
+}
 $desktop = Join-Path $runtimeRoot 'AutoGovern2Code.exe'
 & $csc `
     /nologo `
+    /platform:x64 `
     /target:winexe `
     "/out:$desktop" `
     /reference:System.dll `
     /reference:System.Drawing.dll `
     /reference:System.Net.Http.dll `
     /reference:System.Windows.Forms.dll `
+    "/reference:$webviewCore" `
+    "/reference:$webviewWinForms" `
     "/win32manifest:$desktopManifest" `
     $desktopSource
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $desktop)) {
     throw "Desktop tray host build failed with exit code $LASTEXITCODE."
 }
+Copy-Item -LiteralPath $desktopConfig -Destination (Join-Path $runtimeRoot 'AutoGovern2Code.exe.config') -Force
+Copy-Item -LiteralPath $webviewCore -Destination (Join-Path $runtimeRoot 'Microsoft.Web.WebView2.Core.dll') -Force
+Copy-Item -LiteralPath $webviewWinForms -Destination (Join-Path $runtimeRoot 'Microsoft.Web.WebView2.WinForms.dll') -Force
+Copy-Item -LiteralPath $webviewLoader -Destination (Join-Path $runtimeRoot 'WebView2Loader.dll') -Force
 
 $isccCandidates = @(
     (Get-Command iscc.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),

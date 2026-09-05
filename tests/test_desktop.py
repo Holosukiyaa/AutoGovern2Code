@@ -51,6 +51,7 @@ class DesktopServerTests(unittest.TestCase):
         self.assertIn("施工副本".encode("utf-8"), body)
         self.assertIn("待更新规则".encode("utf-8"), body)
         self.assertIn("治理日志".encode("utf-8"), body)
+        self.assertIn("治理图谱".encode("utf-8"), body)
         self.assertIn(b"listDialog", body)
         self.assertIn(b"busyOverlay", body)
         self.assertIn(b"gateObservedToggle", body)
@@ -58,6 +59,7 @@ class DesktopServerTests(unittest.TestCase):
         status, script, _ = self.request("GET", "/assets/app.js")
         self.assertEqual(200, status)
         self.assertIn(b"function yesNo", script)
+        self.assertIn(b"AG2CKnowledgeGraph", script)
         self.assertIn(b"function setBusy", script)
         self.assertIn(b"function deliveryKindName", script)
         self.assertIn(b"function addProjectError", script)
@@ -75,10 +77,17 @@ class DesktopServerTests(unittest.TestCase):
         self.assertIn(b"keepPainted", script)
         self.assertIn("产品验收".encode("utf-8"), script)
         self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
+        status, graph_script, _ = self.request("GET", "/assets/graph.js")
+        self.assertEqual(200, status)
+        self.assertIn(b"AG2CKnowledgeGraph", graph_script)
+        status, g6, _ = self.request("GET", "/assets/vendor/g6.min.js")
+        self.assertEqual(200, status)
+        self.assertGreater(len(g6), 1000)
         status, body, headers = self.request("GET", "/api/status")
         self.assertEqual(200, status)
         self.assertTrue(headers["X-AG2C-Desktop"].startswith("desktop/"))
         capabilities = json.loads(body)["capabilities"]
+        self.assertIn("knowledge-graph", capabilities)
         self.assertIn("web-folder-picker", capabilities)
         self.assertIn("native-folder-picker", capabilities)
 
@@ -303,6 +312,28 @@ class DesktopServerTests(unittest.TestCase):
             )
         self.assertEqual(1, len(ready))
         self.assertGreater(ready[0], 0)
+
+
+class TrayHostSourceTests(unittest.TestCase):
+    def test_tray_host_embeds_edge_and_never_opens_a_system_browser(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "packaging" / "windows" / "desktop" / "AG2CDesktop.cs").read_text(encoding="utf-8")
+        build = (root / "scripts" / "build_windows_installer.ps1").read_text(encoding="utf-8")
+        installer = (root / "packaging" / "windows" / "AutoGovern2Code.iss").read_text(encoding="utf-8")
+        self.assertIn("using Microsoft.Web.WebView2.WinForms;", source)
+        self.assertIn("window.ag2cDesktopHost = true", source)
+        self.assertIn("choose-project", source)
+        self.assertNotIn("new WebBrowser", source)
+        self.assertIn("Microsoft.Web.WebView2.WinForms.dll", build)
+        self.assertIn("WebView2Loader.dll", build)
+        self.assertIn("Microsoft.Web.WebView2.WinForms.dll", installer)
+        self.assertIn("WebView2Loader.dll", installer)
+        for name in (
+            "Microsoft.Web.WebView2.Core.dll",
+            "Microsoft.Web.WebView2.WinForms.dll",
+            "WebView2Loader.dll",
+        ):
+            self.assertTrue((root / "packaging" / "windows" / "desktop" / "webview2" / name).is_file(), name)
 
 
 if __name__ == "__main__":

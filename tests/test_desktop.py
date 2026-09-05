@@ -3,11 +3,13 @@ from __future__ import annotations
 import http.client
 import json
 import socket
+import sys
 import tempfile
 import threading
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import ModuleType, SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import bootstrap
 
@@ -379,6 +381,56 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertNotIn("PySide6", launcher)
         self.assertIn("pythonw.exe", launcher)
         self.assertTrue((root / "打开管理界面.bat").is_file())
+
+
+class TrayFontTests(unittest.TestCase):
+    def test_windows_cjk_font_file_exists(self) -> None:
+        from ag2c.imgui_tray import cjk_font_path
+
+        found = cjk_font_path()
+        self.assertIsNotNone(found)
+        assert found is not None
+        self.assertTrue(found.is_file())
+        self.assertEqual("C:\\Windows\\Fonts", str(found.parent))
+
+    def test_load_fonts_uses_filesystem_cjk_as_default(self) -> None:
+        from ag2c.imgui_tray import _load_fonts, cjk_font_path
+
+        loaded: list[dict[str, object]] = []
+
+        class Params:
+            def __init__(self) -> None:
+                self.inside_assets = True
+                self.merge_to_last_font = False
+
+        hello = MagicMock()
+        hello.FontLoadingParams = Params
+
+        def load_font(path: str, size: float, params: Params | None = None) -> None:
+            loaded.append(
+                {
+                    "path": path,
+                    "size": size,
+                    "inside": None if params is None else params.inside_assets,
+                    "merge": None if params is None else params.merge_to_last_font,
+                }
+            )
+
+        hello.load_font.side_effect = load_font
+        bundle = ModuleType("imgui_bundle")
+        bundle.hello_imgui = hello  # type: ignore[attr-defined]
+        bundle.imgui = MagicMock()  # type: ignore[attr-defined]
+        with patch.dict(sys.modules, {"imgui_bundle": bundle, "imgui_bundle.hello_imgui": hello}):
+            _load_fonts()
+        cjk = cjk_font_path()
+        self.assertIsNotNone(cjk)
+        assert cjk is not None
+        self.assertGreaterEqual(len(loaded), 1)
+        self.assertEqual(str(cjk), loaded[0]["path"])
+        self.assertFalse(loaded[0]["inside"])
+        self.assertFalse(loaded[0]["merge"])
+        self.assertTrue(any(item["merge"] and "fontawesome" in str(item["path"]) for item in loaded[1:]))
+        hello.imgui_default_settings.load_default_font_with_font_awesome_icons.assert_not_called()
 
 
 class TrayHostHelperTests(unittest.TestCase):

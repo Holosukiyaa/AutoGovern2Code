@@ -138,17 +138,35 @@ def _setup_theme() -> None:
     hello_imgui.apply_tweaked_theme(theme)
 
 
+def cjk_font_path() -> Path | None:
+    """Windows CJK font used as the Hello ImGui default. Latin-only defaults show tofu."""
+    fonts = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
+    for name in ("msyh.ttc", "msyh.ttf", "msyhbd.ttc", "simhei.ttf", "simsun.ttc"):
+        candidate = fonts / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _load_fonts() -> None:
     from imgui_bundle import hello_imgui
 
-    hello_imgui.imgui_default_settings.load_default_font_with_font_awesome_icons()
-    yahei = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / "msyh.ttc"
-    if yahei.is_file():
+    # Hello ImGui's bundled DroidSans/Roboto have no CJK. Load YaHei (or SimSun) first so
+    # it becomes fonts[0]. FontLoadingParams.inside_assets defaults True and would look
+    # for msyh.ttc inside the demo assets, not C:\Windows\Fonts.
+    cjk = cjk_font_path()
+    if cjk is not None:
+        params = hello_imgui.FontLoadingParams()
+        params.inside_assets = False
+        hello_imgui.load_font(str(cjk), 16.0, params)
         try:
-            params = hello_imgui.FontLoadingParams()
-            hello_imgui.load_font(str(yahei), 16.0, params)
+            icons = hello_imgui.FontLoadingParams()
+            icons.merge_to_last_font = True
+            hello_imgui.load_font("fonts/fontawesome-webfont.ttf", 16.0, icons)
         except Exception:
             pass
+        return
+    hello_imgui.imgui_default_settings.load_default_font_with_font_awesome_icons()
 
 
 def _splits():

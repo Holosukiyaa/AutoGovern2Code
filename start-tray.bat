@@ -35,9 +35,9 @@ if not defined AG2C_PYTHONW if /I not "%AG2C_PYTHON%"=="python" (
 )
 
 if defined AG2C_PYTHONW if exist "%AG2C_PYTHONW%" (
-  start "AutoGovern2Code" "%AG2C_PYTHONW%" "%AG2C_APP%"
+  start "AutoGovern2Code" /B "%AG2C_PYTHONW%" "%AG2C_APP%"
   exit /b 0
 )
 
-start "AutoGovern2Code" "%AG2C_PYTHON%" "%AG2C_APP%"
+start "AutoGovern2Code" /B "%AG2C_PYTHON%" "%AG2C_APP%"
 exit /b 0

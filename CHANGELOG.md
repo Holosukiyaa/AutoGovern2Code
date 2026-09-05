@@ -5,6 +5,7 @@
 - Desktop host is only Hello ImGui (`start-tray.bat` → `packaging/windows/tray.py` → `ag2c.imgui_tray`). HTML/G6 viewer files, Qt/WinForms/WebView2 hosts, `ag2c viewer`, `qt_tray.py`, and duplicate launchers are gone. The local API is token-header JSON only; folder picking stays in the ImGui process.
 - Drop the heavy enroll/worktree/verify integration tests. Remaining tests are the tray host, CLI surface, and in-memory engine checks.
 - Fix `ag2c project uninstall` crashing on a missing `--remove-data` flag. The coverage payload is files and knowledge cards only (no G6 combo/edges). The local project list no longer returns an empty HTML `migrations` field.
+- Stop the Hello ImGui tray from spawning extra tiny loading windows: apply the dock layout only on first use, keep one 1280×860 window, and skip font reloads after a DPI rebuild.
 - Stop the tray from drawing two selection boxes on mouse click: unique ImGui ids per row, one selected key, no nav cursor, and hover no longer uses the same fill as selected.
 - Load Microsoft YaHei (or SimSun) as the Hello ImGui default font from `C:\Windows\Fonts`, then merge Font Awesome.
 - Move the Hello ImGui freeze entry and license notice to `packaging/windows/`. Portable copies no longer fall back to `build/dev-tray`.

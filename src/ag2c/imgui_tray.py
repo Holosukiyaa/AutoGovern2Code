@@ -103,19 +103,25 @@ def main(argv: list[str] | None = None) -> int:
 
     runner = hello_imgui.RunnerParams()
     runner.app_window_params.window_title = "AutoGovern2Code"
+    runner.app_window_params.resizable = True
+    runner.app_window_params.restore_previous_geometry = False
     runner.app_window_params.window_geometry.size = (1280, 860)
-    runner.app_window_params.restore_previous_geometry = True
+    runner.app_window_params.window_geometry.size_auto = False
+    runner.app_window_params.window_geometry.window_size_state = hello_imgui.WindowSizeState.standard
     runner.ini_folder_type = hello_imgui.IniFolderType.app_user_config_folder
-    runner.ini_filename = "AutoGovern2Code/imgui.ini"
+    runner.ini_filename = "AutoGovern2Code/tray.ini"
     runner.fps_idling.enable_idling = True
     runner.imgui_window_params.default_imgui_window_type = (
         hello_imgui.DefaultImGuiWindowType.provide_full_screen_dock_space
     )
     runner.imgui_window_params.show_menu_bar = True
     runner.imgui_window_params.show_menu_app = False
-    runner.imgui_window_params.show_menu_view = True
+    runner.imgui_window_params.show_menu_view = False
+    runner.imgui_window_params.show_menu_view_themes = False
     runner.imgui_window_params.show_status_bar = True
+    runner.imgui_window_params.show_status_fps = False
     runner.imgui_window_params.enable_viewports = False
+    runner.imgui_window_params.remember_theme = False
     runner.callbacks.setup_imgui_style = _setup_theme
     runner.callbacks.load_additional_fonts = _load_fonts
     runner.callbacks.show_menus = lambda: _menus(state)
@@ -123,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     runner.callbacks.before_imgui_render = _hide_nav_cursor
     runner.callbacks.post_init = lambda: state.run_job(lambda: _start_backend(state))
     runner.callbacks.before_exit = lambda: _shutdown(state)
-    runner.docking_params.layout_condition = hello_imgui.DockingLayoutCondition.application_start
+    runner.docking_params.layout_condition = hello_imgui.DockingLayoutCondition.first_use_ever
     runner.docking_params.docking_splits = _splits()
     runner.docking_params.dockable_windows = _windows(state)
     hello_imgui.run(runner)
@@ -175,12 +181,17 @@ def cjk_font_path() -> Path | None:
     return None
 
 
+_FONTS_LOADED = False
+
+
 def _load_fonts() -> None:
+    global _FONTS_LOADED
     from imgui_bundle import hello_imgui
 
-    # Hello ImGui's bundled DroidSans/Roboto have no CJK. Load YaHei (or SimSun) first so
-    # it becomes fonts[0]. FontLoadingParams.inside_assets defaults True and would look
-    # for msyh.ttc inside the demo assets, not C:\Windows\Fonts.
+    # Hello ImGui may call this again after a DPI/atlas rebuild. Loading YaHei twice
+    # recreates the GLFW window and looks like an endless stream of tiny loading windows.
+    if _FONTS_LOADED:
+        return
     cjk = cjk_font_path()
     if cjk is not None:
         params = hello_imgui.FontLoadingParams()
@@ -192,8 +203,10 @@ def _load_fonts() -> None:
             hello_imgui.load_font("fonts/fontawesome-webfont.ttf", 16.0, icons)
         except Exception:
             pass
+        _FONTS_LOADED = True
         return
     hello_imgui.imgui_default_settings.load_default_font_with_font_awesome_icons()
+    _FONTS_LOADED = True
 
 
 def _splits():

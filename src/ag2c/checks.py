@@ -94,6 +94,9 @@ def run_checks(
         selected_ids = requested_checker_ids
     if not selected_ids:
         raise AG2CError("entry slice selected no checkers; add a real checker before reporting validation")
+    from .households import enforce_households
+
+    enforce_households(manifest, policy, entry_slice, selected_ids)
     results: list[dict[str, Any]] = []
     for checker in sorted(policy.checkers, key=lambda item: (item.stage, item.checker_id)):
         if checker.checker_id not in selected_ids:
@@ -114,6 +117,7 @@ def run_checks(
                     "AG2C_PROJECT_ROOT": str(manifest.project_root),
                     "AG2C_PROJECT_ID": manifest.project_id,
                     "AG2C_SLICE_DIGEST": str(entry_slice["slice_digest"]),
+                    "AG2C_IMPLEMENTATION": checker.implementation,
                 }
             )
             try:
@@ -134,7 +138,11 @@ def run_checks(
                 stderr = completed.stderr
                 skipped = _skip_reason(exit_code, stdout, stderr)
                 if skipped:
-                    status = "skipped"
+                    if policy.household_required and checker.implementation:
+                        status = "failed"
+                        stderr += "\nRequired implementation check was skipped: " + skipped
+                    else:
+                        status = "skipped"
                 elif completed.returncode == 0:
                     status = "passed"
                 else:
@@ -153,6 +161,7 @@ def run_checks(
             "started_at": started_at,
             "duration_ms": max(0, round((time.monotonic() - started) * 1000)),
             "command": list(checker.command),
+            "implementation": checker.implementation,
             "cwd": str(cwd),
             "stdout": _clip(stdout),
             "stderr": _clip(stderr),

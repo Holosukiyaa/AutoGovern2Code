@@ -229,8 +229,18 @@ def _status_for_card(state: dict[str, Any], anchor: dict[str, Any], *, manifest:
 def knowledge_status(manifest: Manifest, policy: Policy) -> list[dict[str, Any]]:
     state = _read_state(knowledge_path(manifest))
     statuses: list[dict[str, Any]] = []
+    jurisdictions = {}
+    if any(card.jurisdiction is not None for card in policy.cards):
+        from .households import census_report
+
+        jurisdictions = {item["id"]: item for item in census_report(manifest, policy)["households"] if item["jurisdiction"]}
     for card in policy.cards:
         if card.card_type != "knowledge":
+            continue
+        if card.card_id in jurisdictions:
+            record = jurisdictions[card.card_id]
+            freshness = record["freshness"] if record["freshness"] != "never" else "unknown"
+            statuses.append({"id": card.card_id, "title": card.title, "target_ids": list(_target_ids(manifest, card)), "status": freshness, "source_status": freshness, "assertion_status": "current", "reasons": [] if freshness == "current" else ["census-review-required"], "references": [], "assertions": [], "jurisdiction": True, "anchor_digest": (record["last_census"] or {}).get("scope_digest"), "current_digest": record["scope_digest"]})
             continue
         status = _status_for_card(state, _anchor_for_card(manifest, card), manifest=manifest)
         status.update({"title": card.title, "target_ids": list(_target_ids(manifest, card))})

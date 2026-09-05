@@ -76,10 +76,20 @@
                   </div>
                   <span id="graphBanner" class="status-label">G6</span>
                 </header>
-                <div id="graphFilters" class="graph-filters" role="toolbar" aria-label="偷懒过滤器">
+                <div class="graph-search-row">
+                  <label for="graphSearch">查户口</label><input id="graphSearch" type="search" placeholder="职责、目录、卡片 ID 或实现名称" />
+                  <select id="graphNodePicker" aria-label="选择户口"><option value="">选择一张卡或一个目录</option></select>
+                  <button id="graphFit" type="button">全图</button>
+                  <label class="graph-detail-toggle"><input id="graphShowDirectories" type="checkbox" />展开目录明细</label>
+                </div>
+                <p id="graphCensusSummary" class="graph-census-summary"></p>
+                <div id="graphFilters" class="graph-filters" role="toolbar" aria-label="户口状态过滤器">
                   <button type="button" data-graph-filter="" data-label="全部">全部</button>
                   <button type="button" data-graph-filter="unowned" data-label="无主">无主</button>
                   <button type="button" data-graph-filter="stale" data-label="过期">过期</button>
+                  <button type="button" data-graph-filter="unreviewed" data-label="未普查">未普查</button>
+                  <button type="button" data-graph-filter="ambiguous" data-label="重复认领">重复认领</button>
+                  <button type="button" data-graph-filter="multiple" data-label="多实现线索">多实现线索</button>
                   <button type="button" data-graph-filter="abandoned" data-label="废弃未清">废弃未清</button>
                   <button type="button" data-graph-filter="undeclared" data-label="未验收">未验收</button>
                   <button type="button" data-graph-filter="writing" data-label="AI正在写">AI正在写</button>
@@ -88,14 +98,24 @@
                   <div id="knowledgeGraph" class="knowledge-graph-canvas" aria-label="散开的知识图谱"></div>
                   <aside id="graphInspector" class="graph-inspector">
                     <strong id="graphInspectTitle">点一张卡</strong>
-                    <p id="graphInspectStatus">偷懒会以红、橙、紫和发光出现，不会缩在列表里。</p>
+                    <p id="graphInspectStatus">选择户口可查范围、替代者、检测与历次普查。刷新不等于重新普查。</p>
                     <p id="graphInspectSummary"></p>
                     <dl>
                       <div><dt>叶子</dt><dd id="graphInspectKind">—</dd></div>
                       <div><dt>协议</dt><dd id="graphInspectProtocol">—</dd></div>
                       <div><dt>检测</dt><dd id="graphInspectDetection">—</dd></div>
                       <div><dt>路径</dt><dd id="graphInspectPath">—</dd></div>
+                      <div><dt>排除范围</dt><dd id="graphInspectExcludes">—</dd></div>
+                      <div><dt>产品能力 / 实现身份</dt><dd id="graphInspectImplementation">—</dd></div>
+                      <div><dt>普查新鲜度</dt><dd id="graphInspectFreshness">—</dd></div>
+                      <div><dt>普查时的项目版本</dt><dd id="graphInspectVersion">—</dd></div>
+                      <div><dt>最近源码修改</dt><dd id="graphInspectChanged">—</dd></div>
+                      <div><dt>审查者与说明</dt><dd id="graphInspectReview">—</dd></div>
                     </dl>
+                    <div id="graphInspectRelations" class="graph-inspect-links"></div>
+                    <details open><summary>问题与实现线索</summary><div id="graphInspectIssues"></div></details>
+                    <details><summary>管辖文件与入口</summary><div id="graphInspectFiles"></div></details>
+                    <details><summary>历次普查（最近 12 次）</summary><div id="graphInspectHistory"></div></details>
                   </aside>
                 </div>
               </article>

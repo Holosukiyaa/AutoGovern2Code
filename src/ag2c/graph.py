@@ -7,7 +7,7 @@ from typing import Any, Iterable, Mapping
 
 GRAPH_SCHEMA = "ag2c.governance_graph.v1"
 OPEN_TASK_STATES = frozenset({"active", "verified"})
-LAZINESS_FLAGS = ("abandoned", "unowned", "stale", "undeclared", "writing")
+LAZINESS_FLAGS = ("abandoned", "unowned", "ambiguous", "stale", "unreviewed", "multiple", "undeclared", "writing")
 FLAG_LABELS = {
     "abandoned": "废弃未清",
     "unowned": "无主",
@@ -15,6 +15,9 @@ FLAG_LABELS = {
     "undeclared": "未验收",
     "writing": "AI正在写",
     "current": "在册",
+    "ambiguous": "重复认领",
+    "unreviewed": "未普查",
+    "multiple": "多实现待核查",
 }
 KIND_LABELS = {
     "constitution": "宪章",
@@ -23,6 +26,8 @@ KIND_LABELS = {
     "boundary": "协议面",
     "gap": "空洞",
     "work": "施工",
+    "directory": "代码目录",
+    "capability": "产品能力",
 }
 
 
@@ -368,6 +373,66 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
             if constitution:
                 add_edge(work_id, constitution, "exposes")
 
+    census = _mapping(source.get("census"))
+    if census:
+        actual_floor_gaps = {"gap:" + (_directory_of(_text(item.get("artifact_id"))) or _normalize_path(_text(item.get("artifact_id")))) for item in findings if item.get("finding_type") == "scope-uncovered"}
+        for node_id in [key for key in nodes if key.startswith("gap:") and key != "gap:product" and key not in actual_floor_gaps]:
+            nodes.pop(node_id)
+        edges = [edge for edge in edges if edge["source"] in nodes and edge["target"] in nodes]
+        for household in _items(census.get("households")):
+            card_id = household["id"]
+            declaration = _mapping(household.get("jurisdiction"))
+            flags = [flag for flag in nodes.get(card_id, {}).get("flags", []) if flag == "writing"]
+            freshness = household.get("freshness")
+            if freshness in {"never", "stale"}:
+                flags.append("unreviewed" if freshness == "never" else "stale")
+            if declaration.get("status") == "legacy" or (declaration.get("status") == "retired" and household.get("code_count")):
+                flags.append("abandoned")
+            issue_codes = {issue["code"] for issue in household.get("issues", [])}
+            if issue_codes & {"implementation-check-missing", "implementation-check-mismatch", "implementation-check-reused"}:
+                flags.append("undeclared")
+            if issue_codes & {"floor-link-missing", "floor-scope-mismatch", "replacement-missing"}:
+                flags.append("unowned")
+            if "competing-current-implementations" in issue_codes or len(household.get("canvas_engines", [])) > 1:
+                flags.append("multiple")
+            paths = [pattern for scope in household.get("scopes", []) for pattern in scope.get("includes", [])]
+            nodes[card_id] = _node(card_id, kind=household["kind"], title=household["title"], summary=household["summary"], flags=flags, path="、".join(paths), detection="、".join(household.get("checkers", [])) or "未绑定实现检测", extra={"household": household, "jurisdiction": declaration, "freshness": freshness})
+        grouped_directories: dict[str, dict] = {}
+        for directory in _items(census.get("directories")):
+            node_id = f'directory:{directory["target"]}:{directory["path"]}'
+            flags = []
+            if directory.get("unowned"):
+                flags.append("unowned")
+            if directory.get("ambiguous"):
+                flags.append("ambiguous")
+            nodes[node_id] = _node(node_id, kind="directory", title=directory["path"], summary=f'{len(directory["files"])} 个代码文件；未认领 {directory["unowned"]}，重复认领 {directory["ambiguous"]}。', flags=flags, path=f'{directory["target"]}:{directory["path"]}', extra={"directory": directory})
+            nodes[node_id]["detailOnly"] = True
+            for owner in directory.get("owners", []):
+                add_edge(owner, node_id, "covers")
+            group_path = "/".join(directory["path"].split("/")[:2])
+            group_id = f'directory-group:{directory["target"]}:{group_path}'
+            group = grouped_directories.setdefault(group_id, {"target": directory["target"], "path": group_path, "files": [], "owners": set(), "unowned": 0, "ambiguous": 0, "children": []})
+            group["files"].extend(directory["files"])
+            group["owners"].update(directory.get("owners", []))
+            group["unowned"] += directory["unowned"]
+            group["ambiguous"] += directory["ambiguous"]
+            group["children"].append(node_id)
+        for group_id, group in grouped_directories.items():
+            flags = (["unowned"] if group["unowned"] else []) + (["ambiguous"] if group["ambiguous"] else [])
+            group["owners"] = sorted(group["owners"])
+            nodes[group_id] = _node(group_id, kind="directory", title=group["path"], summary=f'{len(group["files"])} 个代码文件，{len(group["children"])} 个目录；未认领 {group["unowned"]}，重复认领 {group["ambiguous"]}。展开目录明细可逐层查证。', flags=flags, path=f'{group["target"]}:{group["path"]}', extra={"directory": group, "directoryGroup": True})
+            for owner in group["owners"]:
+                add_edge(owner, group_id, "covers")
+            for child in group["children"]:
+                add_edge(group_id, child, "contains")
+        for capability in _items(census.get("implementations")):
+            node_id = "capability:" + capability["capability"]
+            nodes[node_id] = _node(node_id, kind="capability", title=capability["capability"], summary="当前实现：" + "、".join(capability["current"]), flags=["multiple"] if capability["competing"] else [], extra={"capability": capability})
+            for card_id in capability["cards"]:
+                add_edge(card_id, node_id, "implements")
+        if census.get("error"):
+            nodes["gap:census"] = _node("gap:census", kind="gap", title="普查不可用", summary=str(census["error"]), flags=["stale"])
+
     counts = {flag: 0 for flag in (*LAZINESS_FLAGS, "current", "nodes", "edges", "leaves")}
     for node in nodes.values():
         counts["nodes"] += 1
@@ -387,8 +452,9 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
         "edges": edges,
         "counts": counts,
         "lazy": lazy_total > 0,
+        "census": {key: census.get(key) for key in ("observed_at", "required", "revisions", "counts")},
         "headline": (
-            f"无主 {counts['unowned']} · 过期 {counts['stale']} · 废弃 {counts['abandoned']} · 未验收 {counts['undeclared']} · AI正在写 {counts['writing']}"
+            f"无主 {counts['unowned']} · 未普查 {counts['unreviewed']} · 过期 {counts['stale']} · 旧实现 {counts['abandoned']} · 多实现线索 {counts['multiple']} · 未验收 {counts['undeclared']}"
             if lazy_total
             else f"{counts['leaves']} 张知识叶，没有可藏的偷懒"
         ),

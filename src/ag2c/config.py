@@ -16,7 +16,7 @@ IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 CARD_TYPES = {"constitution", "floor", "boundary", "knowledge", "scenario", "task"}
 OWNERSHIP_TYPES = {"primary", "reference", "supporting"}
 CHECK_STAGES = {"static", "floor", "boundary", "scenario"}
-RELATION_TYPES = {"depends_on", "explains", "producer", "consumer", "governs", "related_to"}
+RELATION_TYPES = {"depends_on", "explains", "producer", "consumer", "governs", "related_to", "replaced_by"}
 COVERAGE_LEVELS = {"baseline", "structured"}
 
 
@@ -174,6 +174,7 @@ def load_policy(manifest: Manifest) -> Policy:
                 scopes=tuple(scopes),
                 checkers=_strings(item.get("checkers"), f"card {card_id} checkers"),
                 references=_strings(item.get("references"), f"card {card_id} references"),
+                jurisdiction=item.get("jurisdiction"),
             )
         )
     card_ids = [card.card_id for card in cards]
@@ -186,7 +187,7 @@ def load_policy(manifest: Manifest) -> Policy:
             raise ConfigurationError(f"floor card requires at least one primary scope: {card.card_id}")
         if card.card_type == "floor" and not card.checkers:
             raise ConfigurationError(f"floor card requires at least one floor checker: {card.card_id}")
-        if card.card_type in {"knowledge", "task"} and card.checkers:
+        if (card.card_type == "task" or (card.card_type == "knowledge" and card.jurisdiction is None)) and card.checkers:
             raise ConfigurationError(f"{card.card_type} card cannot own checkers: {card.card_id}")
     relations: list[Relation] = []
     for index, item in enumerate(raw.get("relations", [])):
@@ -206,6 +207,7 @@ def load_policy(manifest: Manifest) -> Policy:
             "explains": ("knowledge", "floor"),
             "producer": ("boundary", "floor"),
             "consumer": ("boundary", "floor"),
+            "replaced_by": ("knowledge", "knowledge"),
         }
         if relation_type in expected_types and (source_type, target_type) != expected_types[relation_type]:
             expected_source, expected_target = expected_types[relation_type]
@@ -232,7 +234,7 @@ def load_policy(manifest: Manifest) -> Policy:
         if timeout < 1:
             raise ConfigurationError(f"checker {checker_id} timeout must be positive")
         cwd = relative_config_path(str(item.get("cwd", ".")), f"checker {checker_id} cwd")
-        checkers.append(Checker(checker_id, stage, target_id, command, cwd, timeout))
+        checkers.append(Checker(checker_id, stage, target_id, command, cwd, timeout, str(item.get("implementation") or "")))
     checker_ids = [checker.checker_id for checker in checkers]
     if len(checker_ids) != len(set(checker_ids)):
         raise ConfigurationError("policy checker ids must be unique")
@@ -311,4 +313,10 @@ def load_policy(manifest: Manifest) -> Policy:
         managed_by=str(raw_coverage.get("managed_by", "project")).strip() or "project",
         areas=_strings(raw_coverage.get("areas"), "policy.coverage.areas"),
     )
-    return Policy(manifest.policy_path, tuple(cards), tuple(relations), tuple(contracts), tuple(checkers), coverage)
+    from .households import validate_declarations
+
+    validate_declarations(cards, relations)
+    household_required = raw.get("household_required", False)
+    if not isinstance(household_required, bool):
+        raise ConfigurationError("household_required must be a boolean")
+    return Policy(manifest.policy_path, tuple(cards), tuple(relations), tuple(contracts), tuple(checkers), coverage, household_required)

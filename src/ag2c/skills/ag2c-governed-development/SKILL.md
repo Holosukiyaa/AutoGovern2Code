@@ -23,6 +23,12 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
 
 4. Inspect the canonical checkout read-only and run `ag2c coverage --format json`. Identify narrow expected paths and exact public contract keys. Baseline coverage is intentionally conservative: use exact paths when known and broaden uncertain or new areas. Do not edit, generate, build, install dependencies, or start a service in the canonical checkout.
 
+   Run `ag2c govern census` when investigating ownership or cleanup. Directory
+   households are not document cards. Do not create a catch-all card merely to
+   hide unowned code. Trace current entrypoints, retain explicit replacement
+   links for old implementations, and bind checks to the implementation changed.
+   A passing replacement test cannot stand in for an old implementation test.
+
 5. Start the task from the canonical checkout:
 
    ```text
@@ -34,6 +40,12 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
 6. Read the JSON response and move into `worktree.path`. Perform every write, dependency install, build, test, screenshot, and generated output only in that external worktree. `ag2c task list` reports worktree lifecycle: constructing, verified but unmerged, diverged, abandoned, or merged.
 
 7. After the final change, run from the task worktree:
+
+   If directory-household enforcement is enabled, explicitly review the changed
+   jurisdictions using `ag2c govern census --record --card <id> --actor <harness>
+   --reason "<what was inspected and why>"`. Do this only after inspecting the
+   actual final scope and its checks. Refresh and `govern settle` do not renew
+   census evidence; never use a bulk review to conceal uninspected code.
 
    ```text
    ag2c task verify

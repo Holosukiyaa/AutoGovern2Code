@@ -75,6 +75,16 @@ This Skill is the only path for changing stored project knowledge. The user desc
 
 ## Fail closed
 
+- Directory jurisdictions use `ag2c govern household`, not document-card apply.
+  Register directory scopes, exclusions, floor links, capability, implementation,
+  lifecycle, and implementation-specific checks. Retain old cards with an
+  explicit `--replaced-by` link until removal is proven.
+- `ag2c govern census` only observes. Record a reviewed scope with `--record
+  --card <id> --actor <harness> --reason "<review facts>"`; never infer review from
+  a refresh, a timestamp, or successful unrelated tests.
+- `ag2c govern household-gate --mode enforce` enables hard checks; observation
+  mode must never be described as enforced. Both commands require actor/reason.
+
 - Do not edit `policy.json`, Manifest, ledger, or evidence files.
 - Do not apply a change without `--reason`.
 - Do not remove the constitution card or the last floor.

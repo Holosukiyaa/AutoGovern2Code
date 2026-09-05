@@ -46,6 +46,7 @@ class Card:
     scopes: tuple[Scope, ...]
     checkers: tuple[str, ...]
     references: tuple[str, ...]
+    jurisdiction: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,7 @@ class Checker:
     command: tuple[str, ...]
     cwd: str
     timeout: int
+    implementation: str = ""
 
 
 @dataclass(frozen=True)
@@ -94,6 +96,7 @@ class Policy:
     contracts: tuple[ContractBinding, ...]
     checkers: tuple[Checker, ...]
     coverage: Coverage
+    household_required: bool = False
 
     def card(self, card_id: str) -> Card:
         return next(card for card in self.cards if card.card_id == card_id)

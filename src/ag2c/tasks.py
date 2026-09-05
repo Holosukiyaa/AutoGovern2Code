@@ -674,6 +674,14 @@ def finish_task(start: Path, task_id: str, *, message: str) -> dict[str, Any]:
     current_digest = change_digest(worktree, task["source"]["head"])
     if current_digest != task["verifications"][-1]["change_digest"]:
         raise AG2CError("task changed after verification; run `ag2c task verify` again")
+    if policy.household_required:
+        from .households import enforce_households
+
+        work_manifest = load_manifest(discover_manifest(worktree), project_root=worktree)
+        actual_specs, _unmanaged = _changed_specs(work_manifest, task["verifications"][-1]["changed_paths"])
+        entries = [{"target": spec.partition(":")[0], "path": spec.partition(":")[2]} for spec in actual_specs]
+        passing_checks = {item["id"] for item in task["verifications"][-1]["checker_results"] if item["status"] == "passed"}
+        enforce_households(work_manifest, policy, {"entries": {"paths": entries}}, passing_checks)
     delivery = describe_delivery(goal=str(task.get("goal") or ""), outcome=message)
     if not delivery["outcome"]:
         raise AG2CError("AG2C requires a finish message that says what was implemented or fixed")

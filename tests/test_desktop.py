@@ -54,6 +54,8 @@ class DesktopServerTests(unittest.TestCase):
         self.assertIn("治理图谱".encode("utf-8"), body)
         self.assertIn(b"listDialog", body)
         self.assertIn(b"busyOverlay", body)
+        for element in (b"graphSearch", b"graphNodePicker", b"graphInspectFreshness", b"graphInspectVersion", b"graphInspectHistory", b"graphInspectRelations"):
+            self.assertIn(element, body)
         self.assertIn(b"gateObservedToggle", body)
         self.assertIn("卸载项目".encode("utf-8"), body)
         status, script, _ = self.request("GET", "/assets/app.js")

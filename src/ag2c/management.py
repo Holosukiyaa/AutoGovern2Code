@@ -353,6 +353,7 @@ def project_details(path: Path) -> dict[str, Any]:
             ],
             "checkers": list(card.checkers),
             "references": list(card.references),
+            "jurisdiction": card.jurisdiction,
         }
         for card in policy.cards
     ]
@@ -378,6 +379,7 @@ def project_details(path: Path) -> dict[str, Any]:
             "command": list(checker.command),
             "cwd": checker.cwd,
             "timeout": checker.timeout,
+            "implementation": checker.implementation,
         }
         for checker in policy.checkers
     ]
@@ -411,6 +413,13 @@ def project_details(path: Path) -> dict[str, Any]:
     except (AG2CError, OSError, ValueError):
         result["journals"] = []
     from .graph import build_governance_graph
+
+    from .households import census_report
+
+    try:
+        result["census"] = census_report(manifest, policy)
+    except (AG2CError, OSError, ValueError) as exc:
+        result["census"] = {"error": str(exc), "households": [], "directories": []}
 
     result["graph"] = build_governance_graph(result)
     return result

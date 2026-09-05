@@ -299,7 +299,9 @@ def pending_updates(start: Path, changed_paths: list[str] | None = None) -> dict
         if relative not in referenced:
             items.append({"kind": "new-document", "path": relative, "action": "add-knowledge"})
     for status in knowledge_status(manifest, policy):
-        if status["status"] == "conflict":
+        if status.get("jurisdiction") and status["status"] != "current":
+            items.append({"kind": "census-review-required", "path": status["id"], "action": "review-directory-census"})
+        elif status["status"] == "conflict":
             items.append({"kind": "assertion-conflict", "path": status["id"], "action": "review-then-sync-knowledge"})
         elif status["status"] == "stale":
             items.append({"kind": "stale-knowledge", "path": status["id"], "action": "sync-or-update-knowledge"})
@@ -410,6 +412,8 @@ def apply_change(
     raw = _read_json(manifest.policy_path)
     cards = [item for item in raw.get("cards", []) if isinstance(item, dict)]
     existing = {str(item.get("id")): item for item in cards}
+    if existing.get(card_id, {}).get("jurisdiction") is not None:
+        raise AG2CError("directory households must be updated through govern household; retain retired cards and census history")
     if action == "remove":
         if card_id not in existing:
             raise AG2CError(f"unknown card: {card_id}")

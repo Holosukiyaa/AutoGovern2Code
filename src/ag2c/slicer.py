@@ -192,6 +192,10 @@ def compile_slice(
                 if relation.source not in reasons:
                     queue.append(relation.source)
                 select(relation.source, f"explains:{card_id}")
+            if relation.source == card_id and relation.relation_type == "replaced_by":
+                if relation.target not in reasons:
+                    queue.append(relation.target)
+                select(relation.target, f"replacement-regression:{card_id}")
         if card.card_type == "boundary":
             for relation in policy.relations:
                 if relation.source == card_id and relation.relation_type in {"producer", "consumer"}:

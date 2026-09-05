@@ -269,6 +269,28 @@ def build_parser() -> argparse.ArgumentParser:
     _add_slice_arguments(govern_retrieve)
     govern_retrieve.add_argument("--format", choices=("text", "json"), default="text")
 
+    household = govern_commands.add_parser("household", help="register a directory jurisdiction, never a README proxy")
+    for field in ("id", "title", "summary", "capability", "implementation", "actor", "reason"):
+        household.add_argument("--" + field, required=True)
+    for field in ("include", "exclude", "floor", "entrypoint", "checker"):
+        household.add_argument("--" + field, action="append", default=[])
+    household.add_argument("--status", choices=("current", "legacy", "retired"), default="current")
+    household.add_argument("--replaced-by", default="")
+    household.add_argument("--command-json", help="implementation-specific checker argv as JSON")
+    household.add_argument("--format", choices=("text", "json"), default="json")
+    census = govern_commands.add_parser("census", help="inspect scope freshness; --record explicitly records a review")
+    census.add_argument("--record", action="store_true")
+    census.add_argument("--all", action="store_true")
+    census.add_argument("--card", action="append", default=[])
+    census.add_argument("--actor", default="")
+    census.add_argument("--reason", default="")
+    census.add_argument("--format", choices=("text", "json"), default="json")
+    enforcement = govern_commands.add_parser("household-gate")
+    enforcement.add_argument("--mode", choices=("enforce", "observe"), required=True)
+    enforcement.add_argument("--actor", required=True)
+    enforcement.add_argument("--reason", required=True)
+    enforcement.add_argument("--format", choices=("text", "json"), default="json")
+
     doctor = subparsers.add_parser("doctor", help="check configuration, activation, tools, index, and ledger")
     doctor.add_argument("--repair", action="store_true", help="restore the Skill, Git guard, activation, and index")
     doctor.add_argument("--skill-destination", type=Path)
@@ -606,6 +628,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "govern":
             from .govern import apply_change, ingest_project, pending_updates, retrieve_guidance, settle_pending
 
+            if args.govern_command in {"household", "census", "household-gate"}:
+                from .household_commands import read_census, register_household, review_census, set_household_enforcement
+
+                if args.govern_command == "household":
+                    result = register_household(Path.cwd(), card_id=args.id, title=args.title, summary=args.summary, includes=args.include, excludes=args.exclude, floors=args.floor, capability=args.capability, implementation=args.implementation, status=args.status, replaced_by=args.replaced_by, entrypoints=args.entrypoint, checkers=args.checker, command=json.loads(args.command_json) if args.command_json else None, actor=args.actor, reason=args.reason)
+                elif args.govern_command == "household-gate":
+                    result = set_household_enforcement(Path.cwd(), enabled=args.mode == "enforce", actor=args.actor, reason=args.reason)
+                else:
+                    result = review_census(Path.cwd(), card_ids=args.card, all_cards=args.all, actor=args.actor, reason=args.reason) if args.record else read_census(Path.cwd())
+                print(_json(result))
+                return 0
             if args.govern_command == "ingest":
                 result = ingest_project(Path.cwd(), actor=args.actor, reason=args.reason)
             elif args.govern_command == "pending":

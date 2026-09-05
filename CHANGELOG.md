@@ -2,11 +2,12 @@
 
 ## Unreleased
 
+- Drop the leftover Qt tray alias so `ag2c.qt_tray` is not a live host. The desktop entry is `ag2c.imgui_tray`. Abandoned WinForms/WebView2/Qt files under `packaging/windows/desktop` are already gone.
 - Stop the tray from drawing two selection boxes on mouse click: unique ImGui ids per row, one selected key, no nav cursor, and hover no longer uses the same fill as selected.
 - Load Microsoft YaHei (or SimSun) as the Hello ImGui default font from `C:\Windows\Fonts`, then merge Font Awesome. The previous loader used the Latin-only default font and looked for YaHei in demo assets, so Chinese labels rendered as tofu boxes.
-- Move the Hello ImGui freeze entry and license notice to `packaging/windows/`. The old `packaging/windows/desktop` folder is only the abandoned WinForms host, vendored WebView2, and Qt notice. Portable copies no longer fall back to `build/dev-tray`.
+- Move the Hello ImGui freeze entry and license notice to `packaging/windows/`. Portable copies no longer fall back to `build/dev-tray`.
 - Replace the PySide tray with Dear ImGui / Hello ImGui (`imgui-bundle`). Docking, theme, and the folder dialog come from that MIT shell. Network work runs off the UI thread. 3D add-ons (ImGuizmo, ImmVision, implot3d) are not imported and are excluded from the freeze.
-- Add `start-tray.bat` (and `打开管理界面.bat`) so the Qt tray can be started with a double-click from the repo.
+- Add `start-tray.bat` (and `打开管理界面.bat`) so the tray can be started with a double-click from the repo.
 - Replace the WinForms tray with a Python Qt host (PySide6). The window uses stock Qt widgets and Qt Style Sheets instead of a hand-drawn control set or an embedded browser. The governance engine stays Python; Qt is an optional `gui` extra and is frozen only into the Windows tray.
 - Skin the native tray to the previous light-console look: blue AG mark, 236×76 project cards, pill filters, white file-tree pane and mint knowledge-card pane. Still no browser.
 - A portable folder (`portable.ini` next to `AutoGovern2Code.exe`, or `--portable`) keeps evidence in `data\` and MinGit in `git\`. It does not write Start Menu, PATH, or login startup. Moving that folder rebases store paths in the registry and keeps using the shipped Git.

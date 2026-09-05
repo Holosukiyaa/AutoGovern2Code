@@ -1,3 +1,1 @@
-"""Leftover name. The tray is Dear ImGui (ag2c.imgui_tray)."""
-
-from ag2c.imgui_tray import main
+"""Retired Qt tray name. The desktop host is ag2c.imgui_tray."""

@@ -381,6 +381,10 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertNotIn("PySide6", launcher)
         self.assertIn("pythonw.exe", launcher)
         self.assertTrue((root / "打开管理界面.bat").is_file())
+        leftover = (root / "src" / "ag2c" / "qt_tray.py").read_text(encoding="utf-8")
+        self.assertNotIn("from ag2c.imgui_tray import main", leftover)
+        self.assertNotIn("PySide6", leftover)
+        self.assertIn("imgui_tray", leftover)
 
 
 class TrayFontTests(unittest.TestCase):

@@ -1,12 +1,13 @@
 // AutoGovern2Code desktop host: native WinForms + NotifyIcon.
-// Project list, file tree, and knowledge cards are WinForms controls.
-// The Python runtime still serves the local API; this host does not embed a browser.
+// Project cards, file tree, and knowledge cards are WinForms controls skinned
+// to the previous light-console CSS. The host does not embed a browser.
 
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -231,6 +232,425 @@ namespace AutoGovern2CodeDesktop
         public override string ToString() { return Title ?? Id ?? ""; }
     }
 
+    internal static class Ui
+    {
+        public static readonly Color Page = Color.FromArgb(243, 244, 246);
+        public static readonly Color Ink = Color.FromArgb(31, 41, 55);
+        public static readonly Color Title = Color.FromArgb(17, 24, 39);
+        public static readonly Color Mute = Color.FromArgb(107, 114, 128);
+        public static readonly Color Line = Color.FromArgb(229, 231, 235);
+        public static readonly Color Primary = Color.FromArgb(37, 99, 235);
+        public static readonly Color PrimaryDeep = Color.FromArgb(29, 78, 216);
+        public static readonly Color PrimarySoft = Color.FromArgb(239, 246, 255);
+        public static readonly Color PrimaryHover = Color.FromArgb(219, 234, 254);
+        public static readonly Color SecondaryLine = Color.FromArgb(209, 213, 219);
+        public static readonly Color SecondaryText = Color.FromArgb(55, 65, 81);
+        public static readonly Color CardPane = Color.FromArgb(248, 250, 249);
+        public static readonly Color ActiveCard = Color.FromArgb(248, 251, 255);
+        public static readonly Color HoverCard = Color.FromArgb(248, 250, 252);
+        public static readonly Color IssueBg = Color.FromArgb(255, 247, 237);
+        public static readonly Color IssueText = Color.FromArgb(154, 52, 18);
+        public static readonly Color Protected = Color.FromArgb(22, 163, 74);
+        public static readonly Color Attention = Color.FromArgb(217, 119, 6);
+        public static readonly Color Danger = Color.FromArgb(220, 38, 38);
+        public static readonly Color Stopped = Color.FromArgb(156, 163, 175);
+        public static readonly Color DangerLine = Color.FromArgb(254, 202, 202);
+        public static readonly Color DangerHover = Color.FromArgb(254, 242, 242);
+        public static readonly Color ProtectSoft = Color.FromArgb(220, 252, 231);
+        public static readonly Color AttentionSoft = Color.FromArgb(254, 243, 199);
+        public static readonly Color DangerSoft = Color.FromArgb(254, 226, 226);
+        public static readonly Color StoppedSoft = Color.FromArgb(243, 244, 246);
+
+        public static GraphicsPath RoundRect(Rectangle bounds, int radius)
+        {
+            int d = Math.Max(2, radius * 2);
+            if (d > bounds.Width) d = Math.Max(2, bounds.Width);
+            if (d > bounds.Height) d = Math.Max(2, bounds.Height);
+            GraphicsPath path = new GraphicsPath();
+            if (bounds.Width <= 0 || bounds.Height <= 0)
+            {
+                path.AddRectangle(bounds);
+                return path;
+            }
+            path.AddArc(bounds.X, bounds.Y, d, d, 180, 90);
+            path.AddArc(bounds.Right - d, bounds.Y, d, d, 270, 90);
+            path.AddArc(bounds.Right - d, bounds.Bottom - d, d, d, 0, 90);
+            path.AddArc(bounds.X, bounds.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
+        public static void PaintRound(Graphics graphics, Rectangle bounds, int radius, Color fill, Color border)
+        {
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using (GraphicsPath path = RoundRect(bounds, radius))
+            using (SolidBrush brush = new SolidBrush(fill))
+            using (Pen pen = new Pen(border))
+            {
+                graphics.FillPath(brush, path);
+                graphics.DrawPath(pen, path);
+            }
+        }
+
+        public static void ApplyRound(Control control, int radius)
+        {
+            if (control == null || control.Width <= 0 || control.Height <= 0) return;
+            using (GraphicsPath path = RoundRect(new Rectangle(0, 0, control.Width, control.Height), radius))
+            {
+                Region old = control.Region;
+                control.Region = new Region(path);
+                if (old != null) old.Dispose();
+            }
+        }
+
+        public static Color StateColor(string state)
+        {
+            if (state == "protected") return Protected;
+            if (state == "attention") return Attention;
+            if (state == "inactive" || state == "missing") return Danger;
+            return Stopped;
+        }
+
+        public static Color StateSoft(string state)
+        {
+            if (state == "protected") return ProtectSoft;
+            if (state == "attention") return AttentionSoft;
+            if (state == "inactive" || state == "missing") return DangerSoft;
+            return StoppedSoft;
+        }
+
+        public static string StateLabel(string state)
+        {
+            if (state == "protected") return "治理检查已通过";
+            if (state == "attention") return "需要处理";
+            if (state == "missing") return "目录不可用";
+            if (state == "stopped") return "治理已关闭";
+            return "未生效";
+        }
+
+        public static string Glyph(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "AG";
+            string trimmed = name.Trim();
+            if (trimmed.Length == 1) return trimmed.ToUpperInvariant();
+            return trimmed.Substring(0, Math.Min(2, trimmed.Length)).ToUpperInvariant();
+        }
+    }
+
+    internal sealed class CardPanel : Panel
+    {
+        private readonly int _radius;
+        private readonly Color _border;
+
+        public CardPanel(int radius, Color fill, Color border)
+        {
+            _radius = radius;
+            _border = border;
+            BackColor = fill;
+            DoubleBuffered = true;
+            HandleCreated += delegate { Ui.ApplyRound(this, _radius); };
+        }
+
+        protected override void OnSizeChanged(EventArgs e)
+        {
+            base.OnSizeChanged(e);
+            Ui.ApplyRound(this, _radius);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Rectangle box = new Rectangle(0, 0, Math.Max(0, Width - 1), Math.Max(0, Height - 1));
+            Ui.PaintRound(e.Graphics, box, _radius, BackColor, _border);
+        }
+    }
+
+    internal sealed class ChromeButton : Button
+    {
+        private readonly string _kind;
+        private bool _hover;
+
+        public ChromeButton(string text, string kind)
+        {
+            _kind = kind;
+            Text = text;
+            AutoSize = true;
+            Height = 36;
+            MinimumSize = new Size(36, 36);
+            FlatStyle = FlatStyle.Flat;
+            FlatAppearance.BorderSize = 0;
+            FlatAppearance.MouseOverBackColor = Color.Transparent;
+            FlatAppearance.MouseDownBackColor = Color.Transparent;
+            Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Bold);
+            Cursor = Cursors.Hand;
+            Padding = new Padding(14, 0, 14, 0);
+            UseVisualStyleBackColor = false;
+            ApplyFill();
+        }
+
+        private void ApplyFill()
+        {
+            if (_kind == "primary")
+            {
+                BackColor = _hover ? Ui.PrimaryHover : Ui.PrimarySoft;
+                ForeColor = Ui.PrimaryDeep;
+            }
+            else if (_kind == "danger")
+            {
+                BackColor = _hover ? Ui.DangerHover : Color.White;
+                ForeColor = Ui.Danger;
+            }
+            else
+            {
+                BackColor = _hover ? Color.FromArgb(249, 250, 251) : Color.White;
+                ForeColor = _kind == "icon" ? Color.FromArgb(75, 85, 99) : Ui.SecondaryText;
+            }
+        }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            _hover = true;
+            ApplyFill();
+            base.OnMouseEnter(e);
+            Invalidate();
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            _hover = false;
+            ApplyFill();
+            base.OnMouseLeave(e);
+            Invalidate();
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            Ui.ApplyRound(this, 8);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Color border = Ui.SecondaryLine;
+            if (_kind == "primary") border = Ui.Primary;
+            if (_kind == "danger") border = Ui.DangerLine;
+            Rectangle box = new Rectangle(0, 0, Math.Max(0, Width - 1), Math.Max(0, Height - 1));
+            Ui.PaintRound(e.Graphics, box, 8, BackColor, border);
+            TextRenderer.DrawText(
+                e.Graphics,
+                Text,
+                Font,
+                ClientRectangle,
+                ForeColor,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
+        }
+    }
+
+    internal sealed class ChipButton : Button
+    {
+        public string Flag;
+        private bool _active;
+        private bool _hover;
+
+        public ChipButton(string text, string flag)
+        {
+            Flag = flag;
+            Text = text;
+            AutoSize = true;
+            Height = 30;
+            MinimumSize = new Size(48, 30);
+            FlatStyle = FlatStyle.Flat;
+            FlatAppearance.BorderSize = 0;
+            FlatAppearance.MouseOverBackColor = Color.Transparent;
+            FlatAppearance.MouseDownBackColor = Color.Transparent;
+            Font = new Font("Microsoft YaHei UI", 8f);
+            Cursor = Cursors.Hand;
+            Padding = new Padding(10, 0, 10, 0);
+            UseVisualStyleBackColor = false;
+            SetActive(false);
+        }
+
+        public void SetActive(bool active)
+        {
+            _active = active;
+            if (_active)
+            {
+                BackColor = Ui.PrimaryDeep;
+                ForeColor = Color.White;
+            }
+            else
+            {
+                BackColor = _hover ? Ui.HoverCard : Color.White;
+                ForeColor = Ui.SecondaryText;
+            }
+            Invalidate();
+        }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            _hover = true;
+            if (!_active) BackColor = Ui.HoverCard;
+            base.OnMouseEnter(e);
+            Invalidate();
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            _hover = false;
+            if (!_active) BackColor = Color.White;
+            base.OnMouseLeave(e);
+            Invalidate();
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            int radius = Math.Max(8, Height / 2);
+            Ui.ApplyRound(this, radius);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Color border = _active ? Ui.PrimaryDeep : Ui.Line;
+            int radius = Math.Max(8, Height / 2);
+            Rectangle box = new Rectangle(0, 0, Math.Max(0, Width - 1), Math.Max(0, Height - 1));
+            Ui.PaintRound(e.Graphics, box, radius, BackColor, border);
+            TextRenderer.DrawText(
+                e.Graphics,
+                Text,
+                Font,
+                ClientRectangle,
+                ForeColor,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        }
+    }
+
+    internal sealed class ProjectCard : Control
+    {
+        public NamedItem Item;
+        public bool Active;
+        private bool _hover;
+
+        public ProjectCard(NamedItem item)
+        {
+            Item = item;
+            Size = new Size(236, 76);
+            Margin = new Padding(0, 0, 10, 10);
+            Cursor = Cursors.Hand;
+            DoubleBuffered = true;
+        }
+
+        public void SetActive(bool active)
+        {
+            Active = active;
+            Invalidate();
+        }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            _hover = true;
+            Invalidate();
+            base.OnMouseEnter(e);
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            _hover = false;
+            Invalidate();
+            base.OnMouseLeave(e);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            Color fill = Active ? Ui.ActiveCard : (_hover ? Ui.HoverCard : Color.White);
+            Color border = Active ? Ui.Primary : Ui.Line;
+            Rectangle box = new Rectangle(0, 0, Width - 1, Height - 1);
+            Ui.PaintRound(g, box, 10, fill, border);
+            if (Active)
+            {
+                using (Pen extra = new Pen(Ui.Primary))
+                using (GraphicsPath path = Ui.RoundRect(box, 10))
+                    g.DrawPath(extra, path);
+            }
+
+            Rectangle glyph = new Rectangle(12, 22, 32, 32);
+            using (GraphicsPath gp = Ui.RoundRect(glyph, 8))
+            using (SolidBrush brush = new SolidBrush(Ui.PrimarySoft))
+                g.FillPath(brush, gp);
+            using (Font glyphFont = new Font("Segoe UI", 8f, FontStyle.Bold))
+            using (Font nameFont = new Font("Microsoft YaHei UI", 9f, FontStyle.Bold))
+            using (Font pathFont = new Font("Microsoft YaHei UI", 7.5f))
+            using (Font stateFont = new Font("Microsoft YaHei UI", 7f))
+            {
+                TextRenderer.DrawText(
+                    g,
+                    Ui.Glyph(Item != null ? Item.Title : "AG"),
+                    glyphFont,
+                    glyph,
+                    Ui.Primary,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+
+                string name = Item != null ? Item.Title : "";
+                string path = Item != null ? Item.Id : "";
+                string state = Item != null ? Item.Kind : "";
+                TextRenderer.DrawText(
+                    g,
+                    name,
+                    nameFont,
+                    new Rectangle(54, 12, Width - 66, 18),
+                    Ui.Title,
+                    TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding | TextFormatFlags.VerticalCenter);
+                TextRenderer.DrawText(
+                    g,
+                    path,
+                    pathFont,
+                    new Rectangle(54, 32, Width - 66, 16),
+                    Ui.Mute,
+                    TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding | TextFormatFlags.VerticalCenter);
+
+                using (SolidBrush dot = new SolidBrush(Ui.StateColor(state)))
+                    g.FillEllipse(dot, 54, 54, 8, 8);
+                TextRenderer.DrawText(
+                    g,
+                    Ui.StateLabel(state),
+                    stateFont,
+                    new Rectangle(66, 50, Width - 78, 16),
+                    Ui.Mute,
+                    TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding | TextFormatFlags.VerticalCenter);
+            }
+        }
+    }
+
+    internal sealed class StateDot : Control
+    {
+        private string _state = "";
+
+        public StateDot()
+        {
+            Size = new Size(18, 18);
+            DoubleBuffered = true;
+        }
+
+        public void SetState(string state)
+        {
+            _state = state ?? "";
+            Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            e.Graphics.Clear(BackColor);
+            using (Pen outline = new Pen(Ui.Line))
+                e.Graphics.DrawEllipse(outline, 0, 0, 16, 16);
+            using (SolidBrush ring = new SolidBrush(Ui.StateSoft(_state)))
+                e.Graphics.FillEllipse(ring, 1, 1, 15, 15);
+            using (SolidBrush core = new SolidBrush(Ui.StateColor(_state)))
+                e.Graphics.FillEllipse(core, 5, 5, 7, 7);
+        }
+    }
+
     internal sealed class MainForm : Form
     {
         private const string StartupKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -239,28 +659,45 @@ namespace AutoGovern2CodeDesktop
         private readonly string _token;
         private readonly string _runtime;
         private readonly JavaScriptSerializer _json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
+        private const int EM_SETCUEBANNER = 0x1501;
         private readonly Panel _loading;
         private readonly Label _loadingText;
         private readonly Label _status;
-        private readonly ListBox _projects;
+        private readonly FlowLayoutPanel _projectRail;
+        private readonly Panel _empty;
+        private readonly CardPanel _detail;
         private readonly Label _detailName;
         private readonly Label _detailPath;
         private readonly Label _detailHealth;
+        private readonly StateDot _stateDot;
         private readonly Label _issues;
         private readonly TextBox _search;
-        private readonly ComboBox _filter;
+        private readonly FlowLayoutPanel _filters;
         private readonly TreeView _tree;
         private readonly ListBox _cards;
-        private readonly TextBox _inspector;
+        private readonly Label _inspectTitle;
+        private readonly Label _inspectStatus;
+        private readonly Label _inspectSummary;
+        private readonly Label _inspectWho;
+        private readonly Label _inspectFloors;
+        private readonly Label _inspectWhen;
+        private readonly Label _inspectRole;
+        private readonly Label _inspectPath;
         private readonly Button _openFolder;
         private readonly Button _check;
         private readonly Button _stop;
         private readonly Button _resume;
         private readonly Button _uninstall;
+        private readonly SplitContainer _graphSplit;
+        private readonly SplitContainer _midSplit;
+        private readonly Font _boldFont;
+        private readonly Font _smallFont;
         private NotifyIcon _tray;
         private ToolStripMenuItem _startupItem;
         private Process _server;
         private string _baseUrl;
+        private string _selectedRoot;
+        private string _filterFlag = "";
         private bool _reallyExit;
         private bool _busy;
         private bool _portable;
@@ -271,6 +708,9 @@ namespace AutoGovern2CodeDesktop
 
         [DllImport("user32.dll")]
         private static extern bool DestroyIcon(IntPtr handle);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, string lParam);
 
         public static string AppDirectory()
         {
@@ -295,27 +735,60 @@ namespace AutoGovern2CodeDesktop
             StartPosition = FormStartPosition.CenterScreen;
             MinimumSize = new Size(960, 640);
             ClientSize = new Size(1280, 860);
-            BackColor = Color.FromArgb(245, 246, 246);
+            BackColor = Ui.Page;
+            ForeColor = Ui.Ink;
             Font = new Font("Microsoft YaHei UI", 9f);
+            DoubleBuffered = true;
             Icon = CreateAppIcon();
             _token = CreateSessionToken();
             _runtime = ResolveRuntime(args);
             _portable = IsPortable(args);
             _http = new HttpClient(new HttpClientHandler { UseProxy = false });
             _http.Timeout = TimeSpan.FromSeconds(60);
+            _boldFont = new Font("Microsoft YaHei UI", 9f, FontStyle.Bold);
+            _smallFont = new Font("Microsoft YaHei UI", 7.5f);
 
-            var header = new Panel { Dock = DockStyle.Top, Height = 56, BackColor = Color.White };
-            var mark = new Label { Text = "AG", Size = new Size(40, 40), Location = new Point(16, 8), BackColor = Color.FromArgb(32, 34, 37), ForeColor = Color.White, Font = new Font("Segoe UI", 12f, FontStyle.Bold), TextAlign = ContentAlignment.MiddleCenter };
-            var title = new Label { Text = "AutoGovern2Code", AutoSize = true, Location = new Point(64, 16), Font = new Font("Microsoft YaHei UI", 12f, FontStyle.Bold) };
-            _status = new Label { AutoSize = true, Location = new Point(250, 20), ForeColor = Color.FromArgb(82, 87, 90), Text = "正在检查项目" };
-            var refresh = MakeButton("刷新", false);
+            var shell = new Panel { Dock = DockStyle.Fill, Padding = new Padding(24, 20, 24, 24), BackColor = Ui.Page };
+
+            var header = new CardPanel(10, Color.White, Ui.Line) { Dock = DockStyle.Top, Height = 52 };
+            var mark = new Label
+            {
+                Text = "AG",
+                Size = new Size(32, 32),
+                Location = new Point(16, 10),
+                BackColor = Ui.Primary,
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 8f, FontStyle.Bold),
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            mark.Resize += delegate { Ui.ApplyRound(mark, 8); };
+            var title = new Label
+            {
+                Text = "AutoGovern2Code",
+                AutoSize = true,
+                Location = new Point(58, 15),
+                Font = new Font("Microsoft YaHei UI", 10.5f, FontStyle.Bold),
+                ForeColor = Ui.Title,
+                BackColor = Color.White
+            };
+            _status = new Label
+            {
+                AutoSize = true,
+                Location = new Point(250, 18),
+                ForeColor = Ui.Mute,
+                BackColor = Color.White,
+                Font = new Font("Microsoft YaHei UI", 9f),
+                Text = "正在检查项目"
+            };
+            var refresh = new ChromeButton("刷新", "icon");
             refresh.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            var add = MakeButton("添加项目", true);
+            var add = new ChromeButton("+  添加项目", "primary");
             add.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             header.Resize += delegate
             {
-                add.Location = new Point(header.ClientSize.Width - add.Width - 16, 12);
-                refresh.Location = new Point(add.Left - refresh.Width - 8, 12);
+                add.Location = new Point(header.ClientSize.Width - add.Width - 16, 8);
+                refresh.Location = new Point(add.Left - refresh.Width - 8, 8);
+                _status.Location = new Point(Math.Min(250, Math.Max(title.Right + 16, add.Left - 280)), 18);
             };
             refresh.Click += async delegate { await RefreshProjectsAsync(); };
             add.Click += async delegate { await ChooseProjectAsync(); };
@@ -325,99 +798,411 @@ namespace AutoGovern2CodeDesktop
             header.Controls.Add(refresh);
             header.Controls.Add(add);
 
-            var split = new SplitContainer { Dock = DockStyle.Fill, SplitterDistance = 260, Panel1MinSize = 180 };
-            _projects = new ListBox { Dock = DockStyle.Fill, IntegralHeight = false, DisplayMember = "Title" };
-            _projects.SelectedIndexChanged += async delegate { await LoadSelectedAsync(); };
-            split.Panel1.Controls.Add(_projects);
+            _projectRail = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                WrapContents = true,
+                BackColor = Ui.Page,
+                Padding = new Padding(0, 16, 0, 6)
+            };
 
-            var detail = new Panel { Dock = DockStyle.Fill };
-            _detailName = new Label { AutoSize = false, Height = 28, Dock = DockStyle.Top, Font = new Font("Microsoft YaHei UI", 14f, FontStyle.Bold), Padding = new Padding(12, 8, 12, 0), Text = "选择一个项目" };
-            _detailPath = new Label { AutoSize = false, Height = 22, Dock = DockStyle.Top, ForeColor = Color.FromArgb(90, 90, 90), Padding = new Padding(12, 0, 12, 0) };
-            _detailHealth = new Label { AutoSize = false, Height = 22, Dock = DockStyle.Top, Padding = new Padding(12, 0, 12, 0), Text = "尚未加载" };
-            _issues = new Label { AutoSize = false, Height = 40, Dock = DockStyle.Top, ForeColor = Color.FromArgb(153, 27, 27), Padding = new Padding(12, 4, 12, 0) };
-            var actions = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 40, Padding = new Padding(8, 4, 8, 4), WrapContents = false };
-            _openFolder = MakeButton("打开文件夹", false);
-            _check = MakeButton("重新检查", false);
-            _stop = MakeButton("停止治理", false);
-            _resume = MakeButton("恢复治理", false);
-            _uninstall = MakeButton("卸载项目", false);
+            _empty = new Panel { Dock = DockStyle.Fill, BackColor = Ui.Page, Visible = false };
+            var emptyMark = new Label
+            {
+                Text = "+",
+                AutoSize = false,
+                Size = new Size(48, 48),
+                Font = new Font("Segoe UI", 22f),
+                ForeColor = Color.FromArgb(156, 163, 175),
+                TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = Ui.Page
+            };
+            var emptyTitle = new Label
+            {
+                Text = "还没有治理项目",
+                AutoSize = false,
+                Size = new Size(280, 28),
+                Font = _boldFont,
+                ForeColor = Ui.SecondaryText,
+                TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = Ui.Page
+            };
+            var emptyAdd = new ChromeButton("添加项目", "primary");
+            emptyAdd.Click += async delegate { await ChooseProjectAsync(); };
+            _empty.Controls.Add(emptyMark);
+            _empty.Controls.Add(emptyTitle);
+            _empty.Controls.Add(emptyAdd);
+            _empty.Resize += delegate
+            {
+                emptyMark.Location = new Point((_empty.ClientSize.Width - emptyMark.Width) / 2, Math.Max(40, (_empty.ClientSize.Height - 140) / 2));
+                emptyTitle.Location = new Point((_empty.ClientSize.Width - emptyTitle.Width) / 2, emptyMark.Bottom + 8);
+                emptyAdd.Location = new Point((_empty.ClientSize.Width - emptyAdd.Width) / 2, emptyTitle.Bottom + 18);
+            };
+
+            _detail = new CardPanel(12, Color.White, Ui.Line) { Dock = DockStyle.Fill };
+
+            var titleRow = new Panel { Dock = DockStyle.Top, Height = 48, BackColor = Color.White, Padding = new Padding(20, 12, 12, 0) };
+            _detailName = new Label
+            {
+                AutoSize = false,
+                Height = 36,
+                Dock = DockStyle.Fill,
+                Font = new Font("Microsoft YaHei UI", 15f, FontStyle.Bold),
+                ForeColor = Ui.Title,
+                Text = "选择一个项目",
+                TextAlign = ContentAlignment.MiddleLeft,
+                BackColor = Color.White
+            };
+            var actions = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Right,
+                Width = 430,
+                WrapContents = false,
+                BackColor = Color.White,
+                Padding = new Padding(0, 0, 4, 0),
+                FlowDirection = FlowDirection.LeftToRight
+            };
+            _openFolder = new ChromeButton("打开文件夹", "icon");
+            _check = new ChromeButton("重新检查", "secondary");
+            _stop = new ChromeButton("停止治理", "danger");
+            _resume = new ChromeButton("恢复治理", "secondary");
+            _uninstall = new ChromeButton("卸载项目", "secondary");
             _openFolder.Click += delegate { OpenSelectedFolder(); };
             _check.Click += async delegate { await PostProjectAsync("/api/projects/check"); };
             _stop.Click += async delegate { await ConfirmPostAsync("停止治理后，这个仓库不再被 AG2C 拦截提交。证据还在。", "/api/projects/remove"); };
             _resume.Click += async delegate { await PostProjectAsync("/api/projects/resume"); };
             _uninstall.Click += async delegate { await ConfirmPostAsync("卸载项目会删除这份治理档案，不能恢复。仓库源码不会被删。", "/api/projects/uninstall"); };
             actions.Controls.AddRange(new Control[] { _openFolder, _check, _stop, _resume, _uninstall });
-            var tools = new Panel { Dock = DockStyle.Top, Height = 36, Padding = new Padding(12, 4, 12, 4) };
-            _search = new TextBox { Width = 240, Location = new Point(12, 6) };
+            titleRow.Controls.Add(_detailName);
+            titleRow.Controls.Add(actions);
+
+            _detailPath = new Label
+            {
+                AutoSize = false,
+                Height = 20,
+                Dock = DockStyle.Top,
+                ForeColor = Ui.Mute,
+                Font = _smallFont,
+                Padding = new Padding(20, 0, 20, 0),
+                BackColor = Color.White
+            };
+            var healthRow = new Panel { Dock = DockStyle.Top, Height = 36, BackColor = Color.White, Padding = new Padding(20, 8, 20, 0) };
+            _stateDot = new StateDot { Location = new Point(20, 10), BackColor = Color.White };
+            _detailHealth = new Label
+            {
+                AutoSize = false,
+                Location = new Point(46, 8),
+                Size = new Size(640, 22),
+                Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(22, 101, 52),
+                Text = "尚未加载",
+                BackColor = Color.White
+            };
+            healthRow.Controls.Add(_stateDot);
+            healthRow.Controls.Add(_detailHealth);
+            healthRow.Resize += delegate { _detailHealth.Width = Math.Max(120, healthRow.ClientSize.Width - 60); };
+
+            _issues = new Label
+            {
+                AutoSize = false,
+                Height = 0,
+                Dock = DockStyle.Top,
+                ForeColor = Ui.IssueText,
+                BackColor = Ui.IssueBg,
+                Padding = new Padding(24, 8, 12, 8),
+                Font = new Font("Microsoft YaHei UI", 8f),
+                Visible = false
+            };
+
+            var tools = new Panel { Dock = DockStyle.Top, Height = 92, BackColor = Color.White, Padding = new Padding(20, 4, 16, 4) };
+            var searchLabel = new Label
+            {
+                Text = "找文件",
+                AutoSize = true,
+                Location = new Point(20, 12),
+                Font = _boldFont,
+                ForeColor = Ui.Ink,
+                BackColor = Color.White
+            };
+            _search = new TextBox { Width = 280, Location = new Point(70, 8), Height = 24, BorderStyle = BorderStyle.FixedSingle };
             _search.TextChanged += delegate { RenderCoverage(); };
-            _filter = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 140, Location = new Point(260, 6) };
-            foreach (string item in new[] { "全部", "开工", "黑盒", "无主", "过期", "未普查", "重复认领", "废弃未清", "未验收", "AI正在写" })
-                _filter.Items.Add(item);
-            _filter.SelectedIndex = 0;
-            _filter.SelectedIndexChanged += delegate { RenderCoverage(); };
+            _search.HandleCreated += delegate
+            {
+                SendMessage(_search.Handle, EM_SETCUEBANNER, (IntPtr)1, "frontend、css、文件名或知识卡");
+            };
+            var expand = new ChromeButton("展开全部", "secondary");
+            expand.Location = new Point(360, 6);
+            expand.Click += delegate { _tree.ExpandAll(); };
+            _filters = new FlowLayoutPanel
+            {
+                Location = new Point(16, 44),
+                Height = 40,
+                WrapContents = true,
+                BackColor = Color.White
+            };
+            string[] chipLabels = { "全部", "开工", "黑盒", "无主", "过期", "未普查", "重复认领", "废弃未清", "未验收", "AI正在写" };
+            string[] chipFlags = { "", "exploring", "opaque", "unowned", "stale", "unreviewed", "ambiguous", "abandoned", "undeclared", "writing" };
+            for (int i = 0; i < chipLabels.Length; i++)
+            {
+                ChipButton chip = new ChipButton(chipLabels[i], chipFlags[i]);
+                chip.Click += ChipClicked;
+                _filters.Controls.Add(chip);
+            }
+            tools.Controls.Add(searchLabel);
             tools.Controls.Add(_search);
-            tools.Controls.Add(_filter);
-            var coverage = new SplitContainer { Dock = DockStyle.Fill, SplitterDistance = 420 };
-            var treeHost = new Panel { Dock = DockStyle.Fill };
-            var treeLabel = new Label { Text = "项目文件树", Dock = DockStyle.Top, Height = 22, Padding = new Padding(8, 4, 0, 0) };
-            _tree = new TreeView { Dock = DockStyle.Fill };
+            tools.Controls.Add(expand);
+            tools.Controls.Add(_filters);
+            tools.Resize += delegate
+            {
+                _filters.Width = Math.Max(200, tools.ClientSize.Width - 36);
+                expand.Location = new Point(Math.Max(360, tools.ClientSize.Width - expand.Width - 20), 6);
+            };
+
+            _graphSplit = new SplitContainer
+            {
+                Dock = DockStyle.Fill,
+                SplitterWidth = 1,
+                BackColor = Ui.Line,
+                Panel1MinSize = 180,
+                Panel2MinSize = 360
+            };
+            var treeHost = new Panel { Dock = DockStyle.Fill, BackColor = Color.White };
+            treeHost.Controls.Add(PaneHeader("项目文件树", Color.White));
+            _tree = new TreeView
+            {
+                Dock = DockStyle.Fill,
+                BorderStyle = BorderStyle.None,
+                BackColor = Color.White,
+                FullRowSelect = true,
+                HideSelection = false,
+                ShowLines = false,
+                ItemHeight = 22,
+                DrawMode = TreeViewDrawMode.OwnerDrawText,
+                Font = new Font("Microsoft YaHei UI", 8.5f)
+            };
+            _tree.DrawNode += DrawTreeNode;
             _tree.AfterSelect += delegate { InspectNode(_tree.SelectedNode); };
             treeHost.Controls.Add(_tree);
-            treeHost.Controls.Add(treeLabel);
-            var right = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 220 };
-            var cardHost = new Panel { Dock = DockStyle.Fill };
-            var cardLabel = new Label { Text = "知识卡片", Dock = DockStyle.Top, Height = 22, Padding = new Padding(8, 4, 0, 0) };
-            _cards = new ListBox { Dock = DockStyle.Fill, IntegralHeight = false };
+            treeHost.Controls.SetChildIndex(_tree, 0);
+            _graphSplit.Panel1.Controls.Add(treeHost);
+
+            _midSplit = new SplitContainer
+            {
+                Dock = DockStyle.Fill,
+                SplitterWidth = 1,
+                BackColor = Ui.Line,
+                Panel1MinSize = 160,
+                Panel2MinSize = 240
+            };
+            var cardHost = new Panel { Dock = DockStyle.Fill, BackColor = Ui.CardPane };
+            cardHost.Controls.Add(PaneHeader("知识卡片", Ui.CardPane));
+            _cards = new ListBox
+            {
+                Dock = DockStyle.Fill,
+                IntegralHeight = false,
+                BorderStyle = BorderStyle.None,
+                BackColor = Ui.CardPane,
+                DrawMode = DrawMode.OwnerDrawVariable,
+                Font = new Font("Microsoft YaHei UI", 8.5f)
+            };
+            _cards.MeasureItem += MeasureCard;
+            _cards.DrawItem += DrawCard;
             _cards.SelectedIndexChanged += delegate { InspectCard(_cards.SelectedItem as NamedItem); };
             cardHost.Controls.Add(_cards);
-            cardHost.Controls.Add(cardLabel);
-            _inspector = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, BackColor = Color.White, Padding = new Padding(8) };
-            right.Panel1.Controls.Add(cardHost);
-            right.Panel2.Controls.Add(_inspector);
-            coverage.Panel1.Controls.Add(treeHost);
-            coverage.Panel2.Controls.Add(right);
+            cardHost.Controls.SetChildIndex(_cards, 0);
 
-            detail.Controls.Add(coverage);
-            detail.Controls.Add(tools);
-            detail.Controls.Add(actions);
-            detail.Controls.Add(_issues);
-            detail.Controls.Add(_detailHealth);
-            detail.Controls.Add(_detailPath);
-            detail.Controls.Add(_detailName);
-            split.Panel2.Controls.Add(detail);
+            var inspector = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, AutoScroll = true, Padding = new Padding(16) };
+            inspector.Controls.Add(PaneHeader("详情", Color.White));
+            var inspectBody = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
+                AutoScroll = true,
+                BackColor = Color.White,
+                Padding = new Padding(16, 8, 16, 16)
+            };
+            _inspectTitle = InspectHead("点文件树或右边的知识卡", true);
+            _inspectStatus = InspectHead("左边先把项目文件看清楚。搜 frontend 会只留下前端路径。", false);
+            _inspectStatus.ForeColor = Ui.Mute;
+            _inspectStatus.Font = _smallFont;
+            _inspectSummary = InspectHead("", false);
+            _inspectSummary.ForeColor = Ui.Mute;
+            _inspectSummary.Font = _smallFont;
+            inspectBody.Controls.Add(_inspectTitle);
+            inspectBody.Controls.Add(_inspectStatus);
+            inspectBody.Controls.Add(_inspectSummary);
+            _inspectWho = AddInspectRow(inspectBody, "谁管理");
+            _inspectFloors = AddInspectRow(inspectBody, "属于哪几个楼层");
+            _inspectWhen = AddInspectRow(inspectBody, "最近一次提交");
+            _inspectRole = AddInspectRow(inspectBody, "现在是不是多余的");
+            _inspectPath = AddInspectRow(inspectBody, "路径");
+            inspectBody.Resize += delegate
+            {
+                int inner = Math.Max(120, inspectBody.ClientSize.Width - 8);
+                foreach (Control child in inspectBody.Controls)
+                    child.Width = inner;
+            };
+            inspector.Controls.Add(inspectBody);
+            inspector.Controls.SetChildIndex(inspectBody, 0);
+            _midSplit.Panel1.Controls.Add(cardHost);
+            _midSplit.Panel2.Controls.Add(inspector);
+            _graphSplit.Panel2.Controls.Add(_midSplit);
+
+            _detail.Controls.Add(_graphSplit);
+            _detail.Controls.Add(tools);
+            _detail.Controls.Add(_issues);
+            _detail.Controls.Add(healthRow);
+            _detail.Controls.Add(_detailPath);
+            _detail.Controls.Add(titleRow);
+
+            shell.Controls.Add(_detail);
+            shell.Controls.Add(_empty);
+            shell.Controls.Add(_projectRail);
+            shell.Controls.Add(header);
 
             _loading = new Panel { Dock = DockStyle.Fill, BackColor = Color.White };
-            var loadMark = new Label { Text = "AG", Size = new Size(74, 74), BackColor = Color.FromArgb(32, 34, 37), ForeColor = Color.White, Font = new Font("Segoe UI", 22f, FontStyle.Bold), TextAlign = ContentAlignment.MiddleCenter };
-            _loadingText = new Label { AutoSize = false, Size = new Size(420, 52), Text = "正在检查治理项目...", ForeColor = Color.FromArgb(82, 87, 90), Font = new Font("Microsoft YaHei UI", 11f), TextAlign = ContentAlignment.MiddleCenter };
+            var loadMark = new Label
+            {
+                Text = "AG",
+                Size = new Size(74, 74),
+                BackColor = Ui.Primary,
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 22f, FontStyle.Bold),
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            loadMark.Resize += delegate { Ui.ApplyRound(loadMark, 12); };
+            _loadingText = new Label
+            {
+                AutoSize = false,
+                Size = new Size(420, 52),
+                Text = "正在检查治理项目...",
+                ForeColor = Ui.Mute,
+                Font = new Font("Microsoft YaHei UI", 11f),
+                TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = Color.White
+            };
             _loading.Controls.Add(loadMark);
             _loading.Controls.Add(_loadingText);
             _loading.Resize += delegate
             {
                 loadMark.Location = new Point((_loading.ClientSize.Width - loadMark.Width) / 2, Math.Max(40, (_loading.ClientSize.Height - 150) / 2));
                 _loadingText.Location = new Point((_loading.ClientSize.Width - _loadingText.Width) / 2, loadMark.Bottom + 18);
+                Ui.ApplyRound(loadMark, 12);
             };
 
-            Controls.Add(split);
-            Controls.Add(header);
+            Controls.Add(shell);
             Controls.Add(_loading);
             _loading.BringToFront();
             SetupTray();
             FormClosing += OnFormClosing;
-            Shown += async delegate { await StartDesktopAsync(); };
+            Shown += async delegate
+            {
+                Ui.ApplyRound(mark, 8);
+                Ui.ApplyRound(loadMark, 12);
+                LayoutGraph();
+                PaintChips();
+                await StartDesktopAsync();
+            };
+        }
+
+        private static Label PaneHeader(string text, Color back)
+        {
+            return new Label
+            {
+                Text = text,
+                Dock = DockStyle.Top,
+                Height = 32,
+                Padding = new Padding(12, 8, 12, 0),
+                Font = new Font("Microsoft YaHei UI", 8f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(31, 42, 39),
+                BackColor = back
+            };
+        }
+
+        private static Label InspectHead(string text, bool title)
+        {
+            return new Label
+            {
+                Text = text,
+                AutoSize = false,
+                Height = title ? 36 : 32,
+                Font = new Font("Microsoft YaHei UI", title ? 9f : 8f, title ? FontStyle.Bold : FontStyle.Regular),
+                ForeColor = title ? Ui.Title : Ui.Mute,
+                BackColor = Color.White
+            };
+        }
+
+        private static Label AddInspectRow(Control host, string key)
+        {
+            var wrap = new Panel { Height = 46, BackColor = Color.White };
+            wrap.Paint += delegate(object sender, PaintEventArgs e)
+            {
+                using (Pen pen = new Pen(Color.FromArgb(243, 244, 246)))
+                    e.Graphics.DrawLine(pen, 0, 0, wrap.Width, 0);
+            };
+            var dt = new Label
+            {
+                Text = key,
+                Dock = DockStyle.Top,
+                Height = 16,
+                ForeColor = Color.FromArgb(156, 163, 175),
+                Font = new Font("Microsoft YaHei UI", 7f),
+                BackColor = Color.White
+            };
+            var dd = new Label
+            {
+                Dock = DockStyle.Fill,
+                ForeColor = Ui.SecondaryText,
+                Font = new Font("Microsoft YaHei UI", 8.5f),
+                Text = "—",
+                BackColor = Color.White
+            };
+            wrap.Controls.Add(dd);
+            wrap.Controls.Add(dt);
+            host.Controls.Add(wrap);
+            return dd;
+        }
+
+        private void LayoutGraph()
+        {
+            if (_graphSplit.Width > 500)
+                _graphSplit.SplitterDistance = Math.Max(180, (int)(_graphSplit.Width * 0.42));
+            if (_midSplit.Width > 420)
+                _midSplit.SplitterDistance = Math.Max(160, _midSplit.Width - 320);
+        }
+
+        private void PaintChips()
+        {
+            foreach (Control control in _filters.Controls)
+            {
+                ChipButton chip = control as ChipButton;
+                if (chip != null) chip.SetActive(chip.Flag == _filterFlag);
+            }
+        }
+
+        private void ChipClicked(object sender, EventArgs e)
+        {
+            ChipButton chip = sender as ChipButton;
+            if (chip == null) return;
+            _filterFlag = chip.Flag ?? "";
+            PaintChips();
+            RenderCoverage();
+        }
+
+        private async void ProjectCardClicked(object sender, EventArgs e)
+        {
+            ProjectCard card = sender as ProjectCard;
+            if (card == null || card.Item == null) return;
+            SelectProject(card.Item.Id);
+            await LoadSelectedAsync();
         }
 
         private static Button MakeButton(string text, bool primary)
         {
-            return new Button
-            {
-                Text = text,
-                AutoSize = true,
-                Height = 32,
-                Padding = new Padding(10, 4, 10, 4),
-                FlatStyle = FlatStyle.Flat,
-                BackColor = primary ? Color.FromArgb(32, 34, 37) : Color.White,
-                ForeColor = primary ? Color.White : Color.FromArgb(32, 34, 37),
-            };
+            return new ChromeButton(text, primary ? "primary" : "secondary");
         }
 
         protected override void WndProc(ref Message message)
@@ -500,7 +1285,24 @@ namespace AutoGovern2CodeDesktop
 
         private NamedItem SelectedProject()
         {
-            return _projects.SelectedItem as NamedItem;
+            foreach (Control control in _projectRail.Controls)
+            {
+                ProjectCard card = control as ProjectCard;
+                if (card != null && card.Item != null && card.Item.Id == _selectedRoot)
+                    return card.Item;
+            }
+            return null;
+        }
+
+        private void SelectProject(string root)
+        {
+            _selectedRoot = root;
+            foreach (Control control in _projectRail.Controls)
+            {
+                ProjectCard card = control as ProjectCard;
+                if (card != null && card.Item != null)
+                    card.SetActive(card.Item.Id == _selectedRoot);
+            }
         }
 
         private async Task RefreshProjectsAsync()
@@ -512,8 +1314,10 @@ namespace AutoGovern2CodeDesktop
             {
                 await ApiAsync("POST", "api/projects/align", "{}");
                 Dictionary<string, object> payload = await ApiAsync("GET", "api/projects", null);
-                object selected = SelectedProject() != null ? SelectedProject().Id : null;
-                _projects.Items.Clear();
+                string selected = _selectedRoot;
+                _projectRail.SuspendLayout();
+                _projectRail.Controls.Clear();
+                int count = 0;
                 ArrayList list = payload != null ? payload["projects"] as ArrayList : null;
                 if (list != null)
                 {
@@ -523,17 +1327,43 @@ namespace AutoGovern2CodeDesktop
                         if (row == null) continue;
                         NamedItem item = new NamedItem();
                         item.Id = Str(row, "root");
-                        item.Title = Str(row, "name") + "  [" + Str(row, "state") + "]";
+                        item.Title = Str(row, "name");
                         item.Kind = Str(row, "state");
                         item.Data = row;
-                        _projects.Items.Add(item);
-                        if (selected != null && item.Id == (string)selected)
-                            _projects.SelectedItem = item;
+                        ProjectCard card = new ProjectCard(item);
+                        card.Click += ProjectCardClicked;
+                        _projectRail.Controls.Add(card);
+                        count++;
                     }
                 }
-                _status.Text = _projects.Items.Count == 0 ? "还没有治理项目" : ("已接入 " + _projects.Items.Count + " 个项目");
-                if (_projects.SelectedItem == null && _projects.Items.Count > 0)
-                    _projects.SelectedIndex = 0;
+                _projectRail.ResumeLayout();
+                bool empty = count == 0;
+                _empty.Visible = empty;
+                _detail.Visible = !empty;
+                _status.Text = empty ? "还没有治理项目" : ("已接入 " + count + " 个项目");
+                if (!empty)
+                {
+                    bool found = false;
+                    if (!string.IsNullOrEmpty(selected))
+                    {
+                        foreach (Control control in _projectRail.Controls)
+                        {
+                            ProjectCard card = control as ProjectCard;
+                            if (card != null && card.Item != null && card.Item.Id == selected)
+                            {
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!found)
+                    {
+                        ProjectCard first = _projectRail.Controls.Count > 0 ? _projectRail.Controls[0] as ProjectCard : null;
+                        selected = first != null && first.Item != null ? first.Item.Id : null;
+                    }
+                    SelectProject(selected);
+                    await LoadSelectedAsync();
+                }
             }
             catch (Exception error)
             {
@@ -547,10 +1377,25 @@ namespace AutoGovern2CodeDesktop
             NamedItem project = SelectedProject();
             if (project == null || project.Data == null)
                 return;
+            string state = Str(project.Data, "state");
             _detailName.Text = Str(project.Data, "name");
             _detailPath.Text = Str(project.Data, "root");
-            _detailHealth.Text = HealthText(project.Data);
-            _issues.Text = string.Join("；", Strings(project.Data, "issues"));
+            _detailHealth.Text = Ui.StateLabel(state);
+            _detailHealth.ForeColor = state == "protected" ? Color.FromArgb(22, 101, 52) : Ui.SecondaryText;
+            _stateDot.SetState(state);
+            string[] issues = Strings(project.Data, "issues");
+            if (issues.Length == 0)
+            {
+                _issues.Visible = false;
+                _issues.Height = 0;
+                _issues.Text = "";
+            }
+            else
+            {
+                _issues.Text = "!  " + string.Join("；", issues);
+                _issues.Visible = true;
+                _issues.Height = 36;
+            }
             string governance = Str(project.Data, "governance");
             _stop.Enabled = governance != "stopped";
             _resume.Enabled = governance == "stopped";
@@ -561,25 +1406,13 @@ namespace AutoGovern2CodeDesktop
             }
             catch (Exception error)
             {
-                _inspector.Text = error.Message;
+                ShowInspect("无法加载详情", error.Message, "", "", "", "", "", "");
             }
-        }
-
-        private static string HealthText(Dictionary<string, object> row)
-        {
-            string state = Str(row, "state");
-            if (state == "protected") return "施工检查已通过";
-            if (state == "stopped") return "治理已停止";
-            if (state == "inactive") return "守卫未接通";
-            return "需要注意";
         }
 
         private string FilterFlag()
         {
-            string[] flags = { "", "exploring", "opaque", "unowned", "stale", "unreviewed", "ambiguous", "abandoned", "undeclared", "writing" };
-            int index = _filter.SelectedIndex;
-            if (index < 0 || index >= flags.Length) return "";
-            return flags[index];
+            return _filterFlag ?? "";
         }
 
         private void RenderCoverage()
@@ -590,7 +1423,7 @@ namespace AutoGovern2CodeDesktop
             if (_details == null)
             {
                 _tree.EndUpdate();
-                _inspector.Text = "选择一个项目后，这里显示谁管理文件、是不是开工或黑盒。";
+                ShowInspect("选择一个项目", "选择一个项目后，这里显示谁管理文件、是不是开工或黑盒。", "", "", "", "", "", "");
                 return;
             }
             Dictionary<string, object> graph = _details.ContainsKey("graph") ? _details["graph"] as Dictionary<string, object> : null;
@@ -612,9 +1445,7 @@ namespace AutoGovern2CodeDesktop
                         card.Id = Str(node, "id");
                         card.Title = Str(node, "title");
                         if (card.Title.Length == 0) card.Title = card.Id;
-                        string status = FirstFlagLabel(node);
-                        if (status.Length > 0) card.Title = card.Title + "  ·  " + status;
-                        card.Kind = kind;
+                        card.Kind = FirstFlagLabel(node);
                         card.Data = node;
                         _cards.Items.Add(card);
                     }
@@ -646,8 +1477,78 @@ namespace AutoGovern2CodeDesktop
             _tree.ExpandAll();
             _tree.EndUpdate();
             object headline = graph != null && graph.ContainsKey("headline") ? graph["headline"] : null;
-            if (_inspector.TextLength == 0)
-                _inspector.Text = headline != null ? Convert.ToString(headline) : "点文件树或知识卡查看归属。";
+            ShowInspect(
+                "点文件树或右边的知识卡",
+                headline != null ? Convert.ToString(headline) : "点文件树或知识卡查看归属。",
+                "",
+                "—",
+                "—",
+                "—",
+                "—",
+                "—");
+        }
+
+        private void DrawTreeNode(object sender, DrawTreeNodeEventArgs e)
+        {
+            bool selected = (e.State & TreeNodeStates.Selected) != 0;
+            Color back = selected ? Ui.PrimaryHover : _tree.BackColor;
+            Rectangle row = new Rectangle(0, e.Bounds.Y, _tree.ClientSize.Width, e.Bounds.Height);
+            using (SolidBrush brush = new SolidBrush(back))
+                e.Graphics.FillRectangle(brush, row);
+            Font font = e.Node.Nodes.Count > 0 ? _boldFont : _tree.Font;
+            TextRenderer.DrawText(
+                e.Graphics,
+                e.Node.Text,
+                font,
+                e.Bounds,
+                Ui.Ink,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding | TextFormatFlags.GlyphOverhangPadding);
+            Dictionary<string, object> data = e.Node.Tag as Dictionary<string, object>;
+            if (data != null)
+            {
+                string badge = Str(data, "coverageLabel");
+                if (badge.Length == 0) badge = FirstFlagLabel(data);
+                if (badge.Length > 0)
+                {
+                    Rectangle right = new Rectangle(e.Bounds.Right, e.Bounds.Y, Math.Max(40, _tree.ClientSize.Width - e.Bounds.Right - 8), e.Bounds.Height);
+                    TextRenderer.DrawText(
+                        e.Graphics,
+                        badge,
+                        _smallFont,
+                        right,
+                        Ui.PrimaryDeep,
+                        TextFormatFlags.VerticalCenter | TextFormatFlags.Right | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
+                }
+            }
+        }
+
+        private void MeasureCard(object sender, MeasureItemEventArgs e)
+        {
+            e.ItemHeight = 64;
+        }
+
+        private void DrawCard(object sender, DrawItemEventArgs e)
+        {
+            if (e.Index < 0 || e.Index >= _cards.Items.Count) return;
+            NamedItem item = _cards.Items[e.Index] as NamedItem;
+            bool selected = (e.State & DrawItemState.Selected) != 0;
+            Color back = selected ? Ui.PrimaryHover : Ui.CardPane;
+            using (SolidBrush brush = new SolidBrush(back))
+                e.Graphics.FillRectangle(brush, e.Bounds);
+            using (Pen pen = new Pen(Color.FromArgb(243, 244, 246)))
+                e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
+            if (item == null) return;
+            Rectangle title = new Rectangle(e.Bounds.X + 12, e.Bounds.Y + 10, e.Bounds.Width - 24, 20);
+            Rectangle meta = new Rectangle(e.Bounds.X + 12, e.Bounds.Y + 32, e.Bounds.Width - 24, 20);
+            TextRenderer.DrawText(e.Graphics, item.Title, _boldFont, title, Ui.Title, TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
+            string extra = item.Kind ?? "";
+            if (item.Data != null)
+            {
+                string path = Str(item.Data, "path");
+                if (path.Length > 0)
+                    extra = extra.Length > 0 ? extra + "  ·  " + path : path;
+            }
+            TextRenderer.DrawText(e.Graphics, extra, _smallFont, meta, Ui.Mute, TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
         }
 
         private static bool Match(Dictionary<string, object> node, string query, string flag)
@@ -679,6 +1580,9 @@ namespace AutoGovern2CodeDesktop
             if (flag == "abandoned") return "废弃未清";
             if (flag == "stale") return "过期";
             if (flag == "unreviewed") return "未普查";
+            if (flag == "ambiguous") return "重复认领";
+            if (flag == "undeclared") return "未验收";
+            if (flag == "writing") return "AI正在写";
             return flag;
         }
 
@@ -687,27 +1591,54 @@ namespace AutoGovern2CodeDesktop
             if (node == null) return;
             Dictionary<string, object> data = node.Tag as Dictionary<string, object>;
             if (data == null) return;
-            _inspector.Text = FormatInspect(data);
+            BindInspect(data);
         }
 
         private void InspectCard(NamedItem card)
         {
             if (card == null || card.Data == null) return;
-            _inspector.Text = FormatInspect(card.Data);
+            BindInspect(card.Data);
         }
 
-        private static string FormatInspect(Dictionary<string, object> node)
+        private void BindInspect(Dictionary<string, object> node)
         {
-            StringBuilder text = new StringBuilder();
-            text.AppendLine(Str(node, "title"));
-            text.AppendLine(Str(node, "path"));
-            text.AppendLine();
-            string summary = Str(node, "summary");
-            if (summary.Length > 0) text.AppendLine(summary);
-            text.AppendLine("谁管理：" + (Str(node, "coverageLabel").Length > 0 ? Str(node, "coverageLabel") : Join(node, "coveredBy")));
-            text.AppendLine("角色：" + (Str(node, "roleLabel").Length > 0 ? Str(node, "roleLabel") : FirstFlagLabel(node)));
-            text.AppendLine("状态：" + FirstFlagLabel(node));
-            return text.ToString();
+            string title = Str(node, "title");
+            if (title.Length == 0) title = Str(node, "path");
+            string who = Str(node, "coverageLabel");
+            if (who.Length == 0) who = Join(node, "coveredBy");
+            string floors = Join(node, "floors");
+            if (floors == "—") floors = Str(node, "floorLabel");
+            string when = Str(node, "lastCommit");
+            if (when.Length == 0) when = Str(node, "changedAt");
+            string role = Str(node, "roleLabel");
+            if (role.Length == 0) role = FirstFlagLabel(node);
+            ShowInspect(
+                title,
+                FirstFlagLabel(node),
+                Str(node, "summary"),
+                who,
+                floors,
+                when,
+                role,
+                Str(node, "path"));
+        }
+
+        private void ShowInspect(string title, string status, string summary, string who, string floors, string when, string role, string path)
+        {
+            _inspectTitle.Text = string.IsNullOrEmpty(title) ? "点文件树或右边的知识卡" : title;
+            _inspectStatus.Text = status ?? "";
+            _inspectSummary.Text = summary ?? "";
+            _inspectWho.Text = Dash(who);
+            _inspectFloors.Text = Dash(floors);
+            _inspectWhen.Text = Dash(when);
+            _inspectRole.Text = Dash(role);
+            _inspectPath.Text = Dash(path);
+        }
+
+        private static string Dash(string value)
+        {
+            if (string.IsNullOrEmpty(value) || value == "—") return "—";
+            return value;
         }
 
         private static string Join(Dictionary<string, object> node, string key)
@@ -927,7 +1858,7 @@ namespace AutoGovern2CodeDesktop
             using (var bitmap = new Bitmap(32, 32))
             using (var graphics = Graphics.FromImage(bitmap))
             {
-                graphics.Clear(Color.FromArgb(32, 34, 37));
+                graphics.Clear(Color.FromArgb(37, 99, 235));
                 using (var font = new Font("Segoe UI", 10.5f, FontStyle.Bold))
                 using (var brush = new SolidBrush(Color.White))
                     graphics.DrawString("AG", font, brush, new PointF(3.2f, 7.4f));

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Skin the native tray to the previous light-console look: blue AG mark, 236×76 project cards, pill filters, white file-tree pane and mint knowledge-card pane. Still no browser.
 - A portable folder (`portable.ini` next to `AutoGovern2Code.exe`, or `--portable`) keeps evidence in `data\` and MinGit in `git\`. It does not write Start Menu, PATH, or login startup. Moving that folder rebases store paths in the registry and keeps using the shipped Git.
 - The tray window is native WinForms: project list, file tree, and knowledge cards. It no longer embeds Edge WebView2. Windows installers and portable copies ship MinGit next to the runtime; a portable Git wins over whatever Git happens to be on PATH so moving project folders does not switch Git implementations.
 

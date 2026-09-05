@@ -65,9 +65,9 @@ The full self-digesting receipt binds route, checks, acceptance, Manifest, Polic
 
 ## Desktop boundary
 
-The WinForms tray host is adapted from the CartridgeFlow Runtime Shell pattern. It starts the frozen AG2C runtime as a child process on a random `127.0.0.1` port, uses a per-session token, and renders bundled HTML/CSS/JavaScript — including a G6 force-directed knowledge graph — inside an embedded Microsoft Edge WebView2 control. The host never opens a system browser. The server rejects non-local hosts and origins and sends a restrictive content security policy.
+The WinForms tray host is adapted from the CartridgeFlow Runtime Shell pattern. It starts the frozen AG2C runtime as a child process on a random `127.0.0.1` port, uses a per-session token, and paints the previous light-console layout with native controls: a blue AG mark, project cards, pill filters, a file tree, knowledge cards, and a structured inspector. It does not embed Edge WebView2 or a browser control. The Python runtime still serves the local API (and the old HTML assets for tests); the host never opens a system browser. The server rejects non-local hosts and origins and sends a restrictive content security policy.
 
-The UI can add, inspect, recheck, open, and stop managing projects. It cannot edit Policy or evidence. A native folder picker handles project selection, so users never type paths. Knowledge cards, protocol surfaces, and detection scripts appear as graph leaves; unowned directories, stale or abandoned cards, undeclared product checks, and open AI worktrees are flagged on that graph.
+The UI can add, inspect, recheck, open, and stop managing projects. It cannot edit Policy or evidence. A native folder picker handles project selection, so users never type paths. Knowledge cards, unowned directories, stale or abandoned cards, undeclared product checks, and open AI worktrees are flagged in the tree, card list, and inspector.
 
 ## Git guard and limits
 

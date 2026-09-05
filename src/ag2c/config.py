@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import ConfigurationError, STALE_EXTERNAL_STORE
+from .households import coerce_jurisdiction
 from .model import Card, Checker, ContractBinding, Coverage, Manifest, Policy, Relation, Scope, Target
 from .storage import configured_manifest, resolve_enrollment_binding
 from .util import relative_config_path
@@ -174,7 +175,7 @@ def load_policy(manifest: Manifest) -> Policy:
                 scopes=tuple(scopes),
                 checkers=_strings(item.get("checkers"), f"card {card_id} checkers"),
                 references=_strings(item.get("references"), f"card {card_id} references"),
-                jurisdiction=item.get("jurisdiction"),
+                jurisdiction=coerce_jurisdiction(item.get("jurisdiction")),
             )
         )
     card_ids = [card.card_id for card in cards]

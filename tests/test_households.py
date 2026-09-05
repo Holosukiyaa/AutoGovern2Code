@@ -243,6 +243,81 @@ class HouseholdTests(unittest.TestCase):
             self.register(status="legacy", replaced_by="knowledge.other")
         self.assertEqual(before, digest_file(self.manifest.policy_path))
 
+    def _add_code(self, relative: str, body: str = "VALUE = 1\n") -> None:
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+
+    def test_exploring_src_glob_with_subdirectories_is_not_opaque(self):
+        self._add_code("src/core/runner.py")
+        self._add_code("src/frontend/main.tsx", "export default 1\n")
+        self.register(meaning="none", grain="subtree")
+        record = self.household()
+        self.assertEqual("exploring", record["identity"])
+        self.assertNotIn("opaque-claimed", {issue["code"] for issue in record["issues"]})
+        self.assertIn("app:src/core", record["child_directories"])
+        self.assertIn("app:src/frontend", record["child_directories"])
+        self.survey("knowledge.current")
+        self.assertEqual("exploring", self.household()["identity"])
+        graph = build_governance_graph({"census": read_census(self.root)})
+        node = next(item for item in graph["nodes"] if item["id"] == "knowledge.current")
+        self.assertIn("exploring", node["flags"])
+        self.assertNotIn("opaque", node["flags"])
+        self.assertFalse(node["lazy"])
+
+    def test_named_src_glob_without_children_is_opaque_and_cannot_be_recorded(self):
+        self._add_code("src/core/runner.py")
+        self._add_code("src/frontend/main.tsx", "export default 1\n")
+        self.register(meaning="named", grain="directory")
+        record = self.household()
+        self.assertEqual("opaque", record["identity"])
+        self.assertIn("opaque-claimed", {issue["code"] for issue in record["issues"]})
+        self.assertIn("child-unclaimed", {issue["code"] for issue in record["issues"]})
+        with self.assertRaisesRegex(AG2CError, "census-record-blocked"):
+            self.survey("knowledge.current")
+        graph = build_governance_graph({"census": read_census(self.root)})
+        node = next(item for item in graph["nodes"] if item["id"] == "knowledge.current")
+        self.assertIn("opaque", node["flags"])
+        self.assertTrue(node["lazy"])
+
+    def test_same_glob_does_not_count_as_named_children(self):
+        self._add_code("src/core/runner.py")
+        self.register(meaning="named")
+        self.register("knowledge.shadow", meaning="named", implementation="value.shadow", entrypoints=["src/value.py"])
+        record = self.household()
+        self.assertEqual("opaque", record["identity"])
+        self.assertIn("child-not-proper-subset", {issue["code"] for issue in record["issues"]})
+
+    def test_proper_subset_children_clear_named_identity(self):
+        self._add_code("src/core/runner.py")
+        self._add_code("src/frontend/main.tsx", "export default 1\n")
+        self.register(meaning="named", grain="directory", excludes=["src/core/**", "src/frontend/**"], entrypoints=["src/value.py"])
+        self.register(
+            "knowledge.core",
+            includes=["src/core/**"],
+            excludes=[],
+            meaning="none",
+            grain="subtree",
+            implementation="value.core",
+            entrypoints=["src/core/runner.py"],
+            command=None,
+        )
+        self.register(
+            "knowledge.frontend",
+            includes=["src/frontend/**"],
+            excludes=[],
+            meaning="none",
+            grain="subtree",
+            capability="frontend",
+            implementation="value.frontend",
+            entrypoints=["src/frontend/main.tsx"],
+            command=None,
+        )
+        record = self.household()
+        self.assertEqual("named", record["identity"])
+        self.assertNotIn("opaque-claimed", {issue["code"] for issue in record["issues"]})
+        self.survey("knowledge.current")
+
 
 if __name__ == "__main__":
     unittest.main()

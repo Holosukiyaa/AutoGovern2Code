@@ -9,7 +9,7 @@
   var interactTimer = 0;
   var collapsed = {};
   var RELATIONS = { covers: "覆盖", implements: "实现", replaced_by: "被替代为", explains: "归属楼层", governs: "治理", depends_on: "依赖", related_to: "关联", exposes: "暴露空洞", contains: "包含" };
-  var ISSUES = { "floor-link-missing": "没有连接楼层", "floor-scope-mismatch": "楼层不覆盖实际代码范围", "replacement-missing": "旧实现没有替代者", "retired-code-remains": "标记已退役，但代码仍在", "implementation-check-missing": "没有本实现的检测", "implementation-check-mismatch": "检测属于另一套实现，或仅检查 diff 格式", "entrypoint-missing": "入口缺失或不在管辖范围", "source-outside-target": "源码链接指向项目外", "competing-current-implementations": "同一产品能力有多套当前实现" };
+  var ISSUES = { "floor-link-missing": "没有连接楼层", "floor-scope-mismatch": "楼层不覆盖实际代码范围", "replacement-missing": "旧实现没有替代者", "retired-code-remains": "标记已退役，但代码仍在", "implementation-check-missing": "没有本实现的检测", "implementation-check-mismatch": "检测属于另一套实现，或仅检查 diff 格式", "entrypoint-missing": "入口缺失或不在管辖范围", "source-outside-target": "源码链接指向项目外", "competing-current-implementations": "同一产品能力有多套当前实现", "opaque-claimed": "已挂卡却未点名直接子目录，是黑盒", "undecomposed-directory": "声称说清，但目录未分解", "child-unclaimed": "有未点名的代码子目录", "child-not-proper-subset": "子户口和父户口罩住同一范围", "grain-overflow": "模块档下仍有代码子目录" };
 
   function $(id) { return document.getElementById(id); }
   function cssId(id) {

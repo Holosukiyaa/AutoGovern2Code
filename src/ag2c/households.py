@@ -11,12 +11,43 @@ from typing import Any
 from .errors import AG2CError, ConfigurationError
 from .index import _discover_files, _git, _scope_matches, primary_owners
 from .model import Card, Manifest, Policy
-from .util import digest_file, digest_json
+from .util import digest_file, digest_json, path_matches
 
 
 CODE_SUFFIXES = frozenset({".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".css", ".scss", ".sass", ".less", ".html", ".vue", ".svelte", ".rs", ".go", ".c", ".h", ".cpp", ".cs", ".java", ".kt", ".sh", ".ps1", ".bat", ".cmd", ".sql"})
 CENSUS_SCHEMA = "ag2c.census.v1"
 LIFECYCLES = frozenset({"current", "legacy", "retired"})
+GRAINS = frozenset({"subtree", "directory", "module"})
+MEANINGS = frozenset({"none", "named"})
+CONTRACTS = frozenset({"none", "partial", "machine"})
+DECIDERS = frozenset({"none", "machine", "confirm"})
+JURISDICTION_FIELDS = frozenset({"capability", "implementation", "status", "entrypoints", "grain", "meaning", "contract", "decider"})
+RECORD_BLOCK_ISSUES = frozenset(
+    {"opaque-claimed", "undecomposed-directory", "child-unclaimed", "child-not-proper-subset", "grain-overflow"}
+)
+
+
+def coerce_jurisdiction(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ConfigurationError("jurisdiction must be an object")
+    unknown = set(value) - JURISDICTION_FIELDS
+    if unknown:
+        raise ConfigurationError("unknown jurisdiction fields: " + ", ".join(sorted(unknown)))
+    entrypoints = value.get("entrypoints", [])
+    if entrypoints is None:
+        entrypoints = []
+    return {
+        "capability": value.get("capability"),
+        "implementation": value.get("implementation"),
+        "status": value.get("status"),
+        "entrypoints": list(entrypoints),
+        "grain": str(value.get("grain") or "subtree"),
+        "meaning": str(value.get("meaning") or "none"),
+        "contract": str(value.get("contract") or "none"),
+        "decider": str(value.get("decider") or "none"),
+    }
 
 
 def directory_scope(pattern: str) -> str:
@@ -38,13 +69,22 @@ def validate_declarations(cards: list[Card], relations: list) -> None:
             continue
         if card.card_type != "knowledge" or not isinstance(declaration, dict):
             raise ConfigurationError(f"jurisdiction requires a knowledge card object: {card.card_id}")
-        if set(declaration) - {"capability", "implementation", "status", "entrypoints"}:
+        declaration.update(coerce_jurisdiction(declaration) or {})
+        if set(declaration) - JURISDICTION_FIELDS:
             raise ConfigurationError(f"unknown jurisdiction fields: {card.card_id}")
         for field in ("capability", "implementation"):
             if not isinstance(declaration.get(field), str) or not declaration[field].strip():
                 raise ConfigurationError(f"jurisdiction requires {field}: {card.card_id}")
         if declaration.get("status") not in LIFECYCLES or not card.scopes:
             raise ConfigurationError(f"jurisdiction requires lifecycle and directory scopes: {card.card_id}")
+        if declaration.get("grain") not in GRAINS:
+            raise ConfigurationError(f"jurisdiction grain must be subtree, directory, or module: {card.card_id}")
+        if declaration.get("meaning") not in MEANINGS:
+            raise ConfigurationError(f"jurisdiction meaning must be none or named: {card.card_id}")
+        if declaration.get("contract") not in CONTRACTS:
+            raise ConfigurationError(f"jurisdiction contract must be none, partial, or machine: {card.card_id}")
+        if declaration.get("decider") not in DECIDERS:
+            raise ConfigurationError(f"jurisdiction decider must be none, machine, or confirm: {card.card_id}")
         for scope in card.scopes:
             for pattern in (*scope.includes, *scope.excludes):
                 directory_scope(pattern)
@@ -69,6 +109,78 @@ def validate_declarations(cards: list[Card], relations: list) -> None:
                 raise ConfigurationError(f"replacement cycle: {card_id}")
             visited.add(current)
             current = successors[current]
+
+
+def _posix_dir(path: str) -> str:
+    text = str(path).replace("\\", "/").strip().strip("/")
+    return text or "."
+
+
+def _include_roots(card: Card) -> list[tuple[str, str]]:
+    return [(scope.target_id, directory_scope(pattern)) for scope in card.scopes for pattern in scope.includes]
+
+
+def _exclude_roots(card: Card) -> set[tuple[str, str]]:
+    found: set[tuple[str, str]] = set()
+    for scope in card.scopes:
+        for pattern in scope.excludes:
+            if pattern.endswith("/**") or pattern == "**":
+                found.add((scope.target_id, directory_scope(pattern)))
+    return found
+
+
+def _file_directory(path: str) -> str:
+    parent = _posix_dir(str(Path(path).parent))
+    return "." if parent in {".", ""} else parent
+
+
+def _direct_child_of(directory: str, root: str) -> str | None:
+    directory = _posix_dir(directory)
+    root = _posix_dir(root)
+    if directory == root:
+        return None
+    if root == ".":
+        child = directory.split("/", 1)[0]
+        return child if child not in {"", "."} else None
+    prefix = root + "/"
+    if not directory.startswith(prefix):
+        return None
+    return root + "/" + directory[len(prefix) :].split("/", 1)[0]
+
+
+def _is_proper_subdir(child: str, parent: str) -> bool:
+    child = _posix_dir(child)
+    parent = _posix_dir(parent)
+    if parent == ".":
+        return child not in {"", "."}
+    return child.startswith(parent + "/")
+
+
+def _direct_named_dirs(parent: Card, child: Card) -> set[tuple[str, str]]:
+    named: set[tuple[str, str]] = set()
+    for child_target, child_dir in _include_roots(child):
+        for parent_target, parent_dir in _include_roots(parent):
+            if child_target != parent_target or child_dir == parent_dir or not _is_proper_subdir(child_dir, parent_dir):
+                continue
+            direct = _direct_child_of(child_dir, parent_dir)
+            if direct == child_dir:
+                named.add((child_target, child_dir))
+    return named
+
+
+def _code_direct_children(card: Card, matched: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    children: set[tuple[str, str]] = set()
+    for artifact in matched:
+        if not artifact.get("code"):
+            continue
+        directory = _file_directory(str(artifact["path"]))
+        for target, root in _include_roots(card):
+            if artifact["target"] != target:
+                continue
+            child = _direct_child_of(directory, root)
+            if child:
+                children.add((target, child))
+    return sorted(children)
 
 
 def census_path(manifest: Manifest) -> Path:
@@ -131,6 +243,13 @@ def _version(root: Path) -> str:
 
 def _matches(card: Card, target: str, path: str) -> bool:
     return any(_scope_matches(scope, target, path) for scope in card.scopes)
+
+
+def _matches_include(card: Card, target: str, path: str) -> bool:
+    return any(
+        scope.target_id == target and any(path_matches(path, pattern) for pattern in scope.includes)
+        for scope in card.scopes
+    )
 
 
 def _last_source_change(manifest: Manifest, card: Card) -> list[dict]:
@@ -220,7 +339,20 @@ def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
         previous = latest.get(card.card_id)
         freshness = "never" if previous is None else "current" if previous.get("scope_digest") == scope_digest and previous.get("declaration_digest") == declaration_digest else "stale"
         issues: list[dict] = []
-        declaration = card.jurisdiction or {}
+        declaration = coerce_jurisdiction(card.jurisdiction) or {}
+        included = [item for item in artifacts if declaration and _matches_include(card, item["target"], item["path"])]
+        child_dirs = _code_direct_children(card, included) if declaration else []
+        named_dirs: set[tuple[str, str]] = set()
+        same_glob = False
+        if declaration:
+            for other in jurisdictions:
+                if other.card_id == card.card_id:
+                    continue
+                named_dirs.update(_direct_named_dirs(card, other))
+                if set(_include_roots(other)) & set(_include_roots(card)):
+                    same_glob = True
+        unclaimed = [item for item in child_dirs if item not in named_dirs]
+        identity = "floor"
         if declaration:
             if not floors:
                 issues.append({"code": "floor-link-missing"})
@@ -233,22 +365,74 @@ def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
                 issues.append({"code": "replacement-missing"})
             if declaration["status"] == "retired" and any(item["code"] for item in matched):
                 issues.append({"code": "retired-code-remains"})
-            if declaration["status"] != "retired" and not card.checkers:
+            if declaration.get("contract") == "machine" and not card.checkers:
                 issues.append({"code": "implementation-check-missing"})
             for checker_id in card.checkers:
                 checker = policy.checker(checker_id)
                 if checker.implementation != declaration["implementation"] or checker.command[:3] == ("git", "diff", "--check"):
                     issues.append({"code": "implementation-check-mismatch", "checker": checker_id})
-                if any(other.implementation and other.implementation != checker.implementation and (other.command, other.cwd, other.target_id) == (checker.command, checker.cwd, checker.target_id) for other in policy.checkers):
+                if any(
+                    other.implementation
+                    and other.implementation != checker.implementation
+                    and (other.command, other.cwd, other.target_id) == (checker.command, checker.cwd, checker.target_id)
+                    for other in policy.checkers
+                ):
                     issues.append({"code": "implementation-check-reused", "checker": checker_id})
             for entry in declaration.get("entrypoints", []):
                 if not any(item["path"] == entry for item in matched):
                     issues.append({"code": "entrypoint-missing", "path": entry})
+            if declaration.get("contract") == "partial" and not declaration.get("entrypoints"):
+                issues.append({"code": "entrypoint-missing"})
+            if declaration.get("grain") == "module" and child_dirs:
+                issues.append({"code": "grain-overflow", "paths": [f"{target}:{path}" for target, path in child_dirs]})
+            if same_glob and declaration.get("meaning") == "named":
+                issues.append({"code": "child-not-proper-subset"})
+            if declaration.get("meaning") == "named" and unclaimed:
+                issues.append({"code": "child-unclaimed", "paths": [f"{target}:{path}" for target, path in unclaimed]})
+                issues.append({"code": "undecomposed-directory"})
+                issues.append({"code": "opaque-claimed"})
+            issue_codes = {issue["code"] for issue in issues}
+            if declaration.get("status") in {"legacy", "retired"} and any(item["code"] for item in matched):
+                identity = "leftover"
+            elif "opaque-claimed" in issue_codes or "grain-overflow" in issue_codes:
+                identity = "opaque"
+            elif declaration.get("meaning") == "named":
+                identity = "named"
+            else:
+                identity = "exploring"
         if any(item["digest"] == "outside-target" for item in matched):
             issues.append({"code": "source-outside-target"})
         scoped_signals = [item for item in signals if _matches(card, item["target"], item["path"])]
         engines = sorted({item["engine"] for item in scoped_signals if "engine" in item})
-        reports.append({"id": card.card_id, "kind": card.card_type, "title": card.title, "summary": card.summary, "jurisdiction": declaration, "scopes": [asdict(scope) for scope in card.scopes], "floors": floors, "replaced_by": replacements, "checkers": list(card.checkers), "issues": issues, "freshness": freshness, "last_census": previous, "history": [record for record in records if record.get("card_id") == card.card_id][-12:], "scope_digest": scope_digest, "declaration_digest": declaration_digest, "file_count": len(matched), "code_count": sum(item["code"] for item in matched), "files": [f'{item["target"]}:{item["path"]}' for item in matched], "signals": scoped_signals, "canvas_engines": engines})
+        reports.append(
+            {
+                "id": card.card_id,
+                "kind": card.card_type,
+                "title": card.title,
+                "summary": card.summary,
+                "jurisdiction": declaration,
+                "identity": identity,
+                "leaf": not child_dirs,
+                "child_directories": [f"{target}:{path}" for target, path in child_dirs],
+                "named_directories": [f"{target}:{path}" for target, path in sorted(named_dirs)],
+                "unclaimed_directories": [f"{target}:{path}" for target, path in unclaimed],
+                "scopes": [asdict(scope) for scope in card.scopes],
+                "floors": floors,
+                "replaced_by": replacements,
+                "checkers": list(card.checkers),
+                "issues": issues,
+                "freshness": freshness,
+                "last_census": previous,
+                "history": [record for record in records if record.get("card_id") == card.card_id][-12:],
+                "scope_digest": scope_digest,
+                "declaration_digest": declaration_digest,
+                "file_count": len(matched),
+                "code_count": sum(item["code"] for item in matched),
+                "files": [f'{item["target"]}:{item["path"]}' for item in matched],
+                "signals": scoped_signals,
+                "canvas_engines": engines,
+            }
+        )
     capabilities: dict[str, list[dict]] = defaultdict(list)
     for report in reports:
         if report["jurisdiction"]:
@@ -267,7 +451,8 @@ def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
         if item["last_census"]:
             timestamp = datetime.fromisoformat(item["last_census"]["surveyed_at"])
             item["census_age_days"] = max(0, (datetime.now(timezone.utc) - timestamp).days)
-    return {"schema": CENSUS_SCHEMA, "observed_at": datetime.now(timezone.utc).isoformat(), "required": policy.household_required, "project": manifest.project_id, "revisions": revisions, "households": reports, "gaps": gaps, "directories": [{**value, "owners": sorted(value["owners"])} for _, value in sorted(directories.items())], "implementations": implementations, "signals": signals, "counts": {"jurisdictions": len(jurisdictions), "code_files": sum(item["code"] for item in artifacts), "unowned": sum(item["code"] == "code-unowned" for item in gaps), "ambiguous": sum(item["code"] == "code-ambiguous" for item in gaps), "freshness": dict(Counter(item["freshness"] for item in reports))}}
+    identities = Counter(item.get("identity") or "floor" for item in reports if item.get("jurisdiction"))
+    return {"schema": CENSUS_SCHEMA, "observed_at": datetime.now(timezone.utc).isoformat(), "required": policy.household_required, "project": manifest.project_id, "revisions": revisions, "households": reports, "gaps": gaps, "directories": [{**value, "owners": sorted(value["owners"])} for _, value in sorted(directories.items())], "implementations": implementations, "signals": signals, "counts": {"jurisdictions": len(jurisdictions), "code_files": sum(item["code"] for item in artifacts), "unowned": sum(item["code"] == "code-unowned" for item in gaps), "ambiguous": sum(item["code"] == "code-ambiguous" for item in gaps), "exploring": identities.get("exploring", 0), "named": identities.get("named", 0), "opaque": identities.get("opaque", 0), "leftover": identities.get("leftover", 0), "freshness": dict(Counter(item["freshness"] for item in reports))}}
 
 
 def required_households(report: dict, entry_slice: dict) -> list[dict]:

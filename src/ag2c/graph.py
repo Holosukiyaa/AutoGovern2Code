@@ -7,7 +7,7 @@ from typing import Any, Iterable, Mapping
 
 GRAPH_SCHEMA = "ag2c.governance_graph.v1"
 OPEN_TASK_STATES = frozenset({"active", "verified"})
-LAZINESS_FLAGS = ("abandoned", "unowned", "ambiguous", "stale", "unreviewed", "multiple", "undeclared", "writing")
+LAZINESS_FLAGS = ("opaque", "abandoned", "unowned", "ambiguous", "stale", "unreviewed", "multiple", "undeclared", "writing")
 FLAG_LABELS = {
     "abandoned": "废弃未清",
     "unowned": "无主",
@@ -18,6 +18,8 @@ FLAG_LABELS = {
     "ambiguous": "重复认领",
     "unreviewed": "未普查",
     "multiple": "多实现待核查",
+    "exploring": "开工",
+    "opaque": "黑盒",
 }
 KIND_LABELS = {
     "constitution": "宪章",
@@ -154,6 +156,12 @@ def _file_role(covered_by: list[str], flags: Iterable[str], owner_records: list[
         return "ambiguous", "多张知识卡同时认领，归属不清"
     if any(status in {"legacy", "retired"} for status in statuses):
         return "leftover", "旧实现或已退役，可能是换方向后留下的"
+    identities = [_text(_mapping(item.get("household")).get("identity")) for item in owner_records]
+    meanings = [_text(_mapping(item.get("jurisdiction")).get("meaning") or _mapping(_mapping(item.get("household")).get("jurisdiction")).get("meaning")) for item in owner_records]
+    if "opaque" in flag_set or any(identity == "opaque" for identity in identities):
+        return "opaque", "已挂卡但未说清，是黑盒"
+    if "exploring" in flag_set or any(identity == "exploring" or meaning == "none" for identity, meaning in zip(identities, meanings)):
+        return "exploring", "正在开工，尚未说清"
     return "current", "当前知识卡管理"
 
 
@@ -181,8 +189,8 @@ def _node(
     detection: str = "",
     extra: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    flag_list = [flag for flag in LAZINESS_FLAGS if flag in set(flags)]
-    primary = _primary_flag(flag_list)
+    flag_list = [flag for flag in (*LAZINESS_FLAGS, "exploring") if flag in set(flags)]
+    primary = _primary_flag(flag_list) if any(flag in LAZINESS_FLAGS for flag in flag_list) else ("exploring" if "exploring" in flag_list else "current")
     payload = {
         "id": node_id,
         "kind": kind,
@@ -195,7 +203,7 @@ def _node(
         "flags": flag_list,
         "primary": primary,
         "statusLabel": " · ".join(FLAG_LABELS[flag] for flag in flag_list) or FLAG_LABELS["current"],
-        "lazy": bool(flag_list),
+        "lazy": any(flag in LAZINESS_FLAGS for flag in flag_list),
     }
     if extra:
         payload.update(dict(extra))
@@ -460,6 +468,11 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
             declaration = _mapping(household.get("jurisdiction"))
             flags = [flag for flag in nodes.get(card_id, {}).get("flags", []) if flag == "writing"]
             freshness = household.get("freshness")
+            identity = _text(household.get("identity"))
+            if identity == "exploring":
+                flags.append("exploring")
+            if identity == "opaque" or {issue["code"] for issue in household.get("issues", [])} & {"opaque-claimed", "undecomposed-directory", "child-unclaimed", "grain-overflow"}:
+                flags.append("opaque")
             if freshness in {"never", "stale"}:
                 flags.append("unreviewed" if freshness == "never" else "stale")
             if declaration.get("status") == "legacy" or (declaration.get("status") == "retired" and household.get("code_count")):
@@ -609,7 +622,7 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
         if combo.get("kind") == "directory":
             combo.setdefault("coverageLabel", "、".join(combo.get("coveredBy") or []) or "无知识卡覆盖")
 
-    counts = {flag: 0 for flag in (*LAZINESS_FLAGS, "current", "nodes", "edges", "leaves", "files", "combos")}
+    counts = {flag: 0 for flag in (*LAZINESS_FLAGS, "exploring", "current", "nodes", "edges", "leaves", "files", "combos")}
     for node in nodes.values():
         counts["nodes"] += 1
         if node["kind"] == "file":
@@ -620,7 +633,10 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
             continue
         if node["lazy"]:
             for flag in node["flags"]:
-                counts[flag] += 1
+                if flag in counts:
+                    counts[flag] += 1
+        elif "exploring" in node.get("flags", []):
+            counts["exploring"] += 1
         else:
             counts["current"] += 1
     counts["edges"] = len(edges)
@@ -639,7 +655,7 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
         "lazy": lazy_total > 0,
         "census": {key: census.get(key) for key in ("observed_at", "required", "revisions", "counts")},
         "headline": (
-            f"文件树 {file_count} 个文件 · 知识卡 {card_count} 张。搜 frontend 可定位前端。无主 {counts['unowned']} · 未普查 {counts['unreviewed']} · 过期 {counts['stale']} · 旧实现 {counts['abandoned']} · 多实现线索 {counts['multiple']} · 未验收 {counts['undeclared']}"
+            f"文件树 {file_count} 个文件 · 知识卡 {card_count} 张。开工 {counts['exploring']} · 黑盒 {counts['opaque']} · 废弃未清 {counts['abandoned']}。搜 frontend 可定位前端。无主 {counts['unowned']} · 未普查 {counts['unreviewed']} · 过期 {counts['stale']} · 多实现线索 {counts['multiple']} · 未验收 {counts['undeclared']}"
             if combos or lazy_total
             else f"{counts['leaves']} 张知识叶，没有可藏的偷懒"
         ),

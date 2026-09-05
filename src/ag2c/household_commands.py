@@ -10,7 +10,7 @@ from .config import discover_manifest, load_manifest, load_policy
 from .errors import AG2CError
 from .gitops import repository_root
 from .govern import _atomic_json, _read_json
-from .households import _history, census_path, census_report, directory_scope
+from .households import RECORD_BLOCK_ISSUES, _history, census_path, census_report, directory_scope
 from .index import build_index
 from .ledger import _exclusive_lock, append_event
 from .util import digest_json
@@ -41,7 +41,7 @@ def _save_policy(manifest, raw: dict, actor: str, reason: str, event_type: str, 
     return {**payload, "actor": actor, "reason": reason, "ledger_event_digest": event["event_digest"]}
 
 
-def register_household(start: Path, *, card_id: str, title: str, summary: str, includes: list[str], excludes: list[str], floors: list[str], capability: str, implementation: str, status: str, replaced_by: str = "", entrypoints: list[str] | None = None, checkers: list[str] | None = None, command: list[str] | None = None, actor: str, reason: str) -> dict:
+def register_household(start: Path, *, card_id: str, title: str, summary: str, includes: list[str], excludes: list[str], floors: list[str], capability: str, implementation: str, status: str, replaced_by: str = "", entrypoints: list[str] | None = None, checkers: list[str] | None = None, command: list[str] | None = None, grain: str = "", meaning: str = "", contract: str = "", decider: str = "", actor: str, reason: str) -> dict:
     actor, reason = _identity(actor, reason)
     manifest, policy = _context(start)
     raw = _read_json(manifest.policy_path)
@@ -65,7 +65,7 @@ def register_household(start: Path, *, card_id: str, title: str, summary: str, i
         checker = {"id": checker_id, "stage": "scenario", "target": "app", "cwd": ".", "command": command, "timeout": 600, "implementation": implementation}
         raw["checkers"] = [item for item in raw.get("checkers", []) if item["id"] != checker_id] + [checker]
         selected_checkers.append(checker_id)
-    card = {"id": card_id, "type": "knowledge", "title": title.strip(), "summary": summary.strip(), "scopes": [{"target": "app", "include": includes, "exclude": excludes, "ownership": "reference"}], "references": [], "checkers": list(dict.fromkeys(selected_checkers)), "jurisdiction": {"capability": capability, "implementation": implementation, "status": status, "entrypoints": list(entrypoints or [])}}
+    card = {"id": card_id, "type": "knowledge", "title": title.strip(), "summary": summary.strip(), "scopes": [{"target": "app", "include": includes, "exclude": excludes, "ownership": "reference"}], "references": [], "checkers": list(dict.fromkeys(selected_checkers)), "jurisdiction": {"capability": capability, "implementation": implementation, "status": status, "entrypoints": list(entrypoints or []), "grain": grain or "subtree", "meaning": meaning or "none", "contract": contract or "none", "decider": decider or "none"}}
     raw["cards"] = [item for item in raw.get("cards", []) if item["id"] != card_id] + [card]
     raw["relations"] = [item for item in raw.get("relations", []) if not (item["source"] == card_id and item["type"] in {"explains", "replaced_by"})]
     raw["relations"].extend({"source": card_id, "type": "explains", "target": floor} for floor in floors)
@@ -87,6 +87,16 @@ def _review_census_locked(start: Path, *, card_ids: list[str], all_cards: bool, 
     chosen = {item["id"] for item in report["households"]} if all_cards else set(card_ids)
     if not chosen or chosen - {item["id"] for item in report["households"]}:
         raise AG2CError("census review requires known household or floor ids, or --all")
+    blocked = []
+    for item in report["households"]:
+        if item["id"] not in chosen:
+            continue
+        codes = {str(issue.get("code")) for issue in item.get("issues") or []}
+        blocked_codes = sorted(codes & RECORD_BLOCK_ISSUES)
+        if blocked_codes:
+            blocked.append(f'{item["id"]}:{",".join(blocked_codes)}')
+    if blocked:
+        raise AG2CError("census-record-blocked:\n- " + "\n- ".join(blocked))
     state = _history(manifest)
     batch = uuid.uuid4().hex
     timestamp = datetime.now(timezone.utc).isoformat()

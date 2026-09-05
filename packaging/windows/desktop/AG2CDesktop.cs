@@ -964,9 +964,7 @@ namespace AutoGovern2CodeDesktop
             {
                 Dock = DockStyle.Fill,
                 SplitterWidth = 1,
-                BackColor = Ui.Line,
-                Panel1MinSize = 180,
-                Panel2MinSize = 360
+                BackColor = Ui.Line
             };
             var treeHost = new Panel { Dock = DockStyle.Fill, BackColor = Color.White };
             treeHost.Controls.Add(PaneHeader("项目文件树", Color.White));
@@ -992,9 +990,7 @@ namespace AutoGovern2CodeDesktop
             {
                 Dock = DockStyle.Fill,
                 SplitterWidth = 1,
-                BackColor = Ui.Line,
-                Panel1MinSize = 160,
-                Panel2MinSize = 240
+                BackColor = Ui.Line
             };
             var cardHost = new Panel { Dock = DockStyle.Fill, BackColor = Ui.CardPane };
             cardHost.Controls.Add(PaneHeader("知识卡片", Ui.CardPane));
@@ -1168,10 +1164,26 @@ namespace AutoGovern2CodeDesktop
 
         private void LayoutGraph()
         {
-            if (_graphSplit.Width > 500)
-                _graphSplit.SplitterDistance = Math.Max(180, (int)(_graphSplit.Width * 0.42));
-            if (_midSplit.Width > 420)
-                _midSplit.SplitterDistance = Math.Max(160, _midSplit.Width - 320);
+            PlaceSplitter(_graphSplit, 180, 280, (int)(_graphSplit.Width * 0.42));
+            PlaceSplitter(_midSplit, 160, 240, _midSplit.Width - 320);
+        }
+
+        private static void PlaceSplitter(SplitContainer split, int leftMin, int rightMin, int preferredLeft)
+        {
+            if (split == null) return;
+            int width = split.Width;
+            int gutter = Math.Max(1, split.SplitterWidth);
+            if (width <= leftMin + rightMin + gutter) return;
+            int panel1 = Math.Min(leftMin, width / 4);
+            int panel2 = Math.Min(rightMin, width / 4);
+            int maxLeft = width - panel2 - gutter;
+            int minLeft = panel1;
+            int left = preferredLeft;
+            if (left < minLeft) left = minLeft;
+            if (left > maxLeft) left = maxLeft;
+            split.SplitterDistance = left;
+            split.Panel1MinSize = panel1;
+            split.Panel2MinSize = panel2;
         }
 
         private void PaintChips()

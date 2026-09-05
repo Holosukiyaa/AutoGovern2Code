@@ -34,17 +34,9 @@ _MISSING_GIT_UNIX = "Git is not available. Install Git and keep it on PATH."
 
 
 def _runtime_data_root() -> Path:
-    configured = os.environ.get("AG2C_DATA_ROOT")
-    if configured:
-        return Path(configured).expanduser().resolve()
-    if os.name == "nt":
-        local = os.environ.get("LOCALAPPDATA")
-        if local:
-            return (Path(local) / "AutoGovern2Code").resolve()
-    xdg = os.environ.get("XDG_DATA_HOME")
-    if xdg:
-        return (Path(xdg) / "AutoGovern2Code").expanduser().resolve()
-    return (Path.home() / ".local" / "share" / "AutoGovern2Code").resolve()
+    from .util import default_data_root
+
+    return default_data_root()
 
 
 def _default_bundled_root() -> Path:

@@ -15,7 +15,7 @@ AutoGovern2Code 是一层本地、开源的 AI 编程治理工具。把 Git 工�
 
 ## Windows 怎么安装
 
-需要 Windows 10/11 x64，不需要 Python。托盘是原生窗口，不再嵌入 Edge。安装包和便携目录会自带 MinGit；项目文件夹被挪走时仍用这份 Git。只有当前这份没有自带 Git、且 PATH 上已有 Git 时，才会用系统 Git 并记住。
+需要 Windows 10/11 x64，不需要 Python。托盘是原生窗口，不再嵌入 Edge。便携版是一个文件夹：exe、`git\`、`data\`。旁边放 `portable.ini`（或加 `--portable`）就不会写 PATH、开始菜单、开机启动。自带的 MinGit 优先于系统 Git。
 
 1. 从[最新 GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)下载 `AutoGovern2Code-Setup-Windows-x64.exe`。
 2. 双击安装。安装器只写入当前用户，会加入开始菜单，并启动托盘程序。

@@ -347,6 +347,12 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("{app}\\git", installer)
         self.assertNotIn("WebView2Loader.dll", build)
         self.assertNotIn("WebView2Loader.dll", installer)
+        self.assertIn("--portable", source)
+        self.assertIn("portable.ini", source)
+        self.assertIn("AG2C_DATA_ROOT", source)
+        script = (root / "scripts" / "prepare_portable.ps1").read_text(encoding="utf-8")
+        self.assertIn("portable.ini", script)
+        self.assertIn("install_git_runtime", script)
 
 
 if __name__ == "__main__":

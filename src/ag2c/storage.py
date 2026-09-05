@@ -11,6 +11,7 @@ from typing import Any
 
 from .errors import AG2CError, RELOCATED_PROJECT, STALE_EXTERNAL_STORE
 from .gitops import git, repository_root
+from .util import default_data_root, portable_home
 
 REGISTRY_SCHEMA = "ag2c.registry.v1"
 MANIFEST_CONFIG_KEY = "ag2c.manifest"
@@ -31,17 +32,7 @@ def _now() -> str:
 
 
 def data_root() -> Path:
-    configured = os.environ.get("AG2C_DATA_ROOT")
-    if configured:
-        return Path(configured).expanduser().resolve()
-    if os.name == "nt":
-        local = os.environ.get("LOCALAPPDATA")
-        if local:
-            return (Path(local) / "AutoGovern2Code").resolve()
-    xdg = os.environ.get("XDG_DATA_HOME")
-    if xdg:
-        return (Path(xdg) / "AutoGovern2Code").expanduser().resolve()
-    return (Path.home() / ".local" / "share" / "AutoGovern2Code").resolve()
+    return default_data_root()
 
 
 def registry_path() -> Path:
@@ -170,6 +161,33 @@ def clear_stale_git_enrollment(root: Path) -> None:
     apply_git_enrollment(root, manifest=None, key=None, hooks_path=None)
 
 
+def _rebase_portable_paths(value: dict[str, Any]) -> bool:
+    home = portable_home()
+    if home is None:
+        return False
+    current = str(home)
+    previous = str(value.get("home") or "")
+    value["home"] = current
+    if not previous or Path(previous) == home:
+        return previous != current
+    old_data = (Path(previous) / "data").resolve()
+    new_data = (home / "data").resolve()
+    changed = previous != current
+    for item in value.get("projects") or []:
+        if not isinstance(item, dict):
+            continue
+        manifest = str(item.get("manifest") or "")
+        if not manifest:
+            continue
+        try:
+            relative = Path(manifest).resolve().relative_to(old_data)
+        except ValueError:
+            continue
+        item["manifest"] = str(new_data / relative)
+        changed = True
+    return changed
+
+
 def _read_registry() -> dict[str, Any]:
     path = registry_path()
     if not path.is_file():
@@ -183,10 +201,15 @@ def _read_registry() -> dict[str, Any]:
     projects = value.get("projects")
     if not isinstance(projects, list):
         raise AG2CError(f"AG2C project registry has an invalid project list: {path}")
+    if _rebase_portable_paths(value):
+        _write_registry(value)
     return value
 
 
 def _write_registry(value: dict[str, Any]) -> None:
+    home = portable_home()
+    if home is not None:
+        value["home"] = str(home)
     path = registry_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")

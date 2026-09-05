@@ -2,11 +2,60 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import sys
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .errors import ConfigurationError
+
+PORTABLE_MARKER = "portable.ini"
+_FALSE = {"0", "false", "no", "off"}
+_TRUE = {"1", "true", "yes", "on"}
+
+
+def portable_home() -> Path | None:
+    configured = os.environ.get("AG2C_PORTABLE", "").strip()
+    if configured.lower() in _FALSE:
+        return None
+    if configured and configured.lower() not in _TRUE:
+        path = Path(configured).expanduser()
+        try:
+            path = path.resolve()
+        except OSError:
+            return None
+        if path.is_dir():
+            return path
+        return path.parent if path.parent.is_dir() else None
+    roots: list[Path] = []
+    if getattr(sys, "frozen", False):
+        exe = Path(sys.executable).resolve()
+        roots.append(exe.parent)
+        roots.append(exe.parent.parent)
+    for root in roots:
+        if (root / PORTABLE_MARKER).is_file():
+            return root
+    if configured.lower() in _TRUE and roots:
+        return roots[0]
+    return None
+
+
+def default_data_root() -> Path:
+    configured = os.environ.get("AG2C_DATA_ROOT", "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    home = portable_home()
+    if home is not None:
+        return (home / "data").resolve()
+    if os.name == "nt":
+        local = os.environ.get("LOCALAPPDATA")
+        if local:
+            return (Path(local) / "AutoGovern2Code").resolve()
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        return (Path(xdg) / "AutoGovern2Code").expanduser().resolve()
+    return (Path.home() / ".local" / "share" / "AutoGovern2Code").resolve()
 
 
 def canonical_json(value: Any) -> str:

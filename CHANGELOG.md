@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- A portable folder (`portable.ini` next to `AutoGovern2Code.exe`, or `--portable`) keeps evidence in `data\` and MinGit in `git\`. It does not write Start Menu, PATH, or login startup. Moving that folder rebases store paths in the registry and keeps using the shipped Git.
 - The tray window is native WinForms: project list, file tree, and knowledge cards. It no longer embeds Edge WebView2. Windows installers and portable copies ship MinGit next to the runtime; a portable Git wins over whatever Git happens to be on PATH so moving project folders does not switch Git implementations.
 
 - Directory households now have exploring, named, and opaque identities. `census --record` refuses opaque claims. `govern tighten` is monotonic; `renew-exploring` keeps construction visible without product acceptance. Narrow `task start` refuses unresolved household debt. Feature tasks cannot delete active households; leftover deletion uses `govern retire` and an optional confirm fuse. New enrollment hangs top-level directories as exploring without naming them, seeds that child set so nested trees stay startable, and later household registration absorbs or carves those placeholders instead of dual-owning. README cards no longer explain every floor.

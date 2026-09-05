@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import tempfile
@@ -138,3 +139,54 @@ class GitExecutableTests(unittest.TestCase):
                     with self.assertRaises(AG2CError) as raised:
                         git_executable()
                     self.assertEqual(GIT_MISSING, raised.exception.code)
+
+
+class PortableLayoutTests(unittest.TestCase):
+    def test_portable_env_puts_data_next_to_the_folder(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory) / "portable"
+            home.mkdir()
+            (home / "portable.ini").write_text("home=.\n", encoding="utf-8")
+            with patch.dict(os.environ, {"AG2C_PORTABLE": str(home), "AG2C_DATA_ROOT": ""}, clear=False):
+                from ag2c.util import default_data_root, portable_home
+
+                self.assertEqual(home.resolve(), portable_home())
+                self.assertEqual((home / "data").resolve(), default_data_root())
+
+    def test_moved_portable_folder_rebases_store_paths_not_project_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            old_home = Path(directory) / "old"
+            new_home = Path(directory) / "new"
+            old_home.mkdir()
+            new_home.mkdir()
+            (new_home / "portable.ini").write_text("home=.\n", encoding="utf-8")
+            old_manifest = old_home / "data" / "projects" / "demo" / "manifest.json"
+            new_manifest = new_home / "data" / "projects" / "demo" / "manifest.json"
+            new_manifest.parent.mkdir(parents=True)
+            new_manifest.write_text("{}", encoding="utf-8")
+            with patch.dict(os.environ, {"AG2C_PORTABLE": str(new_home), "AG2C_DATA_ROOT": ""}, clear=False):
+                from ag2c.storage import _read_registry, registry_path
+
+                path = registry_path()
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(
+                    json.dumps(
+                        {
+                            "schema": "ag2c.registry.v1",
+                            "home": str(old_home),
+                            "projects": [
+                                {
+                                    "key": "demo",
+                                    "name": "Demo",
+                                    "root": r"C:\Work\Demo",
+                                    "manifest": str(old_manifest),
+                                    "governance": "active",
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                records = _read_registry()["projects"]
+                self.assertEqual(r"C:\Work\Demo", records[0]["root"])
+                self.assertEqual(str(new_manifest.resolve()), str(Path(records[0]["manifest"]).resolve()))

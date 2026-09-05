@@ -204,7 +204,8 @@ namespace AutoGovern2CodeDesktop
                     return 0;
                 }
             }
-            AppRegistration.Ensure();
+            if (!MainForm.IsPortable(args))
+                AppRegistration.Ensure();
             bool ownsInstance;
             using (var instance = new Mutex(true, @"Local\AutoGovern2Code.Desktop", out ownsInstance))
             {
@@ -262,6 +263,7 @@ namespace AutoGovern2CodeDesktop
         private string _baseUrl;
         private bool _reallyExit;
         private bool _busy;
+        private bool _portable;
         private Dictionary<string, object> _details;
 
         [DllImport("user32.dll")]
@@ -269,6 +271,23 @@ namespace AutoGovern2CodeDesktop
 
         [DllImport("user32.dll")]
         private static extern bool DestroyIcon(IntPtr handle);
+
+        public static string AppDirectory()
+        {
+            return Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+        }
+
+        public static bool IsPortable(string[] args)
+        {
+            if (args != null)
+            {
+                foreach (string arg in args)
+                    if (String.Equals(arg, "--portable", StringComparison.OrdinalIgnoreCase))
+                        return true;
+            }
+            string app = AppDirectory();
+            return File.Exists(Path.Combine(app, "portable.ini"));
+        }
 
         public MainForm(string[] args)
         {
@@ -281,6 +300,7 @@ namespace AutoGovern2CodeDesktop
             Icon = CreateAppIcon();
             _token = CreateSessionToken();
             _runtime = ResolveRuntime(args);
+            _portable = IsPortable(args);
             _http = new HttpClient(new HttpClientHandler { UseProxy = false });
             _http.Timeout = TimeSpan.FromSeconds(60);
 
@@ -444,6 +464,13 @@ namespace AutoGovern2CodeDesktop
                 UseShellExecute = false,
                 WorkingDirectory = Path.GetDirectoryName(_runtime),
             };
+            if (_portable)
+            {
+                string home = AppDirectory();
+                start.EnvironmentVariables["AG2C_PORTABLE"] = home;
+                start.EnvironmentVariables["AG2C_DATA_ROOT"] = Path.Combine(home, "data");
+                start.EnvironmentVariables["AG2C_PORTABLE_GIT"] = Path.Combine(home, "git");
+            }
             try { _server = Process.Start(start); }
             catch (Exception error) { Fail("无法启动 AG2C 本地服务：" + error.Message); return; }
             for (int attempt = 0; attempt < 100; attempt++)
@@ -815,10 +842,13 @@ namespace AutoGovern2CodeDesktop
             menu.Items.Add("打开 AutoGovern2Code", null, delegate { ShowWindow(); });
             menu.Items.Add("添加项目...", null, async delegate { await ChooseProjectAsync(); });
             menu.Items.Add("检查所有项目", null, async delegate { await RefreshProjectsAsync(); ShowWindow(); });
-            menu.Items.Add(new ToolStripSeparator());
-            _startupItem = new ToolStripMenuItem("登录 Windows 后启动") { Checked = StartupEnabled(), CheckOnClick = true };
-            _startupItem.CheckedChanged += delegate { ApplyStartup(_startupItem.Checked); };
-            menu.Items.Add(_startupItem);
+            if (!_portable)
+            {
+                menu.Items.Add(new ToolStripSeparator());
+                _startupItem = new ToolStripMenuItem("登录 Windows 后启动") { Checked = StartupEnabled(), CheckOnClick = true };
+                _startupItem.CheckedChanged += delegate { ApplyStartup(_startupItem.Checked); };
+                menu.Items.Add(_startupItem);
+            }
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("退出管理界面", null, delegate { _reallyExit = true; Close(); });
             _tray.ContextMenuStrip = menu;

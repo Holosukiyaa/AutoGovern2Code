@@ -15,8 +15,8 @@ $skillSource = Join-Path $repoRoot 'src\ag2c\skills'
 $skillData = "${skillSource}:ag2c\skills"
 $uiSource = Join-Path $repoRoot 'src\ag2c\ui'
 $uiData = "${uiSource}:ag2c\ui"
-$desktopEntry = Join-Path $repoRoot 'packaging\windows\desktop\app.py'
-$desktopNotice = Join-Path $repoRoot 'packaging\windows\desktop\NOTICE-imgui.txt'
+$desktopEntry = Join-Path $repoRoot 'packaging\windows\tray.py'
+$desktopNotice = Join-Path $repoRoot 'packaging\windows\NOTICE-imgui.txt'
 
 if (-not (Test-Path -LiteralPath (Join-Path $skillSource 'ag2c-governed-development\SKILL.md'))) {
     throw "Packaged AG2C Skill source is missing from $skillSource."

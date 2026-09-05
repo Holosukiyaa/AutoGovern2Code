@@ -10,14 +10,12 @@ if (-not $OutputRoot) {
 }
 
 $runtimeRoot = Join-Path $repoRoot 'build\windows\runtime'
-$devTray = Join-Path $repoRoot 'build\dev-tray'
 New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
 
 $exeSource = $null
 foreach ($candidate in @(
         (Join-Path $runtimeRoot 'tray-host\AutoGovern2Code.exe'),
-        (Join-Path $runtimeRoot 'AutoGovern2Code.exe'),
-        (Join-Path $devTray 'AutoGovern2Code.exe')
+        (Join-Path $runtimeRoot 'AutoGovern2Code.exe')
     )) {
     if (Test-Path -LiteralPath $candidate) {
         $exeSource = $candidate
@@ -33,23 +31,14 @@ Get-ChildItem -LiteralPath $trayDir | ForEach-Object {
     if ($_.Name -eq 'ag2c') { return }
     Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $OutputRoot $_.Name) -Recurse -Force
 }
-$notice = Join-Path $repoRoot 'packaging\windows\desktop\NOTICE-imgui.txt'
+$notice = Join-Path $repoRoot 'packaging\windows\NOTICE-imgui.txt'
 if (Test-Path -LiteralPath $notice) {
     Copy-Item -LiteralPath $notice -Destination (Join-Path $OutputRoot 'NOTICE-imgui.txt') -Force
 }
 
-$ag2cSource = $null
-foreach ($candidate in @(
-        (Join-Path $runtimeRoot 'ag2c'),
-        (Join-Path $devTray 'ag2c')
-    )) {
-    if (Test-Path -LiteralPath (Join-Path $candidate 'ag2c.exe')) {
-        $ag2cSource = $candidate
-        break
-    }
-}
-if (-not $ag2cSource) {
-    throw "ag2c.exe runtime was not found under build\windows\runtime or build\dev-tray."
+$ag2cSource = Join-Path $runtimeRoot 'ag2c'
+if (-not (Test-Path -LiteralPath (Join-Path $ag2cSource 'ag2c.exe'))) {
+    throw "ag2c.exe runtime was not found under build\windows\runtime."
 }
 $ag2cDest = Join-Path $OutputRoot 'ag2c'
 if (Test-Path -LiteralPath $ag2cDest) {

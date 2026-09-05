@@ -3,7 +3,7 @@ setlocal EnableExtensions
 cd /d "%~dp0"
 
 set "PYTHONPATH=%CD%\src"
-set "AG2C_APP=%CD%\packaging\windows\desktop\app.py"
+set "AG2C_APP=%CD%\packaging\windows\tray.py"
 
 set "AG2C_PYTHON="
 if exist "%LocalAppData%\Programs\Python\Python312\python.exe" set "AG2C_PYTHON=%LocalAppData%\Programs\Python\Python312\python.exe"

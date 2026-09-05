@@ -145,6 +145,30 @@ def _primary_flag(flags: Iterable[str]) -> str:
     return ordered[0] if ordered else "current"
 
 
+def _file_role(covered_by: list[str], flags: Iterable[str], owner_records: list[Mapping[str, Any]]) -> tuple[str, str]:
+    flag_set = set(flags)
+    statuses = [_text(_mapping(item.get("jurisdiction")).get("status")) for item in owner_records]
+    if "unowned" in flag_set or not covered_by:
+        return "unowned", "没有知识卡管理"
+    if "ambiguous" in flag_set or len(covered_by) > 1:
+        return "ambiguous", "多张知识卡同时认领，归属不清"
+    if any(status in {"legacy", "retired"} for status in statuses):
+        return "leftover", "旧实现或已退役，可能是换方向后留下的"
+    return "current", "当前知识卡管理"
+
+
+def _floors_for(cards: list[Mapping[str, Any]], relative: str) -> list[str]:
+    titles: list[str] = []
+    for card in cards:
+        if _text(card.get("type")) != "floor":
+            continue
+        if _covers(_scope_paths(card), relative):
+            title = _text(card.get("title")) or _text(card.get("id"))
+            if title and title not in titles:
+                titles.append(title)
+    return titles
+
+
 def _node(
     node_id: str,
     *,
@@ -511,10 +535,15 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
             )
             for owner in combos[combo_id]["owners"]:
                 add_edge(owner, combo_id, "covers")
+            history = _mapping(_mapping(source.get("file_history")).get(target))
             for relative in combos[combo_id]["files"]:
                 if not relative:
                     continue
                 file_id = f"file:{target}:{relative}"
+                commit = _mapping(history.get(relative))
+                extra: dict[str, Any] = {"floors": _floors_for(cards, relative)}
+                if commit:
+                    extra["lastCommit"] = commit
                 nodes[file_id] = _node(
                     file_id,
                     kind="file",
@@ -522,6 +551,7 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
                     summary=relative,
                     flags=flags,
                     path=f"{target}:{relative}",
+                    extra=extra,
                 )
                 nodes[file_id]["combo"] = combo_id
                 for owner in combos[combo_id]["owners"]:
@@ -542,6 +572,11 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
             nodes["gap:census"]["combo"] = "combo:knowledge-cards"
 
     _annotate_coverage(nodes, edges, combos)
+    knowledge_by_title = {
+        _text(node.get("title")) or node["id"]: node
+        for node in nodes.values()
+        if node.get("kind") == "knowledge"
+    }
     for node in nodes.values():
         if node.get("kind") != "file":
             continue
@@ -549,7 +584,22 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
         if parent and parent.get("coveredBy") and not node.get("coveredBy"):
             node["coveredBy"] = list(parent["coveredBy"])
             node["coverageLabel"] = parent.get("coverageLabel") or "无知识卡覆盖"
+        owners = [knowledge_by_title[title] for title in node.get("coveredBy") or [] if title in knowledge_by_title]
+        role, role_label = _file_role(list(node.get("coveredBy") or []), node.get("flags") or [], owners)
+        node["role"] = role
+        node["roleLabel"] = role_label
+        replacements: list[str] = []
+        for owner in owners:
+            for item in _items(_mapping(owner.get("household")).get("replaced_by")):
+                text = _text(item)
+                if text and text not in replacements:
+                    replacements.append(text)
+        node["replacedBy"] = replacements
     for combo in combos.values():
+        owners = [knowledge_by_title[title] for title in combo.get("coveredBy") or [] if title in knowledge_by_title]
+        role, role_label = _file_role(list(combo.get("coveredBy") or []), combo.get("flags") or [], owners)
+        combo["role"] = role
+        combo["roleLabel"] = role_label
         flags = [flag for flag in LAZINESS_FLAGS if flag in set(combo.get("flags") or [])]
         combo["flags"] = flags
         combo["primary"] = _primary_flag(flags)
@@ -581,7 +631,7 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
 
     return {
         "schema": GRAPH_SCHEMA,
-        "layout": "antv-dagre",
+        "layout": "tree",
         "nodes": sorted(nodes.values(), key=lambda item: (item["kind"], item["id"])),
         "edges": edges,
         "combos": sorted(combos.values(), key=lambda item: item["id"]),
@@ -589,7 +639,7 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
         "lazy": lazy_total > 0,
         "census": {key: census.get(key) for key in ("observed_at", "required", "revisions", "counts")},
         "headline": (
-            f"项目目录 {file_count} 个文件 · 知识卡 {card_count} 张。无主 {counts['unowned']} · 未普查 {counts['unreviewed']} · 过期 {counts['stale']} · 旧实现 {counts['abandoned']} · 多实现线索 {counts['multiple']} · 未验收 {counts['undeclared']}"
+            f"文件树 {file_count} 个文件 · 知识卡 {card_count} 张。搜 frontend 可定位前端。无主 {counts['unowned']} · 未普查 {counts['unreviewed']} · 过期 {counts['stale']} · 旧实现 {counts['abandoned']} · 多实现线索 {counts['multiple']} · 未验收 {counts['undeclared']}"
             if combos or lazy_total
             else f"{counts['leaves']} 张知识叶，没有可藏的偷懒"
         ),

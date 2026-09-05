@@ -226,7 +226,32 @@ button:focus { outline: 2px solid rgba(37, 99, 235, .28); outline-offset: 2px; }
 .graph-filters button.is-active { border-color: #1d4ed8; background: #1d4ed8; color: #fff; }
 .graph-filters button.is-empty { opacity: .38; }
 .knowledge-graph-shell { display: flex; height: clamp(560px, 72vh, 920px); border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: #f4f7f6; }
-.knowledge-graph-canvas { flex: 1 1 auto; min-width: 0; min-height: 480px; }
+.graph-split { position: relative; flex: 1 1 auto; min-width: 0; display: flex; }
+.graph-tree-pane, .graph-card-pane { display: flex; flex-direction: column; min-width: 0; }
+.graph-tree-pane { flex: 1.35 1 0; border-right: 1px solid #e5e7eb; background: #fff; }
+.graph-card-pane { flex: 0.85 1 0; background: #f8faf9; }
+.graph-tree-pane header, .graph-card-pane header { flex: 0 0 auto; padding: 8px 12px; border-bottom: 1px solid #e5e7eb; font-size: 12px; font-weight: 700; color: #1f2a27; }
+.graph-tree, .graph-cards { flex: 1 1 auto; overflow: auto; min-height: 0; }
+.graph-links { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+.graph-link { fill: none; stroke: #93a8a1; stroke-width: 1.2; opacity: .55; }
+.graph-link.is-active { stroke: #1d4ed8; stroke-width: 2; opacity: 1; }
+.graph-tree-row, .graph-card { display: flex; width: 100%; align-items: center; gap: 6px; border: 0; border-bottom: 1px solid #f3f4f6; background: transparent; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.graph-tree-row { min-height: 26px; padding: 2px 10px 2px 8px; }
+.graph-tree-row.is-directory .graph-tree-name { font-weight: 700; }
+.graph-tree-row.is-selected, .graph-card.is-selected { background: #dbeafe; }
+.graph-tree-row.is-linked, .graph-card.is-linked { background: #eef6ff; }
+.graph-tree-row.role-unowned .graph-tree-badge { color: #b42318; }
+.graph-tree-row.role-leftover .graph-tree-badge { color: #c47b11; }
+.graph-twist { flex: 0 0 14px; color: #6b7280; font-size: 11px; }
+.graph-tree-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.graph-tree-badge { flex: 0 1 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #1d4ed8; font-size: 11px; text-align: right; }
+.graph-tree-empty { padding: 16px; color: #6b7280; font-size: 12px; }
+.graph-card { flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 12px; }
+.graph-card strong { font-size: 13px; }
+.graph-card span, .graph-card em { color: #4b5563; font-size: 11px; font-style: normal; }
+.graph-card.is-lazy { box-shadow: inset 3px 0 #b42318; }
+.graph-path-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.graph-path-chips button { min-height: 28px; padding: 0 10px; border: 1px solid #d5dad8; border-radius: 999px; background: #fff; font-size: 12px; cursor: pointer; }
 .graph-inspector { width: 320px; flex: 0 0 320px; padding: 16px; border-left: 1px solid #e5e7eb; background: #fff; overflow-y: auto; }
 .graph-inspector strong { display: block; color: #111827; font-size: 13px; line-height: 1.35; }
 .graph-inspector p { margin: 8px 0 0; color: #6b7280; font-size: 11px; line-height: 1.5; }
@@ -248,7 +273,7 @@ button:focus { outline: 2px solid rgba(37, 99, 235, .28); outline-offset: 2px; }
 .graph-inspector dd { white-space: pre-wrap; font-size: 12px; line-height: 1.5; }
 .graph-inspect-links { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 12px; }
 .graph-inspect-links button { padding: 5px 8px; border-radius: 5px; border: 1px solid #d1d5db; background: #f8fafc; text-align: left; font-size: 12px; overflow-wrap: anywhere; }
-@media (max-width: 850px) { .knowledge-graph-shell { height: auto; flex-direction: column; } .graph-inspector { width: auto; flex: auto; max-height: 480px; border-left: 0; border-top: 1px solid #e5e7eb; } }
+@media (max-width: 850px) { .knowledge-graph-shell { height: auto; flex-direction: column; } .graph-split { min-height: 420px; } .graph-inspector { width: auto; flex: auto; max-height: 480px; border-left: 0; border-top: 1px solid #e5e7eb; } }
 .dash-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .dash-head h3 { margin: 0; color: #111827; font-size: 13px; }
 .status-label { color: #6b7280; font-size: 10px; }

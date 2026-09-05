@@ -398,6 +398,7 @@
       if (documentIsHidden()) return;
       if ($("busyOverlay") && !$("busyOverlay").hidden) return;
       if (listInFlight) return;
+      if (window.AG2CKnowledgeGraph && window.AG2CKnowledgeGraph.busy && window.AG2CKnowledgeGraph.busy()) return;
       request("GET", "/api/projects/revision", null, function (ok, value) {
         if (!ok || !value || !value.revision) return;
         if (!lastRevision) { lastRevision = value.revision; return; }

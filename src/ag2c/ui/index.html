@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
   <title>AutoGovern2Code</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=0.8.4.dagre-combo">
+  <link rel="stylesheet" href="/assets/styles.css?v=0.8.4.file-tree">
 </head>
 <body>
   <div class="app-shell">
@@ -71,17 +71,18 @@
               <article class="dash-card dash-card-graph">
                 <header class="dash-head">
                   <div>
-                    <h3>治理图谱</h3>
-                    <p id="graphHeadline" class="graph-headline">左边是项目真实目录和文件，右边是知识卡片，连线表示覆盖。有多少个文件就画出多少个文件。</p>
+                    <h3>目录与知识卡</h3>
+                    <p id="graphHeadline" class="graph-headline">左边是项目文件树。搜 frontend 就能只看前端。点文件看谁管、哪层楼、最近一次提交、是不是旧实现留下的。</p>
                   </div>
-                  <span id="graphBanner" class="status-label">G6</span>
+                  <span id="graphBanner" class="status-label">对照</span>
                 </header>
                 <div class="graph-search-row">
-                  <label for="graphSearch">查目录或知识卡</label><input id="graphSearch" type="search" placeholder="文件名、目录、知识卡或实现名称" />
-                  <select id="graphNodePicker" aria-label="选择目录、文件或知识卡"><option value="">选择目录、文件或知识卡</option></select>
-                  <button id="graphFit" type="button">全图</button>
+                  <label for="graphSearch">找文件</label><input id="graphSearch" type="search" placeholder="frontend、css、文件名或知识卡" />
+                  <select id="graphNodePicker" aria-label="跳到目录、文件或知识卡"><option value="">跳到目录、文件或知识卡</option></select>
+                  <button id="graphFit" type="button">展开全部</button>
                 </div>
-                <p class="graph-hint">拖动画布平移，滚轮缩放，双击文件夹折叠。不要拖节点。连线 = 这张知识卡覆盖这些目录和文件。</p>
+                <div id="graphPathChips" class="graph-path-chips" aria-label="顶层目录"></div>
+                <p class="graph-hint">文件树可以滚动，不会被定时刷新拽回去。右边是知识卡。线连的是选中项；没选中时，线连到各卡覆盖的目录。</p>
                 <p id="graphCensusSummary" class="graph-census-summary"></p>
                 <div id="graphFilters" class="graph-filters" role="toolbar" aria-label="户口状态过滤器">
                   <button type="button" data-graph-filter="" data-label="全部">全部</button>
@@ -94,13 +95,28 @@
                   <button type="button" data-graph-filter="undeclared" data-label="未验收">未验收</button>
                   <button type="button" data-graph-filter="writing" data-label="AI正在写">AI正在写</button>
                 </div>
-                <div class="knowledge-graph-shell">
-                  <div id="knowledgeGraph" class="knowledge-graph-canvas" aria-label="项目目录与知识卡片对照图谱"></div>
+                <div class="knowledge-graph-shell" id="knowledgeGraph">
+                  <div id="graphSplit" class="graph-split">
+                    <section class="graph-tree-pane" aria-label="项目文件树">
+                      <header>项目文件树</header>
+                      <div id="graphTree" class="graph-tree"></div>
+                    </section>
+                    <svg id="graphLinks" class="graph-links" aria-hidden="true"></svg>
+                    <section class="graph-card-pane" aria-label="知识卡片">
+                      <header>知识卡片</header>
+                      <div id="graphCards" class="graph-cards"></div>
+                    </section>
+                  </div>
                   <aside id="graphInspector" class="graph-inspector">
-                    <strong id="graphInspectTitle">点目录、文件或知识卡</strong>
-                    <p id="graphInspectStatus">左边看真实目录，右边看知识卡。点文件能看到罩住它的知识卡。</p>
+                    <strong id="graphInspectTitle">点文件树或右边的知识卡</strong>
+                    <p id="graphInspectStatus">左边先把项目文件看清楚。搜 frontend 会只留下前端路径。</p>
                     <p id="graphInspectSummary"></p>
                     <dl>
+                      <div><dt>谁管理</dt><dd id="graphInspectWho">—</dd></div>
+                      <div><dt>属于哪几个楼层</dt><dd id="graphInspectFloors">—</dd></div>
+                      <div><dt>最近一次提交</dt><dd id="graphInspectWhen">—</dd></div>
+                      <div><dt>现在是不是多余的</dt><dd id="graphInspectRole">—</dd></div>
+                      <div><dt>有没有被使用</dt><dd id="graphInspectUsed">—</dd></div>
                       <div><dt>叶子</dt><dd id="graphInspectKind">—</dd></div>
                       <div><dt>协议</dt><dd id="graphInspectProtocol">—</dd></div>
                       <div><dt>检测</dt><dd id="graphInspectDetection">—</dd></div>
@@ -263,8 +279,8 @@
     </div>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </div>
-  <script src="/assets/vendor/g6.min.js?v=0.8.4.dagre-combo"></script>
-  <script src="/assets/graph.js?v=0.8.4.dagre-combo"></script>
-  <script src="/assets/app.js?v=0.8.4.dagre-combo"></script>
+  <script src="/assets/vendor/g6.min.js?v=0.8.4.file-tree"></script>
+  <script src="/assets/graph.js?v=0.8.4.file-tree"></script>
+  <script src="/assets/app.js?v=0.8.4.file-tree"></script>
 </body>
 </html>

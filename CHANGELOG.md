@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Replace the force-directed tray graph with an AntV dagre combo view: real project directories and files on one side, knowledge cards on the other, coverage edges between them, and canvas pan/zoom instead of dragging nodes.
+- Show the tray coverage view as a scrollable project file tree on the left and knowledge cards on the right, with lines between a selected file and the card that covers it. Stop periodic refresh from yanking the view. Each file shows who manages it, which floor owns the path, the latest commit, and whether it looks like leftover work. Search `frontend` to isolate the frontend tree.
 - Show a G6 force-directed knowledge graph in the tray window so unowned paths, stale knowledge, abandoned cards, undeclared product checks, and AI-writing work cannot hide in lists.
 - Render that graph inside the Windows tray host with embedded Edge WebView2 instead of the IE WebBrowser control.
 - Prefer the user's Git when it is on PATH; otherwise download MinGit into the AG2C data directory. Remember each project's Git source so a moved folder keeps bundled Git, or falls back to a download if the original system Git is gone.

@@ -144,6 +144,33 @@ def _last_source_change(manifest: Manifest, card: Card) -> list[dict]:
     return changes
 
 
+_FILE_COMMIT_CACHE: dict[tuple[str, str], dict[str, dict[str, str]]] = {}
+
+
+def file_latest_commits(root: Path, head: str = "") -> dict[str, dict[str, str]]:
+    key = (str(root), head)
+    cached = _FILE_COMMIT_CACHE.get(key)
+    if cached is not None:
+        return cached
+    latest: dict[str, dict[str, str]] = {}
+    raw = str(_git(root, "log", "--pretty=format:%H%x09%cI%x09%s", "--name-only", "--no-renames", "--max-count=2000") or "")
+    commit = changed_at = summary = ""
+    for line in raw.splitlines():
+        if not line:
+            commit = ""
+            continue
+        if "\t" in line:
+            parts = line.split("\t", 2)
+            if len(parts) == 3 and len(parts[0]) >= 7 and all(ch in "0123456789abcdef" for ch in parts[0][:7].lower()):
+                commit, changed_at, summary = parts
+                continue
+        path = line.replace("\\", "/").lstrip("./")
+        if commit and path and path not in latest:
+            latest[path] = {"commit": commit, "changed_at": changed_at, "summary": summary}
+    _FILE_COMMIT_CACHE[key] = latest
+    return latest
+
+
 def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
     artifacts: list[dict] = []
     revisions: dict[str, dict] = {}

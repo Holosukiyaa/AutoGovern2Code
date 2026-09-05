@@ -142,7 +142,10 @@ class GovernanceGraphTests(unittest.TestCase):
     def test_graph_names_the_knowledge_card_that_covers_a_directory(self):
         graph = build_governance_graph(
             {
-                "cards": [_card("knowledge.workbench", "knowledge", "当前画布", include=["src/frontend/**"])],
+                "cards": [
+                    _card("floor.src", "floor", "src", include=["src/**"]),
+                    _card("knowledge.workbench", "knowledge", "当前画布", include=["src/frontend/**"]),
+                ],
                 "knowledge": [],
                 "relations": [],
                 "index": {"findings": []},
@@ -203,9 +206,12 @@ class GovernanceGraphTests(unittest.TestCase):
         card = next(node for node in graph["nodes"] if node["id"] == "knowledge.workbench")
         self.assertEqual("combo:knowledge-cards", card["combo"])
         self.assertIn("src/frontend", card["coversDirectories"])
+        self.assertEqual("current", frontend_file["role"])
+        self.assertIn("src", frontend_file["floors"])
+        self.assertEqual("unowned", hole_file["role"])
         self.assertTrue(any(combo["id"] == "combo:project-dirs" for combo in graph["combos"]))
         self.assertTrue(any(combo["id"] == "combo:knowledge-cards" for combo in graph["combos"]))
-        self.assertEqual("antv-dagre", graph["layout"])
+        self.assertEqual("tree", graph["layout"])
         self.assertTrue(
             any(
                 edge["relation"] == "covers"

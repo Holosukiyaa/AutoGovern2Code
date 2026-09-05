@@ -1,133 +1,69 @@
 (function (global) {
   "use strict";
-  var graph = null;
   var payload = { nodes: [], edges: [], combos: [], counts: {}, headline: "", lazy: false };
   var filterFlag = "";
   var selectedId = "";
   var searchQuery = "";
   var signature = "";
+  var interacting = false;
+  var interactTimer = 0;
+  var collapsed = {};
   var RELATIONS = { covers: "覆盖", implements: "实现", replaced_by: "被替代为", explains: "归属楼层", governs: "治理", depends_on: "依赖", related_to: "关联", exposes: "暴露空洞", contains: "包含" };
   var ISSUES = { "floor-link-missing": "没有连接楼层", "floor-scope-mismatch": "楼层不覆盖实际代码范围", "replacement-missing": "旧实现没有替代者", "retired-code-remains": "标记已退役，但代码仍在", "implementation-check-missing": "没有本实现的检测", "implementation-check-mismatch": "检测属于另一套实现，或仅检查 diff 格式", "entrypoint-missing": "入口缺失或不在管辖范围", "source-outside-target": "源码链接指向项目外", "competing-current-implementations": "同一产品能力有多套当前实现" };
 
-  var PALETTE = {
-    abandoned: { fill: "#fff4f2", stroke: "#b42318", label: "#7a1f18", shadow: "rgba(180,35,24,.28)" },
-    unowned: { fill: "#fff4f2", stroke: "#b42318", label: "#7a1f18", shadow: "rgba(180,35,24,.22)" },
-    stale: { fill: "#fff8ed", stroke: "#c47b11", label: "#7a3d11", shadow: "rgba(196,123,17,.22)" },
-    undeclared: { fill: "#f4f0f8", stroke: "#6b3fa0", label: "#4a2a70", shadow: "rgba(107,63,160,.2)" },
-    writing: { fill: "#eef8f3", stroke: "#087a53", label: "#145c40", shadow: "rgba(8,122,83,.35)" },
-    current: { fill: "#ffffff", stroke: "#d5dad8", label: "#23272a", shadow: "transparent" },
-    ambiguous: { fill: "#fff4f2", stroke: "#b42318", label: "#7a1f18", shadow: "transparent" },
-    unreviewed: { fill: "#f4f0f8", stroke: "#6b3fa0", label: "#4a2a70", shadow: "transparent" },
-    multiple: { fill: "#fff8ed", stroke: "#c47b11", label: "#7a3d11", shadow: "transparent" },
-  };
-
   function $(id) { return document.getElementById(id); }
+  function cssId(id) {
+    if (global.CSS && CSS.escape) return CSS.escape(id || "");
+    return String(id || "").replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+  }
   function text(node, value) { if (node) node.textContent = value == null ? "" : String(value); }
-  function GraphCtor() { return global.G6 && (global.G6.Graph || global.G6.default && global.G6.default.Graph); }
   function allItems() { return (payload.nodes || []).concat(payload.combos || []); }
   function findItem(id) {
     if (!id) return null;
     var list = allItems();
-    for (var index = 0; index < list.length; index += 1) {
-      if (list[index].id === id) return list[index];
-    }
+    for (var i = 0; i < list.length; i += 1) if (list[i].id === id) return list[i];
     return null;
   }
-
-  function paintNode(node) {
-    var primary = node.primary || "current";
-    var colors = PALETTE[primary] || PALETTE.current;
-    var writing = (node.flags || []).indexOf("writing") >= 0;
-    var kind = node.kind || "knowledge";
-    var width = kind === "file" ? 132 : kind === "gap" || kind === "work" ? 196 : 188;
-    var height = kind === "file" ? 28 : kind === "knowledge" ? 64 : 52;
-    var coverage = node.coverageLabel || (kind === "file" || kind === "directory" ? "无知识卡覆盖" : "");
-    var label = kind === "file"
-      ? (node.title || node.id)
-      : (node.kindLabel || "") + "\n" + (node.title || node.id) + (coverage ? "\n" + coverage : "");
-    var painted = {
-      id: node.id,
-      data: node,
-      style: {
-        size: [width, height],
-        fill: colors.fill,
-        stroke: writing && primary !== "writing" ? "#087a53" : colors.stroke,
-        lineWidth: writing || node.lazy ? 2 : 1,
-        radius: kind === "file" ? 4 : 10,
-        labelText: label,
-        labelFill: colors.label,
-        labelFontSize: kind === "file" ? 10 : 11,
-        labelFontWeight: kind === "file" ? 500 : 600,
-        labelPlacement: "center",
-        labelWordWrap: kind !== "file",
-        labelMaxWidth: width - 12,
-      },
-    };
-    if (node.combo) painted.combo = node.combo;
-    return painted;
+  function markInteracting() {
+    interacting = true;
+    global.clearTimeout(interactTimer);
+    interactTimer = global.setTimeout(function () { interacting = false; }, 5000);
   }
 
-  function paintCombo(combo) {
-    var primary = combo.primary || "current";
-    var colors = PALETTE[primary] || PALETTE.current;
-    var side = combo.kind === "side";
-    var coverage = combo.kind === "directory" ? (combo.coverageLabel || "无知识卡覆盖") : "";
-    var painted = {
-      id: combo.id,
-      data: combo,
-      style: {
-        padding: side ? 28 : 14,
-        radius: 10,
-        fill: side ? "#eef3f1" : colors.fill,
-        stroke: side ? "#5f716c" : colors.stroke,
-        lineWidth: side ? 2 : combo.lazy ? 2 : 1,
-        labelText: (combo.title || combo.id) + (coverage ? " · " + coverage : ""),
-        labelPlacement: "top",
-        labelFontSize: side ? 13 : 11,
-        labelFontWeight: 700,
-        labelFill: side ? "#1f2a27" : colors.label,
-      },
-    };
-    if (combo.combo) painted.combo = combo.combo;
-    return painted;
+  function filesOf() { return (payload.nodes || []).filter(function (node) { return node.kind === "file" && !node.hidden; }); }
+  function cardsOf() { return (payload.nodes || []).filter(function (node) { return (node.kind === "knowledge" || node.kind === "gap" || node.kind === "work") && !node.hidden; }); }
+  function dirsOf() { return (payload.combos || []).filter(function (combo) { return combo.kind === "directory"; }); }
+
+  function haystack(item) {
+    return [item.id, item.title, item.path, item.summary, item.coverageLabel, item.roleLabel, (item.floors || []).join(" "), (item.coveredBy || []).join(" "), JSON.stringify(item.lastCommit || {})].join(" ").toLowerCase();
+  }
+  function itemMatches(item) {
+    var flagOk = !filterFlag || (item.flags || []).indexOf(filterFlag) >= 0 || item.primary === filterFlag || item.role === filterFlag || (filterFlag === "abandoned" && item.role === "leftover");
+    var searchOk = !searchQuery || haystack(item).indexOf(searchQuery) >= 0;
+    return flagOk && searchOk;
   }
 
-  function visibleNodes() {
-    var direct = (payload.nodes || []).filter(function (node) {
-      if (node.hidden) return false;
-      var matchesFlag = !filterFlag || (node.flags || []).indexOf(filterFlag) >= 0 || node.primary === filterFlag;
-      var haystack = [node.id, node.title, node.path, node.summary, node.coverageLabel, JSON.stringify(node.jurisdiction || {})].join(" ").toLowerCase();
-      return matchesFlag && (!searchQuery || haystack.indexOf(searchQuery) >= 0);
-    });
-    if (!filterFlag && !searchQuery) return direct;
-    var ids = {};
-    direct.forEach(function (node) { ids[node.id] = true; });
-    (payload.edges || []).forEach(function (edge) {
-      if (ids[edge.source] || ids[edge.target]) { ids[edge.source] = true; ids[edge.target] = true; }
-    });
-    return (payload.nodes || []).filter(function (node) { return !node.hidden && ids[node.id]; });
+  function childrenOf(parentId) {
+    var dirs = dirsOf().filter(function (combo) { return combo.combo === parentId; });
+    var files = filesOf().filter(function (node) { return node.combo === parentId; });
+    dirs.sort(function (a, b) { return String(a.title || "").localeCompare(String(b.title || ""), "zh"); });
+    files.sort(function (a, b) { return String(a.title || "").localeCompare(String(b.title || ""), "zh"); });
+    return dirs.concat(files);
   }
 
-  function visibleCombos(nodes) {
-    var needed = {};
-    function keep(id) {
-      var current = id;
-      var guard = 0;
-      while (current && !needed[current] && guard < 32) {
-        needed[current] = true;
-        var combo = findItem(current);
-        current = combo && combo.combo;
-        guard += 1;
-      }
-    }
-    (payload.combos || []).forEach(function (combo) {
-      if (combo.kind === "side") keep(combo.id);
-      var matchesFlag = !filterFlag || (combo.flags || []).indexOf(filterFlag) >= 0 || combo.primary === filterFlag;
-      var haystack = [combo.id, combo.title, combo.path, combo.summary, combo.coverageLabel].join(" ").toLowerCase();
-      if (matchesFlag && (!searchQuery || haystack.indexOf(searchQuery) >= 0)) keep(combo.id);
+  function descendantMatch(item) {
+    if (itemMatches(item)) return true;
+    if (item.kind !== "directory") return false;
+    var kids = childrenOf(item.id);
+    for (var i = 0; i < kids.length; i += 1) if (descendantMatch(kids[i])) return true;
+    return false;
+  }
+
+  function visibleChildren(parentId) {
+    return childrenOf(parentId).filter(function (item) {
+      if (!searchQuery && !filterFlag) return true;
+      return descendantMatch(item);
     });
-    nodes.forEach(function (node) { if (node.combo) keep(node.combo); });
-    return (payload.combos || []).filter(function (combo) { return needed[combo.id]; });
   }
 
   function items(elementId, values) {
@@ -149,26 +85,38 @@
     }).join("\n");
   }
 
-  function choose(id) {
-    var node = findItem(id);
-    inspect(node);
-    if (graph && node) {
-      try { graph.focusElement(id).catch(function () {}); } catch (error) {}
-    }
+  function commitText(commit) {
+    if (!commit || !commit.changed_at) return "最近 2000 次提交里没有单独记到这个文件";
+    return commit.changed_at.replace("T", " ").replace("Z", " UTC") + "\n" + (commit.summary || "") + (commit.commit ? "\n" + commit.commit.slice(0, 12) : "");
+  }
+
+  function choose(id, fromUser) {
+    if (fromUser) markInteracting();
+    selectedId = id || "";
+    inspect(findItem(id));
+    drawHighlights();
+    drawLinks();
+    var row = document.querySelector('[data-graph-id="' + cssId(id || "") + '"]');
+    if (fromUser && row && row.scrollIntoView) row.scrollIntoView({ block: "nearest" });
+    if ($("graphNodePicker")) $("graphNodePicker").value = selectedId;
   }
 
   function inspect(node) {
-    selectedId = node && node.id || "";
     var kind = node && node.kind || "";
-    var isDir = kind === "directory" || kind === "file" || kind === "side";
-    text($("graphInspectTitle"), node ? node.title : "点目录、文件或知识卡");
-    text($("graphInspectStatus"), node ? node.statusLabel : "左边是项目真实目录和文件，右边是知识卡片。连线表示覆盖。拖动画布平移，不要拖节点。");
+    var isFile = kind === "file" || kind === "directory";
+    text($("graphInspectTitle"), node ? node.title : "点文件树或右边的知识卡");
+    text($("graphInspectStatus"), node ? (node.roleLabel || node.statusLabel || "") : "左边先把项目文件看清楚。搜 frontend 会只留下前端路径。点一个文件，右边对应的知识卡会亮，线连过去。");
     text($("graphInspectSummary"), node ? node.summary : "");
     text($("graphInspectKind"), node ? node.kindLabel : "—");
     text($("graphInspectProtocol"), node ? (node.protocol || "无") : "—");
     text($("graphInspectDetection"), node ? (node.detection || "无") : "—");
     text($("graphInspectPath"), node ? (node.path || node.writingGoal || "—") : "—");
-    text($("graphInspectCoverage"), node ? (isDir ? ((node.coveredBy || []).join("、") || "无知识卡覆盖") : ((node.coversDirectories || []).map(function (path) { return "覆盖 " + path; }).join("\n") || "未覆盖代码目录")) : "点目录看知识卡，点知识卡看目录");
+    text($("graphInspectCoverage"), node ? (isFile ? ((node.coveredBy || []).join("、") || "无知识卡覆盖") : ((node.coversDirectories || []).map(function (path) { return "覆盖 " + path; }).join("\n") || "未覆盖代码目录")) : "点目录看知识卡，点知识卡看目录");
+    text($("graphInspectWho"), node ? ((node.coveredBy || []).join("、") || (isFile ? "没有知识卡管理这个文件" : ((node.coversDirectories || []).length ? "它管理 " + node.coversDirectories.join("、") : "没有管理代码目录"))) : "—");
+    text($("graphInspectFloors"), node ? ((node.floors || []).join("、") || (isFile ? "没有楼层认领这条路径" : "—")) : "—");
+    text($("graphInspectWhen"), node && node.lastCommit ? commitText(node.lastCommit) : (isFile ? "没有单独的提交记录（只表示最近 2000 次提交没点到它，不是文件不存在）" : "—"));
+    text($("graphInspectRole"), node ? (node.roleLabel || node.statusLabel || "—") + ((node.replacedBy || []).length ? "\n已被替代为：" + node.replacedBy.join("、") : "") : "—");
+    text($("graphInspectUsed"), isFile ? "这版不扫描 import，不能判断这个文件现在有没有被跑到。能判断的是：有没有知识卡认领、卡是当前还是旧实现、有没有替代者、最近一次提交。" : "点左边的文件看单文件情况。");
     var household = node && node.household || {};
     var declaration = household.jurisdiction || {};
     var census = household.last_census || {};
@@ -176,10 +124,10 @@
     var freshness = { current: "范围与普查一致", stale: "普查后代码或声明已变化", never: "尚未普查" };
     var lifecycle = { current: "当前主线", legacy: "旧实现待清理", retired: "已退役" };
     text($("graphInspectExcludes"), (household.scopes || []).reduce(function (all, scope) { return all.concat(scope.excludes || []); }, []).join("\n") || "无");
-    text($("graphInspectImplementation"), declaration.implementation ? declaration.capability + "\n" + declaration.implementation + " · " + lifecycle[declaration.status] : (isDir ? "目录或文件" : "非实现户口"));
+    text($("graphInspectImplementation"), declaration.implementation ? declaration.capability + "\n" + declaration.implementation + " · " + lifecycle[declaration.status] : (isFile ? "目录或文件" : "非实现户口"));
     text($("graphInspectFreshness"), household.freshness ? freshness[household.freshness] + "\n" + (census.surveyed_at || "未记录") + (household.census_age_days !== undefined ? " · " + household.census_age_days + " 天前" : "") : "不适用；请追查关联户口");
     text($("graphInspectVersion"), revisionText(census.project_revisions) || "未记录");
-    text($("graphInspectChanged"), (household.last_source_change || []).map(function (change) { return change.changed_at + "\n" + change.commit + "\n" + change.summary; }).join("\n") || "未找到已提交修改");
+    text($("graphInspectChanged"), (household.last_source_change || []).map(function (change) { return change.changed_at + "\n" + change.commit + "\n" + change.summary; }).join("\n") || (node && node.lastCommit ? commitText(node.lastCommit) : "未找到已提交修改"));
     text($("graphInspectReview"), census.actor ? census.actor + "\n" + census.reason : "未记录；观察时间不等于审查时间");
     var issues = (household.issues || []).map(function (issue) { return (issue.code === "implementation-check-reused" ? "同一检测命令被贴上不同实现标签" : ISSUES[issue.code] || issue.code) + (issue.path ? "：" + issue.path : "") + (issue.checker ? "：" + issue.checker : ""); });
     (household.signals || []).forEach(function (signal) { issues.push((signal.engine || "前端入口候选") + " → " + signal.path); });
@@ -197,13 +145,12 @@
         var button = document.createElement("button");
         button.type = "button";
         button.textContent = (edge.source === node.id ? "→ " : "← ") + (RELATIONS[edge.relation] || edge.relation) + "：" + (target && target.title || targetId);
-        button.addEventListener("click", function () { choose(targetId); });
+        button.addEventListener("click", function () { choose(targetId, true); });
         links.appendChild(button);
       });
     }
-    if ($("graphNodePicker")) $("graphNodePicker").value = selectedId;
     var inspector = $("graphInspector");
-    if (inspector) inspector.className = "graph-inspector" + (node && node.lazy ? " is-lazy" : "") + (node && (node.flags || []).indexOf("writing") >= 0 ? " is-writing" : "");
+    if (inspector) inspector.className = "graph-inspector" + (node && node.lazy ? " is-lazy" : "") + (node && node.role === "leftover" ? " is-lazy" : "") + (node && (node.flags || []).indexOf("writing") >= 0 ? " is-writing" : "");
   }
 
   function renderCounts() {
@@ -212,7 +159,7 @@
     for (var index = 0; index < buttons.length; index += 1) {
       var button = buttons[index];
       var flag = button.getAttribute("data-graph-filter") || "";
-      var count = flag ? (counts[flag] || 0) : (counts.nodes || 0);
+      var count = flag ? (counts[flag] || 0) : (counts.files || counts.nodes || 0);
       var label = button.getAttribute("data-label") || flag;
       button.textContent = label + " " + count;
       button.classList.toggle("is-empty", flag && count === 0);
@@ -235,10 +182,10 @@
     if ($("graphSearch")) $("graphSearch").addEventListener("input", function (event) {
       searchQuery = event.target.value.trim().toLowerCase();
       clearTimeout(searchTimer);
-      searchTimer = setTimeout(draw, 180);
+      searchTimer = setTimeout(draw, 120);
     });
-    if ($("graphNodePicker")) $("graphNodePicker").addEventListener("change", function (event) { choose(event.target.value); });
-    if ($("graphFit")) $("graphFit").addEventListener("click", function () { if (graph) graph.fitView(); });
+    if ($("graphNodePicker")) $("graphNodePicker").addEventListener("change", function (event) { choose(event.target.value, true); });
+    if ($("graphFit")) $("graphFit").addEventListener("click", function () { collapsed = {}; draw(); });
     root.addEventListener("click", function (event) {
       var button = event.target.closest("[data-graph-filter]");
       if (!button || button.disabled) return;
@@ -246,120 +193,276 @@
       filterFlag = filterFlag === next ? "" : next;
       draw();
     });
+    var shell = $("knowledgeGraph");
+    if (shell) {
+      shell.addEventListener("pointerdown", markInteracting);
+      shell.addEventListener("wheel", markInteracting, { passive: true });
+    }
   }
 
-  function dagreLayout() {
-    return { type: "antv-dagre", rankdir: "LR", ranksep: 72, nodesep: 8, sortByCombo: true, controlPoints: true };
+  function badgeFor(item) {
+    if (item.kind === "knowledge") return item.statusLabel || "";
+    if ((item.coveredBy || []).length) return item.coveredBy.join("、");
+    if (item.kind === "file" || item.kind === "directory") return "无知识卡";
+    return "";
   }
 
-  function comboCombinedLayout() {
-    return {
-      type: "combo-combined",
-      comboPadding: 18,
-      innerLayout: { type: "grid", preventOverlap: true },
-      outerLayout: { type: "antv-dagre", rankdir: "LR", ranksep: 90, nodesep: 16, sortByCombo: true },
-    };
+  function appendRow(parent, item, depth) {
+    var row = document.createElement("button");
+    row.type = "button";
+    row.className = "graph-tree-row is-" + (item.kind || "file") + (item.role ? " role-" + item.role : "") + (item.id === selectedId ? " is-selected" : "");
+    row.setAttribute("data-graph-id", item.id);
+    row.style.paddingLeft = (8 + depth * 14) + "px";
+    if (item.kind === "directory") {
+      var twist = document.createElement("span");
+      twist.className = "graph-twist";
+      twist.textContent = collapsed[item.id] ? "▸" : "▾";
+      twist.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        collapsed[item.id] = !collapsed[item.id];
+        draw(true);
+      });
+      row.appendChild(twist);
+    } else {
+      var spacer = document.createElement("span");
+      spacer.className = "graph-twist";
+      spacer.textContent = "·";
+      row.appendChild(spacer);
+    }
+    var name = document.createElement("span");
+    name.className = "graph-tree-name";
+    name.textContent = item.title || item.id;
+    row.appendChild(name);
+    var mark = document.createElement("span");
+    mark.className = "graph-tree-badge";
+    mark.textContent = badgeFor(item);
+    row.appendChild(mark);
+    row.addEventListener("click", function () { choose(item.id, true); });
+    parent.appendChild(row);
+    if (item.kind === "directory" && !collapsed[item.id]) {
+      visibleChildren(item.id).forEach(function (child) { appendRow(parent, child, depth + 1); });
+    }
   }
 
-  function draw() {
-    var Ctor = GraphCtor();
-    var mount = $("knowledgeGraph");
-    if (!mount) return;
+  function renderChips() {
+    var root = $("graphPathChips");
+    if (!root) return;
+    root.textContent = "";
+    visibleChildren("combo:project-dirs").forEach(function (item) {
+      if (item.kind !== "directory") return;
+      var chip = document.createElement("button");
+      chip.type = "button";
+      chip.textContent = item.title;
+      chip.addEventListener("click", function () {
+        collapsed[item.id] = false;
+        searchQuery = String(item.title || "").toLowerCase();
+        if ($("graphSearch")) $("graphSearch").value = item.title;
+        draw();
+        choose(item.id, true);
+      });
+      root.appendChild(chip);
+    });
+  }
+
+  function renderTree() {
+    var root = $("graphTree");
+    if (!root) return;
+    var keep = root.scrollTop;
+    root.textContent = "";
+    var kids = visibleChildren("combo:project-dirs");
+    if (!kids.length) {
+      var empty = document.createElement("div");
+      empty.className = "graph-tree-empty";
+      empty.textContent = searchQuery || filterFlag ? "没有匹配的文件。清掉搜索或筛选。" : "还没有普查到代码文件。";
+      root.appendChild(empty);
+    } else {
+      kids.forEach(function (item) { appendRow(root, item, 0); });
+    }
+    root.scrollTop = keep;
+  }
+
+  function renderCards() {
+    var root = $("graphCards");
+    if (!root) return;
+    var keep = root.scrollTop;
+    root.textContent = "";
+    var cards = cardsOf().filter(function (card) {
+      if (!filterFlag && !searchQuery) return true;
+      if (itemMatches(card)) return true;
+      return (payload.edges || []).some(function (edge) {
+        if (edge.relation !== "covers" || edge.source !== card.id) return false;
+        var target = findItem(edge.target);
+        return target && descendantMatch(target);
+      });
+    });
+    if (!cards.length) {
+      var empty = document.createElement("div");
+      empty.className = "graph-tree-empty";
+      empty.textContent = "没有可对照的知识卡。先看左边文件树。";
+      root.appendChild(empty);
+    }
+    cards.forEach(function (card) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "graph-card" + (card.id === selectedId ? " is-selected" : "") + (card.lazy ? " is-lazy" : "");
+      button.setAttribute("data-graph-id", card.id);
+      var title = document.createElement("strong");
+      title.textContent = card.title || card.id;
+      var meta = document.createElement("span");
+      meta.textContent = (card.statusLabel || "在册") + ((card.coversDirectories || []).length ? " · 覆盖 " + card.coversDirectories.length + " 个目录" : " · 未覆盖代码目录");
+      button.appendChild(title);
+      button.appendChild(meta);
+      if ((card.coversDirectories || []).length) {
+        var paths = document.createElement("em");
+        paths.textContent = card.coversDirectories.slice(0, 6).join("、");
+        button.appendChild(paths);
+      }
+      button.addEventListener("click", function () { choose(card.id, true); });
+      root.appendChild(button);
+    });
+    root.scrollTop = keep;
+  }
+
+  function fillPicker() {
+    var picker = $("graphNodePicker");
+    if (!picker) return;
+    var current = selectedId;
+    picker.textContent = "";
+    [{ id: "", title: "跳到目录、文件或知识卡", kindLabel: "" }].concat(dirsOf(), filesOf(), cardsOf()).forEach(function (node) {
+      var option = document.createElement("option");
+      option.value = node.id;
+      option.textContent = (node.kindLabel ? node.kindLabel + " · " : "") + (node.title || node.id);
+      picker.appendChild(option);
+    });
+    picker.value = current;
+  }
+
+  function coveredIds(cardId) {
+    var ids = {};
+    (payload.edges || []).forEach(function (edge) {
+      if (edge.relation === "covers" && edge.source === cardId) ids[edge.target] = true;
+    });
+    return ids;
+  }
+
+  function drawHighlights() {
+    var selected = findItem(selectedId);
+    var cover = selected && selected.kind === "knowledge" ? coveredIds(selected.id) : {};
+    var owners = {};
+    if (selected && (selected.kind === "file" || selected.kind === "directory")) {
+      (selected.coveredBy || []).forEach(function (title) {
+        cardsOf().forEach(function (card) { if (card.title === title || card.id === title) owners[card.id] = true; });
+      });
+    }
+    document.querySelectorAll("[data-graph-id]").forEach(function (node) {
+      var id = node.getAttribute("data-graph-id");
+      node.classList.toggle("is-selected", id === selectedId);
+      node.classList.toggle("is-linked", Boolean(cover[id] || owners[id]));
+    });
+  }
+
+  function drawLinks() {
+    var svg = $("graphLinks");
+    var origin = $("graphSplit");
+    if (!svg || !origin) return;
+    var width = origin.clientWidth;
+    var height = origin.clientHeight;
+    svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+    svg.setAttribute("width", width);
+    svg.setAttribute("height", height);
+    svg.innerHTML = "";
+    function center(el, side) {
+      if (!el) return null;
+      var a = el.getBoundingClientRect();
+      var b = origin.getBoundingClientRect();
+      return {
+        x: side === "right" ? a.left - b.left : a.right - b.left,
+        y: a.top - b.top + a.height / 2,
+      };
+    }
+    var pairs = [];
+    var selected = findItem(selectedId);
+    if (selected && selected.kind === "file") {
+      cardsOf().forEach(function (card) {
+        if ((selected.coveredBy || []).indexOf(card.title) >= 0 || (selected.coveredBy || []).indexOf(card.id) >= 0) {
+          pairs.push([selected.id, card.id]);
+        }
+      });
+    } else if (selected && selected.kind === "knowledge") {
+      var ids = coveredIds(selected.id);
+      document.querySelectorAll("#graphTree [data-graph-id]").forEach(function (row) {
+        var id = row.getAttribute("data-graph-id");
+        if (ids[id] && pairs.length < 24) pairs.push([id, selected.id]);
+      });
+    } else {
+      cardsOf().forEach(function (card) {
+        var ids = coveredIds(card.id);
+        var hit = null;
+        dirsOf().forEach(function (dir) {
+          if (ids[dir.id] && !hit) hit = dir.id;
+        });
+        if (hit) pairs.push([hit, card.id]);
+      });
+    }
+    pairs.forEach(function (pair) {
+      var from = center(document.querySelector('#graphTree [data-graph-id="' + cssId(pair[0]) + '"]'), "left");
+      var to = center(document.querySelector('#graphCards [data-graph-id="' + cssId(pair[1]) + '"]'), "right");
+      if (!from || !to) return;
+      var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      var mid = (from.x + to.x) / 2;
+      path.setAttribute("d", "M " + from.x + " " + from.y + " C " + mid + " " + from.y + ", " + mid + " " + to.y + ", " + to.x + " " + to.y);
+      path.setAttribute("class", "graph-link" + ((pair[0] === selectedId || pair[1] === selectedId) ? " is-active" : ""));
+      svg.appendChild(path);
+    });
+  }
+
+  function draw(keepSelection) {
     bindFilters();
     renderCounts();
-    var nodes = visibleNodes();
-    var combos = visibleCombos(nodes);
-    var picker = $("graphNodePicker");
-    if (picker) {
-      picker.textContent = "";
-      [{ id: "", title: "选择目录、文件或知识卡", kindLabel: "" }].concat(combos.filter(function (combo) { return combo.kind !== "side"; }), nodes).forEach(function (node) {
-        var option = document.createElement("option");
-        option.value = node.id;
-        option.textContent = (node.kindLabel ? node.kindLabel + " · " : "") + (node.title || node.id);
-        picker.appendChild(option);
-      });
-      picker.value = selectedId;
+    fillPicker();
+    renderChips();
+    renderTree();
+    renderCards();
+    if (!keepSelection) inspect(findItem(selectedId));
+    drawHighlights();
+    global.requestAnimationFrame(drawLinks);
+  }
+
+  function bindScroll() {
+    var tree = $("graphTree");
+    var cards = $("graphCards");
+    if (tree && tree.getAttribute("data-scroll") !== "1") {
+      tree.setAttribute("data-scroll", "1");
+      tree.addEventListener("scroll", function () { markInteracting(); drawLinks(); });
     }
-    var ids = {};
-    for (var n = 0; n < nodes.length; n += 1) ids[nodes[n].id] = true;
-    for (var c = 0; c < combos.length; c += 1) ids[combos[c].id] = true;
-    var edges = (payload.edges || []).filter(function (edge) { return ids[edge.source] && ids[edge.target]; });
-    if (!Ctor) {
-      mount.textContent = "G6 未能加载，图谱无法显示。";
-      inspect(null);
-      return;
+    if (cards && cards.getAttribute("data-scroll") !== "1") {
+      cards.setAttribute("data-scroll", "1");
+      cards.addEventListener("scroll", function () { markInteracting(); drawLinks(); });
     }
-    if (graph) {
-      try { graph.destroy(); } catch (error) {}
-      graph = null;
+    if (!bindScroll.resize) {
+      bindScroll.resize = true;
+      global.addEventListener("resize", function () { drawLinks(); });
     }
-    mount.innerHTML = "";
-    if (!nodes.length && !combos.length) {
-      mount.textContent = filterFlag ? "这类偷懒目前没有节点。" : "还没有可展开的目录或知识卡。";
-      inspect(null);
-      return;
-    }
-    graph = new Ctor({
-      container: mount,
-      autoFit: "view",
-      padding: [36, 36, 36, 36],
-      animation: false,
-      data: {
-        nodes: nodes.map(paintNode),
-        edges: edges.map(function (edge) {
-          return { id: edge.id, source: edge.source, target: edge.target, data: edge };
-        }),
-        combos: combos.map(paintCombo),
-      },
-      node: { type: "rect" },
-      combo: { type: "rect" },
-      edge: {
-        type: "cubic-horizontal",
-        style: {
-          stroke: "#8aa39a",
-          lineWidth: 1.2,
-          opacity: 0.85,
-          endArrow: true,
-          labelText: function (edge) {
-            var relation = (edge.data || edge).relation;
-            return relation === "covers" ? "覆盖" : RELATIONS[relation] || relation;
-          },
-          labelFontSize: 10,
-          labelFill: "#4b5c57",
-          labelBackground: true,
-        },
-      },
-      layout: dagreLayout(),
-      behaviors: ["drag-canvas", "zoom-canvas", "collapse-expand", "click-select"],
-    });
-    graph.on("node:click", function (event) {
-      var id = event.target && event.target.id;
-      inspect(findItem(id));
-    });
-    graph.on("combo:click", function (event) {
-      var id = event.target && event.target.id;
-      inspect(findItem(id));
-    });
-    graph.on("canvas:click", function () { inspect(null); });
-    graph.render().then(function () {
-      try { graph.fitView(); } catch (error) {}
-      if (selectedId && ids[selectedId]) inspect(findItem(selectedId));
-      else inspect(null);
-    }).catch(function () {
-      try {
-        graph.setLayout(comboCombinedLayout());
-        graph.layout();
-      } catch (error) {}
-    });
   }
 
   global.AG2CKnowledgeGraph = {
+    busy: function () { return interacting; },
     render: function (next) {
       payload = next && typeof next === "object" ? next : { nodes: [], edges: [], combos: [], counts: {}, headline: "", lazy: false };
       if (!payload.combos) payload.combos = [];
-      var nextSignature = JSON.stringify([payload.nodes, payload.edges, payload.combos]);
-      if (nextSignature === signature && graph) { renderCounts(); choose(selectedId); return; }
+      var nextSignature = JSON.stringify([
+        (payload.nodes || []).map(function (node) { return [node.id, node.coverageLabel, node.role, node.lastCommit && node.lastCommit.commit]; }),
+        (payload.edges || []).map(function (edge) { return edge.id; }),
+        (payload.combos || []).map(function (combo) { return [combo.id, combo.coverageLabel, combo.role]; }),
+      ]);
+      if (nextSignature === signature) {
+        renderCounts();
+        return;
+      }
       signature = nextSignature;
+      bindFilters();
+      bindScroll();
       draw();
     },
     clear: function () {
@@ -368,13 +471,11 @@
       filterFlag = "";
       searchQuery = "";
       selectedId = "";
+      collapsed = {};
       if ($("graphSearch")) $("graphSearch").value = "";
-      if (graph) {
-        try { graph.destroy(); } catch (error) {}
-        graph = null;
-      }
-      var mount = $("knowledgeGraph");
-      if (mount) mount.textContent = "";
+      if ($("graphTree")) $("graphTree").textContent = "";
+      if ($("graphCards")) $("graphCards").textContent = "";
+      if ($("graphLinks")) $("graphLinks").innerHTML = "";
       inspect(null);
       renderCounts();
     },

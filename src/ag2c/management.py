@@ -414,12 +414,20 @@ def project_details(path: Path) -> dict[str, Any]:
         result["journals"] = []
     from .graph import build_governance_graph
 
-    from .households import census_report
+    from .households import census_report, file_latest_commits
 
     try:
         result["census"] = census_report(manifest, policy)
     except (AG2CError, OSError, ValueError) as exc:
         result["census"] = {"error": str(exc), "households": [], "directories": []}
+    result["file_history"] = {}
+    try:
+        revisions = (result.get("census") or {}).get("revisions") or {}
+        for target in manifest.targets:
+            head = str((revisions.get(target.target_id) or {}).get("commit") or "")
+            result["file_history"][target.target_id] = file_latest_commits(manifest.target_root(target.target_id), head)
+    except (AG2CError, OSError, TypeError, ValueError):
+        result["file_history"] = {}
 
     result["graph"] = build_governance_graph(result)
     return result

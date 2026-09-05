@@ -296,6 +296,17 @@ def build_parser() -> argparse.ArgumentParser:
     renew.add_argument("--actor", required=True)
     renew.add_argument("--reason", required=True)
     renew.add_argument("--format", choices=("text", "json"), default="json")
+    retire = govern_commands.add_parser("retire", help="mark a directory household leftover before deleting its bytes")
+    retire.add_argument("--id", required=True)
+    retire.add_argument("--replaced-by", default="")
+    retire.add_argument("--actor", required=True)
+    retire.add_argument("--reason", required=True)
+    retire.add_argument("--format", choices=("text", "json"), default="json")
+    retire_confirm = govern_commands.add_parser("retire-confirm", help="human fuse for irreversible leftover deletion")
+    retire_confirm.add_argument("--id", required=True)
+    retire_confirm.add_argument("--actor", required=True)
+    retire_confirm.add_argument("--reason", required=True)
+    retire_confirm.add_argument("--format", choices=("text", "json"), default="json")
     census = govern_commands.add_parser("census", help="inspect scope freshness; --record explicitly records a review")
     census.add_argument("--record", action="store_true")
     census.add_argument("--all", action="store_true")
@@ -646,11 +657,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "govern":
             from .govern import apply_change, ingest_project, pending_updates, retrieve_guidance, settle_pending
 
-            if args.govern_command in {"household", "census", "household-gate", "tighten", "renew-exploring"}:
+            if args.govern_command in {"household", "census", "household-gate", "tighten", "renew-exploring", "retire", "retire-confirm"}:
                 from .household_commands import (
+                    confirm_retirement,
                     read_census,
                     register_household,
                     renew_exploring,
+                    retire_household,
                     review_census,
                     set_household_enforcement,
                     tighten_household,
@@ -664,6 +677,10 @@ def main(argv: list[str] | None = None) -> int:
                     result = tighten_household(Path.cwd(), card_id=args.id, grain=args.grain, meaning=args.meaning, contract=args.contract, decider=args.decider, actor=args.actor, reason=args.reason)
                 elif args.govern_command == "renew-exploring":
                     result = renew_exploring(Path.cwd(), card_id=args.id, actor=args.actor, reason=args.reason)
+                elif args.govern_command == "retire":
+                    result = retire_household(Path.cwd(), card_id=args.id, replaced_by=args.replaced_by, actor=args.actor, reason=args.reason)
+                elif args.govern_command == "retire-confirm":
+                    result = confirm_retirement(Path.cwd(), card_id=args.id, actor=args.actor, reason=args.reason)
                 else:
                     result = review_census(Path.cwd(), card_ids=args.card, all_cards=args.all, actor=args.actor, reason=args.reason) if args.record else read_census(Path.cwd())
                 print(_json(result))

@@ -96,8 +96,8 @@ class GovernanceIngestTests(unittest.TestCase):
             guidance = retrieve_guidance(root, path_specs=["app:src/value.py"], goal="change value")
             card_ids = {card["id"] for card in guidance["cards"]}
             self.assertIn("floor.src", card_ids)
-            self.assertTrue(guidance["knowledge"] or any(card["type"] == "knowledge" for card in guidance["cards"]))
             self.assertIn("route", guidance)
+            self.assertIn("households", guidance)
 
     def test_ingest_detects_directories_whose_files_have_spaces(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

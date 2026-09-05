@@ -14,16 +14,19 @@ from ag2c.enrollment import enroll_project
 from ag2c.acceptance import assess_product
 from ag2c.errors import AG2CError, ConfigurationError, WidenError
 from ag2c.gitops import git
-from ag2c.govern import apply_change, pending_updates, settle_pending
-from ag2c.graph import build_governance_graph
+from ag2c.govern import apply_change, pending_updates, retrieve_guidance, settle_pending
 from ag2c.household_commands import (
+    confirm_retirement,
     read_census,
     register_household,
     renew_exploring,
+    retire_household,
     review_census,
     set_household_enforcement,
     tighten_household,
 )
+from ag2c.tasks import start_task
+from ag2c.graph import build_governance_graph
 from ag2c.households import census_path, enforce_households
 from ag2c.index import build_index
 from ag2c.slicer import compile_slice
@@ -380,6 +383,38 @@ class HouseholdTests(unittest.TestCase):
         self.assertIn("opaque-household", kinds)
         settled = settle_pending(self.root, actor="reviewer", reason="cannot settle a black box")
         self.assertIn("opaque-household", {item["kind"] for item in settled["pending"]})
+
+    def test_retrieve_guidance_includes_household_identity(self):
+        self.register()
+        payload = retrieve_guidance(self.root, path_specs=["app:src/value.py"])
+        current = next(item for item in payload["households"] if item["id"] == "knowledge.current")
+        self.assertEqual("exploring", current["identity"])
+        self.assertFalse(current["explained"])
+        self.assertEqual("subtree", current["grain"])
+
+    def test_narrow_start_refuses_opaque_household_debt(self):
+        from support import _git
+
+        self._add_code("src/core/runner.py")
+        _git(self.root, "add", "-A")
+        _git(self.root, "commit", "--no-verify", "-m", "tree")
+        self.register(meaning="named")
+        pending_updates(self.root)
+        with self.assertRaisesRegex(AG2CError, "household-debt"):
+            start_task(
+                self.root,
+                goal="change the managed value",
+                path_specs=["app:src/value.py"],
+                contract_specs=[],
+                worktree_root=Path(self.workspace.name) / "worktrees",
+            )
+
+    def test_retire_marks_exploring_household_leftover(self):
+        self.register()
+        retire_household(self.root, card_id="knowledge.current", actor="reviewer", reason="abandon the spike")
+        record = self.household()
+        self.assertEqual("retired", record["jurisdiction"]["status"])
+        self.assertEqual("leftover", record["identity"])
 
 
 if __name__ == "__main__":

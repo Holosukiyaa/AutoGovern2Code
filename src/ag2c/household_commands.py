@@ -22,6 +22,9 @@ from .households import (
     load_renewals,
     renewal_path,
 )
+
+CONFIRM_SCHEMA = "ag2c.retirement-confirm.v1"
+CONFIRM_FILENAME = "retirement-confirms.json"
 from .index import build_index
 from .ledger import _exclusive_lock, append_event
 from .util import digest_json
@@ -230,6 +233,75 @@ def renew_exploring(start: Path, *, card_id: str, actor: str, reason: str) -> di
         "pending": pending.get("items") or [],
         "ledger_event_digest": event["event_digest"],
     }
+
+
+def _confirm_path(manifest) -> Path:
+    return manifest.state_dir / CONFIRM_FILENAME
+
+
+def load_retirement_confirms(manifest) -> set[str]:
+    path = _confirm_path(manifest)
+    if not path.is_file():
+        return set()
+    try:
+        raw = _read_json(path)
+    except AG2CError:
+        return set()
+    if raw.get("schema") != CONFIRM_SCHEMA or not isinstance(raw.get("cards"), list):
+        return set()
+    return {str(item) for item in raw["cards"]}
+
+
+def retire_household(start: Path, *, card_id: str, replaced_by: str = "", actor: str, reason: str) -> dict:
+    actor, reason = _identity(actor, reason)
+    card_id = card_id.strip()
+    manifest, policy = _context(start)
+    card = next((item for item in policy.cards if item.card_id == card_id), None)
+    if card is None or card.jurisdiction is None:
+        raise AG2CError(f"unknown directory household: {card_id}")
+    current = coerce_jurisdiction(card.jurisdiction) or {}
+    exploring = current.get("meaning") == "none"
+    if not exploring and not replaced_by.strip():
+        raise AG2CError("retiring a current household requires --replaced-by")
+    raw = _read_json(manifest.policy_path)
+    for item in raw.get("cards", []):
+        if item.get("id") != card_id:
+            continue
+        jurisdiction = {**(item.get("jurisdiction") or {}), **current}
+        jurisdiction["status"] = "retired" if exploring and not replaced_by.strip() else "legacy"
+        item["jurisdiction"] = jurisdiction
+        break
+    raw["relations"] = [item for item in raw.get("relations", []) if not (item.get("source") == card_id and item.get("type") == "replaced_by")]
+    if replaced_by.strip():
+        raw["relations"].append({"source": card_id, "type": "replaced_by", "target": replaced_by.strip()})
+    result = _save_policy(
+        manifest,
+        raw,
+        actor,
+        reason,
+        "household-retired",
+        {"id": card_id, "replaced_by": replaced_by.strip(), "status": "retired" if exploring and not replaced_by.strip() else "legacy"},
+    )
+    from .govern import pending_updates
+
+    pending_updates(start)
+    return result
+
+
+def confirm_retirement(start: Path, *, card_id: str, actor: str, reason: str) -> dict:
+    actor, reason = _identity(actor, reason)
+    card_id = card_id.strip()
+    manifest, policy = _context(start)
+    report = census_report(manifest, policy)
+    record = next((item for item in report["households"] if item["id"] == card_id), None)
+    if record is None or not record.get("jurisdiction"):
+        raise AG2CError(f"unknown directory household: {card_id}")
+    if str(record.get("identity")) not in {"leftover"} and str((record.get("jurisdiction") or {}).get("status") or "") not in {"legacy", "retired"}:
+        raise AG2CError(f"confirm only applies to leftover households: {card_id}")
+    cards = sorted(load_retirement_confirms(manifest) | {card_id})
+    _atomic_json(_confirm_path(manifest), {"schema": CONFIRM_SCHEMA, "cards": cards})
+    event = append_event(manifest.ledger_path, "retirement-confirmed", {"id": card_id, "actor": actor, "reason": reason})
+    return {"id": card_id, "actor": actor, "reason": reason, "confirmed": cards, "ledger_event_digest": event["event_digest"]}
 
 
 def set_household_enforcement(start: Path, *, enabled: bool, actor: str, reason: str) -> dict:

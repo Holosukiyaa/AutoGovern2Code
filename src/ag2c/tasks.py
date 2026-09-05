@@ -252,6 +252,86 @@ def _start_evidence_valid(
     }
 
 
+BLOCKING_HOUSEHOLD_PENDING = frozenset({"opaque-household", "tighten-or-renew", "fake-child"})
+
+
+def _refuse_household_debt(canonical: Path, path_specs: list[str], all_mode: bool) -> None:
+    if all_mode:
+        return
+    from .govern import pending_updates
+    from .households import census_report, households_covering_path
+    from .slicer import parse_path_spec
+
+    pending = pending_updates(canonical)
+    blockers = [item for item in pending.get("items") or [] if item.get("kind") in BLOCKING_HOUSEHOLD_PENDING]
+    if not blockers:
+        return
+    manifest, policy = _canonical_manifest(canonical)
+    report = census_report(manifest, policy)
+    blocker_ids = {str(item.get("path")): str(item.get("kind")) for item in blockers}
+    hits: list[str] = []
+    for spec in path_specs:
+        try:
+            target, path = parse_path_spec(spec, manifest)
+        except Exception:
+            continue
+        for household in households_covering_path(report, target, path):
+            kind = blocker_ids.get(str(household["id"]))
+            if kind:
+                hits.append(f"{kind}:{household['id']}")
+    if hits:
+        raise AG2CError("household-debt:\n- " + "\n- ".join(sorted(set(hits))))
+
+
+def _assert_retirement_diff(canonical: Path, worktree: Path, task: dict[str, Any], changed_paths: list[str]) -> None:
+    deleted = [
+        line.strip().replace("\\", "/")
+        for line in str(git(worktree, "diff", "--name-only", "--diff-filter=D", task["source"]["head"])).splitlines()
+        if line.strip()
+    ]
+    if not deleted:
+        return
+    from .households import census_report, households_covering_path, scan_references
+    from .household_commands import load_retirement_confirms
+
+    manifest, policy = _canonical_manifest(canonical)
+    report = census_report(manifest, policy)
+    confirms = load_retirement_confirms(manifest)
+    open_ids = [
+        str(item.get("id"))
+        for item in list_tasks(canonical)
+        if item.get("state") in OPEN_TASK_STATES and item.get("id") != task.get("id")
+    ]
+    leftover_ids = {
+        str(item["id"])
+        for item in report.get("households") or []
+        if item.get("identity") == "leftover" or str((item.get("jurisdiction") or {}).get("status") or "") in {"legacy", "retired"}
+    }
+    for path in deleted:
+        owners = households_covering_path(report, "app", path)
+        if not owners:
+            raise AG2CError(f"cannot-delete-unowned:{path}")
+        for household in owners:
+            declaration = household.get("jurisdiction") or {}
+            identity = str(household.get("identity") or "")
+            status = str(declaration.get("status") or "")
+            if status == "current" and identity not in {"leftover"}:
+                raise AG2CError(f"cannot-delete-active-household:{household['id']}:{path}")
+            if status == "legacy" and not household.get("replaced_by"):
+                raise AG2CError(f"cannot-delete-without-replacement:{household['id']}")
+            if declaration.get("decider") == "confirm" and household["id"] not in confirms:
+                raise AG2CError(f"retirement-confirm-required:{household['id']}")
+            if open_ids:
+                raise AG2CError("cannot-delete-while-tasks-open:" + ",".join(open_ids))
+    for path in changed_paths:
+        owners = households_covering_path(report, "app", path)
+        if owners and not any(str(item["id"]) in leftover_ids for item in owners):
+            raise AG2CError(f"retirement-diff-touches-active:{path}")
+    hits = scan_references(worktree, deleted, set(deleted))
+    if hits:
+        raise AG2CError("retirement-references:\n- " + "\n- ".join(hits[:20]))
+
+
 def start_task(
     start: Path,
     *,
@@ -277,6 +357,7 @@ def start_task(
         raise AG2CError("canonical worktree is dirty; AG2C will not start: " + ", ".join(dirty))
     if not path_specs and not contract_specs and not all_mode:
         raise AG2CError("AG2C requires exact paths/contracts or conservative --all before work begins")
+    _refuse_household_debt(canonical, path_specs, all_mode)
     manifest, policy = _canonical_manifest(canonical)
     build_index(manifest, policy, index_path(manifest))
     entry_slice = compile_slice(
@@ -519,6 +600,7 @@ def verify_task(start: Path) -> dict[str, Any]:
     if unmanaged:
         _record_intervention(canonical, canonical_manifest, task, "ungoverned-change-blocked", {"paths": unmanaged})
         raise AG2CError("changed paths are outside the governed project: " + ", ".join(unmanaged))
+    _assert_retirement_diff(canonical, worktree, task, actual_paths)
     policy_digest = digest_file(policy.path)
     manifest_digest = digest_file(manifest.path)
     recorded_policy = str(task.get("source", {}).get("policy_digest", ""))
@@ -929,6 +1011,13 @@ def evidence(
         from .knowledge import knowledge_status
 
         knowledge_rows = knowledge_status(manifest, policy)
+    census = None
+    try:
+        from .households import census_report
+
+        census = census_report(manifest, policy)
+    except Exception:
+        census = None
     ledger_errors, events = inspect_ledger(manifest.ledger_path)
     if ledger_errors:
         events = []
@@ -1024,7 +1113,7 @@ def evidence(
             management_result = "incomplete"
         last_verification = verifications[-1] if verifications else {}
         checker_results = last_verification.get("checker_results", [])
-        product = assess_product(policy, knowledge=knowledge_rows, verification=last_verification or None)
+        product = assess_product(policy, knowledge=knowledge_rows, verification=last_verification or None, census=census)
         correction_proven = any(
             intervention.get("kind") == "ai-correction-proven"
             for intervention in task.get("interventions", [])
@@ -1083,6 +1172,7 @@ def evidence(
             policy,
             knowledge=knowledge_rows,
             verification=(summaries[0].get("verifications") or [None])[-1] if summaries else None,
+            census=census,
         ),
         "tasks": summaries,
     }

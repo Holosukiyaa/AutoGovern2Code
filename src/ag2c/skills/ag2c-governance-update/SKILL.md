@@ -72,13 +72,16 @@ This Skill is the only path for changing stored project knowledge. The user desc
    ```
 
    `ag2c task start` already includes the same guidance. Prefer that payload over searching the whole tree.
+   Directory households use `ag2c govern tighten`, `renew-exploring`, `retire`,
+   and `retire-confirm`. `settle` does not mark a household named or delete leftover code.
 
 ## Fail closed
 
 - Directory jurisdictions use `ag2c govern household`, not document-card apply.
   Register directory scopes, exclusions, floor links, capability, implementation,
-  lifecycle, and implementation-specific checks. Retain old cards with an
-  explicit `--replaced-by` link until removal is proven.
+  lifecycle, grain/meaning/contract/decider, and implementation-specific checks.
+  Tighten only; never widen. Retain old cards with an explicit `--replaced-by`
+  link until a retirement task removes leftover bytes.
 - `ag2c govern census` only observes. Record a reviewed scope with `--record
   --card <id> --actor <harness> --reason "<review facts>"`; never infer review from
   a refresh, a timestamp, or successful unrelated tests.

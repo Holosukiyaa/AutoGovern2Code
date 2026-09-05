@@ -3,7 +3,17 @@
 A floor owns a directory for routing. A document explains a rule. Neither proves
 that a directory belongs to the current product. A **directory household** is a
 knowledge card with a `jurisdiction`: capability, implementation identity,
-lifecycle, directory scopes, entrypoints, explicit floor links and its own checks.
+lifecycle, grain/meaning/contract/decider, directory scopes, entrypoints, explicit
+floor links and its own checks.
+
+Hanging a card is not the same as explaining the tree. `meaning=none` is
+**exploring** (legal and loose). `meaning=named` requires every code-bearing
+direct child directory to be a proper-subset household. A named claim that
+cannot reconstruct those children is **opaque**; census `--record` cannot mark it
+current. Tighten only; renew-exploring acknowledges the current child set without
+product acceptance. Delete leftover bytes only after `govern retire`, and only
+inside a dedicated task. Current and unabandoned exploring directories cannot be
+removed in a feature diff.
 
 The tray graph shows code directories separately from cards. A README cannot
 cover sibling source code. Unowned files, overlapping claims, competing current

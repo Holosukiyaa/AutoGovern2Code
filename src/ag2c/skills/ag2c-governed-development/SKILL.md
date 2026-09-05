@@ -35,7 +35,11 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
    ag2c task start --goal "<user request>" --path app:<relative-path>
    ```
 
-   Repeat `--path` and `--contract` as needed. If the change surface is genuinely unknown, use `--all`; never use a vague goal to invent a narrow route.
+   Repeat `--path` and `--contract` as needed. If a household is opaque or has
+   unresolved `tighten-or-renew` debt on those paths, settle that first or use
+   `--all` only for an explicit compression/retirement task. Never use a vague
+   goal to invent a narrow route. Guidance includes `households` with identity,
+   children, and `explained`; do not treat an exploring household as named.
 
 6. Read the JSON response and move into `worktree.path`. Perform every write, dependency install, build, test, screenshot, and generated output only in that external worktree. `ag2c task list` reports worktree lifecycle: constructing, verified but unmerged, diverged, abandoned, or merged.
 
@@ -78,6 +82,9 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
 - A dirty or advanced canonical checkout blocks start, verify, or merge.
 - A diverged task worktree must be refreshed onto the current canonical HEAD or abandoned before delivery.
 - A write outside governed scope blocks verification.
+- Do not delete current or exploring directories in a feature task. Mark leftover
+  with `ag2c govern retire`, confirm irreversible scopes, then delete only those
+  bytes in a dedicated task.
 - Any change after the passing verification requires another verification.
 - Missing or invalid process evidence means the work is not delivered.
 - An undeclared, blocked, or incomplete Product line means product behavior was not proven.

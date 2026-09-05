@@ -175,14 +175,13 @@ def compose_baseline_governance(root: Path, project_roots: list[str], checker_id
                 "references": [relative],
             }
         )
-        floors = [str(card["id"]) for card in cards if card.get("type") == "floor"]
-        if Path(relative).parent.as_posix() in {".", ""}:
-            for floor_id in floors:
-                relations.append({"source": card_id, "type": "explains", "target": floor_id})
-        else:
-            floor_id = _floor_for_path(cards, relative)
-            if floor_id:
-                relations.append({"source": card_id, "type": "explains", "target": floor_id})
+        floor_id = (
+            "floor.root"
+            if Path(relative).parent.as_posix() in {".", ""} and any(card.get("id") == "floor.root" for card in cards)
+            else _floor_for_path(cards, relative)
+        )
+        if floor_id:
+            relations.append({"source": card_id, "type": "explains", "target": floor_id})
     for relative in _boundary_paths(root):
         card_id = f"boundary.{_slug(relative)}"
         if card_id in used:
@@ -529,6 +528,30 @@ def retrieve_guidance(start: Path, *, path_specs: list[str], contract_specs: lis
     )
     pending_path = manifest.state_dir / PENDING_FILENAME
     pending = _read_json(pending_path) if pending_path.is_file() else {"items": []}
+    from .households import census_report, household_guidance, households_covering_path
+    from .slicer import parse_path_spec
+
+    households = []
+    implementations = []
+    try:
+        report = census_report(manifest, policy)
+        guidance = household_guidance(report)
+        implementations = list(report.get("implementations") or [])
+        selected = {str(card["id"]) for card in entry.get("cards") or []}
+        matched_ids: set[str] = set()
+        for spec in path_specs:
+            try:
+                target, path = parse_path_spec(spec, manifest)
+            except Exception:
+                continue
+            matched_ids.update(item["id"] for item in households_covering_path(report, target, path))
+        households = [
+            item
+            for item in guidance
+            if all_mode or item["id"] in selected or item["id"] in matched_ids
+        ]
+    except AG2CError:
+        pass
     return {
         "route": entry["route"],
         "knowledge": entry.get("knowledge") or [],
@@ -536,6 +559,8 @@ def retrieve_guidance(start: Path, *, path_specs: list[str], contract_specs: lis
             {"id": card["id"], "type": card["type"], "title": card["title"], "summary": card["summary"]}
             for card in entry.get("cards") or []
         ],
+        "households": households,
+        "implementations": implementations,
         "pending": pending.get("items") or [],
     }
 

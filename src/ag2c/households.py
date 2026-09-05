@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections import Counter, defaultdict
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -79,6 +80,76 @@ def assert_monotonic(old: dict[str, Any], new: dict[str, Any]) -> None:
 
 def renewal_path(manifest: Manifest) -> Path:
     return manifest.state_dir / RENEWAL_FILENAME
+
+
+def households_covering_path(report: dict[str, Any], target: str, path: str) -> list[dict[str, Any]]:
+    matches: list[dict[str, Any]] = []
+    for item in report.get("households") or []:
+        if not item.get("jurisdiction"):
+            continue
+        for scope in item.get("scopes") or []:
+            if str(scope.get("target_id") or scope.get("target") or "") != target:
+                continue
+            includes = list(scope.get("includes") or scope.get("include") or [])
+            excludes = list(scope.get("excludes") or scope.get("exclude") or [])
+            if any(path_matches(path, pattern) for pattern in includes) and not any(path_matches(path, pattern) for pattern in excludes):
+                matches.append(item)
+                break
+    return matches
+
+
+def household_guidance(report: dict[str, Any]) -> list[dict[str, Any]]:
+    payload = []
+    for item in report.get("households") or []:
+        declaration = item.get("jurisdiction") or {}
+        if not declaration:
+            continue
+        identity = str(item.get("identity") or "exploring")
+        payload.append(
+            {
+                "id": item["id"],
+                "title": item.get("title"),
+                "identity": identity,
+                "explained": identity == "named",
+                "grain": declaration.get("grain"),
+                "meaning": declaration.get("meaning"),
+                "contract": declaration.get("contract"),
+                "decider": declaration.get("decider"),
+                "status": declaration.get("status"),
+                "capability": declaration.get("capability"),
+                "implementation": declaration.get("implementation"),
+                "leaf": bool(item.get("leaf")),
+                "child_directories": list(item.get("child_directories") or []),
+                "named_directories": list(item.get("named_directories") or []),
+                "unclaimed_directories": list(item.get("unclaimed_directories") or []),
+                "files": list(item.get("files") or []) if item.get("leaf") else [],
+            }
+        )
+    return payload
+
+
+def scan_references(root: Path, needles: list[str], skip_paths: set[str]) -> list[str]:
+    hits: list[str] = []
+    useful = [needle.replace("\\", "/").strip("/") for needle in needles if needle and needle not in {".", "/"}]
+    if not useful:
+        return hits
+    skip = {path.replace("\\", "/") for path in skip_paths}
+    skip_dirs = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build"}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [name for name in dirnames if name not in skip_dirs and not name.startswith(".")]
+        for name in filenames:
+            relative = Path(dirpath, name).relative_to(root).as_posix()
+            if relative in skip:
+                continue
+            try:
+                text = Path(dirpath, name).read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            for needle in useful:
+                if needle in text:
+                    hits.append(f"{relative}:{needle}")
+                    break
+    return hits
 
 
 def load_renewals(manifest: Manifest) -> dict[str, Any]:

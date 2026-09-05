@@ -11,11 +11,19 @@ import bootstrap
 from ag2c.checks import run_checks
 from ag2c.config import discover_manifest, load_manifest, load_policy
 from ag2c.enrollment import enroll_project
-from ag2c.errors import AG2CError, ConfigurationError
+from ag2c.acceptance import assess_product
+from ag2c.errors import AG2CError, ConfigurationError, WidenError
 from ag2c.gitops import git
-from ag2c.govern import apply_change, settle_pending
+from ag2c.govern import apply_change, pending_updates, settle_pending
 from ag2c.graph import build_governance_graph
-from ag2c.household_commands import read_census, register_household, review_census, set_household_enforcement
+from ag2c.household_commands import (
+    read_census,
+    register_household,
+    renew_exploring,
+    review_census,
+    set_household_enforcement,
+    tighten_household,
+)
 from ag2c.households import census_path, enforce_households
 from ag2c.index import build_index
 from ag2c.slicer import compile_slice
@@ -317,6 +325,61 @@ class HouseholdTests(unittest.TestCase):
         self.assertEqual("named", record["identity"])
         self.assertNotIn("opaque-claimed", {issue["code"] for issue in record["issues"]})
         self.survey("knowledge.current")
+
+    def test_tighten_cannot_loosen_and_requires_a_stricter_dimension(self):
+        self.register()
+        with self.assertRaisesRegex(AG2CError, "stricter"):
+            tighten_household(self.root, card_id="knowledge.current", grain="subtree", actor="reviewer", reason="same grain")
+        tighten_household(self.root, card_id="knowledge.current", grain="directory", actor="reviewer", reason="one notch")
+        with self.assertRaises(WidenError):
+            tighten_household(self.root, card_id="knowledge.current", grain="subtree", actor="reviewer", reason="try to go back")
+        tighten_household(self.root, card_id="knowledge.current", meaning="named", actor="reviewer", reason="leaf can be named")
+        with self.assertRaises(WidenError):
+            tighten_household(self.root, card_id="knowledge.current", meaning="none", actor="reviewer", reason="cannot reopen")
+
+    def test_tighten_to_named_without_children_is_blocked(self):
+        self._add_code("src/core/runner.py")
+        self.register()
+        with self.assertRaisesRegex(AG2CError, "tighten-blocked"):
+            tighten_household(self.root, card_id="knowledge.current", meaning="named", actor="reviewer", reason="claim named too early")
+        self.assertEqual("exploring", self.household()["identity"])
+
+    def test_tighten_grain_on_exploring_household_stays_exploring(self):
+        self._add_code("src/core/runner.py")
+        self.register()
+        result = tighten_household(self.root, card_id="knowledge.current", grain="directory", actor="reviewer", reason="one notch tighter, still exploring")
+        self.assertEqual("exploring", result["identity"])
+        self.assertEqual("directory", self.household()["jurisdiction"]["grain"])
+        self.assertEqual("none", self.household()["jurisdiction"]["meaning"])
+
+    def test_renew_exploring_does_not_claim_named_or_product(self):
+        self._add_code("src/core/runner.py")
+        self._add_code("src/frontend/main.tsx", "export default 1\n")
+        self.register(command=None)
+        pending = pending_updates(self.root)
+        kinds = {item["kind"] for item in pending["items"]}
+        self.assertIn("tighten-or-renew", kinds)
+        self.assertIn("undeclared-product", kinds)
+        renewed = renew_exploring(self.root, card_id="knowledge.current", actor="reviewer", reason="still exploring the frontend tree")
+        self.assertEqual("exploring", renewed["identity"])
+        kinds_after = {item["kind"] for item in pending_updates(self.root)["items"]}
+        self.assertNotIn("tighten-or-renew", kinds_after)
+        self.assertIn("undeclared-product", kinds_after)
+        self.assertEqual("exploring", self.household()["identity"])
+        product = assess_product(load_policy(self.manifest))
+        self.assertEqual("undeclared", product["status"])
+        settled = settle_pending(self.root, actor="reviewer", reason="ordinary document settle")
+        remaining = {item["kind"] for item in settled["pending"]}
+        self.assertIn("undeclared-product", remaining)
+        self.assertEqual("exploring", self.household()["identity"])
+
+    def test_opaque_pending_survives_settle(self):
+        self._add_code("src/core/runner.py")
+        self.register(meaning="named")
+        kinds = {item["kind"] for item in pending_updates(self.root)["items"]}
+        self.assertIn("opaque-household", kinds)
+        settled = settle_pending(self.root, actor="reviewer", reason="cannot settle a black box")
+        self.assertIn("opaque-household", {item["kind"] for item in settled["pending"]})
 
 
 if __name__ == "__main__":

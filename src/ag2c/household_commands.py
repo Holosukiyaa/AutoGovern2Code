@@ -10,7 +10,18 @@ from .config import discover_manifest, load_manifest, load_policy
 from .errors import AG2CError
 from .gitops import repository_root
 from .govern import _atomic_json, _read_json
-from .households import RECORD_BLOCK_ISSUES, _history, census_path, census_report, directory_scope
+from .households import (
+    RECORD_BLOCK_ISSUES,
+    RENEWAL_SCHEMA,
+    _history,
+    assert_monotonic,
+    census_path,
+    census_report,
+    coerce_jurisdiction,
+    directory_scope,
+    load_renewals,
+    renewal_path,
+)
 from .index import build_index
 from .ledger import _exclusive_lock, append_event
 from .util import digest_json
@@ -28,11 +39,13 @@ def _identity(actor: str, reason: str) -> tuple[str, str]:
     return actor.strip(), reason.strip()
 
 
-def _save_policy(manifest, raw: dict, actor: str, reason: str, event_type: str, payload: dict) -> dict:
+def _save_policy(manifest, raw: dict, actor: str, reason: str, event_type: str, payload: dict, after_load=None) -> dict:
     temporary = manifest.policy_path.with_name(f".households-{uuid.uuid4().hex}.json")
     try:
         _atomic_json(temporary, raw)
-        load_policy(replace(manifest, policy_path=temporary))
+        loaded = load_policy(replace(manifest, policy_path=temporary))
+        if after_load is not None:
+            after_load(replace(manifest, policy_path=temporary), loaded)
         temporary.replace(manifest.policy_path)
     finally:
         temporary.unlink(missing_ok=True)
@@ -112,6 +125,111 @@ def _review_census_locked(start: Path, *, card_ids: list[str], all_cards: bool, 
     event = append_event(manifest.ledger_path, "census-reviewed", {"actor": actor, "reason": reason, "records": additions})
     _atomic_json(census_path(manifest), state)
     return {"actor": actor, "reason": reason, "reviewed": sorted(chosen), "ledger_event_digest": event["event_digest"], "census": census_report(manifest, policy)}
+
+
+def tighten_household(
+    start: Path,
+    *,
+    card_id: str,
+    grain: str = "",
+    meaning: str = "",
+    contract: str = "",
+    decider: str = "",
+    actor: str,
+    reason: str,
+) -> dict:
+    actor, reason = _identity(actor, reason)
+    card_id = card_id.strip()
+    if not any(value.strip() for value in (grain, meaning, contract, decider)):
+        raise AG2CError("tighten requires at least one of grain, meaning, contract, or decider")
+    manifest, policy = _context(start)
+    card = next((item for item in policy.cards if item.card_id == card_id), None)
+    if card is None or card.jurisdiction is None:
+        raise AG2CError(f"unknown directory household: {card_id}")
+    old = coerce_jurisdiction(card.jurisdiction) or {}
+    new = dict(old)
+    if grain.strip():
+        new["grain"] = grain.strip()
+    if meaning.strip():
+        new["meaning"] = meaning.strip()
+    if contract.strip():
+        new["contract"] = contract.strip()
+    if decider.strip():
+        new["decider"] = decider.strip()
+    assert_monotonic(old, new)
+    raw = _read_json(manifest.policy_path)
+    found = False
+    for item in raw.get("cards", []):
+        if item.get("id") != card_id:
+            continue
+        item["jurisdiction"] = {**(item.get("jurisdiction") or {}), **new}
+        found = True
+        break
+    if not found:
+        raise AG2CError(f"unknown directory household: {card_id}")
+
+    def refuse_opaque(loaded_manifest, loaded_policy) -> None:
+        report = census_report(loaded_manifest, loaded_policy)
+        record = next((item for item in report["households"] if item["id"] == card_id), None)
+        if record is None:
+            raise AG2CError(f"unknown directory household: {card_id}")
+        blocked = sorted({str(issue.get("code")) for issue in record.get("issues") or []} & RECORD_BLOCK_ISSUES)
+        if blocked:
+            raise AG2CError("tighten-blocked:\n- " + "\n- ".join(f"{card_id}:{code}" for code in blocked))
+
+    result = _save_policy(
+        manifest,
+        raw,
+        actor,
+        reason,
+        "household-tightened",
+        {"id": card_id, "previous": old, "jurisdiction": new},
+        after_load=refuse_opaque,
+    )
+    from .govern import pending_updates
+
+    pending_updates(start)
+    report = census_report(*_context(start))
+    result["identity"] = next(item["identity"] for item in report["households"] if item["id"] == card_id)
+    return result
+
+
+def renew_exploring(start: Path, *, card_id: str, actor: str, reason: str) -> dict:
+    actor, reason = _identity(actor, reason)
+    card_id = card_id.strip()
+    manifest, policy = _context(start)
+    report = census_report(manifest, policy)
+    record = next((item for item in report["households"] if item["id"] == card_id), None)
+    if record is None or not record.get("jurisdiction"):
+        raise AG2CError(f"unknown directory household: {card_id}")
+    if record.get("identity") != "exploring":
+        raise AG2CError(f"renew-exploring only applies to exploring households: {card_id} is {record.get('identity')}")
+    children = list(record.get("child_directories") or [])
+    cards = load_renewals(manifest)
+    cards[card_id] = {
+        "renewed_at": datetime.now(timezone.utc).isoformat(),
+        "actor": actor,
+        "reason": reason,
+        "child_directories": children,
+    }
+    _atomic_json(renewal_path(manifest), {"schema": RENEWAL_SCHEMA, "cards": cards})
+    event = append_event(
+        manifest.ledger_path,
+        "exploring-renewed",
+        {"id": card_id, "actor": actor, "reason": reason, "child_directories": children, "identity": "exploring"},
+    )
+    from .govern import pending_updates
+
+    pending = pending_updates(start)
+    return {
+        "id": card_id,
+        "identity": "exploring",
+        "actor": actor,
+        "reason": reason,
+        "child_directories": children,
+        "pending": pending.get("items") or [],
+        "ledger_event_digest": event["event_digest"],
+    }
 
 
 def set_household_enforcement(start: Path, *, enabled: bool, actor: str, reason: str) -> dict:

@@ -275,9 +275,27 @@ def build_parser() -> argparse.ArgumentParser:
     for field in ("include", "exclude", "floor", "entrypoint", "checker"):
         household.add_argument("--" + field, action="append", default=[])
     household.add_argument("--status", choices=("current", "legacy", "retired"), default="current")
+    household.add_argument("--grain", choices=("subtree", "directory", "module"), default="")
+    household.add_argument("--meaning", choices=("none", "named"), default="")
+    household.add_argument("--contract", choices=("none", "partial", "machine"), default="")
+    household.add_argument("--decider", choices=("none", "machine", "confirm"), default="")
     household.add_argument("--replaced-by", default="")
     household.add_argument("--command-json", help="implementation-specific checker argv as JSON")
     household.add_argument("--format", choices=("text", "json"), default="json")
+    tighten = govern_commands.add_parser("tighten", help="monotonically tighten a directory household strategy")
+    tighten.add_argument("--id", required=True)
+    tighten.add_argument("--grain", choices=("subtree", "directory", "module"), default="")
+    tighten.add_argument("--meaning", choices=("none", "named"), default="")
+    tighten.add_argument("--contract", choices=("none", "partial", "machine"), default="")
+    tighten.add_argument("--decider", choices=("none", "machine", "confirm"), default="")
+    tighten.add_argument("--actor", required=True)
+    tighten.add_argument("--reason", required=True)
+    tighten.add_argument("--format", choices=("text", "json"), default="json")
+    renew = govern_commands.add_parser("renew-exploring", help="keep an exploring household visible without claiming it is named")
+    renew.add_argument("--id", required=True)
+    renew.add_argument("--actor", required=True)
+    renew.add_argument("--reason", required=True)
+    renew.add_argument("--format", choices=("text", "json"), default="json")
     census = govern_commands.add_parser("census", help="inspect scope freshness; --record explicitly records a review")
     census.add_argument("--record", action="store_true")
     census.add_argument("--all", action="store_true")
@@ -628,13 +646,24 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "govern":
             from .govern import apply_change, ingest_project, pending_updates, retrieve_guidance, settle_pending
 
-            if args.govern_command in {"household", "census", "household-gate"}:
-                from .household_commands import read_census, register_household, review_census, set_household_enforcement
+            if args.govern_command in {"household", "census", "household-gate", "tighten", "renew-exploring"}:
+                from .household_commands import (
+                    read_census,
+                    register_household,
+                    renew_exploring,
+                    review_census,
+                    set_household_enforcement,
+                    tighten_household,
+                )
 
                 if args.govern_command == "household":
-                    result = register_household(Path.cwd(), card_id=args.id, title=args.title, summary=args.summary, includes=args.include, excludes=args.exclude, floors=args.floor, capability=args.capability, implementation=args.implementation, status=args.status, replaced_by=args.replaced_by, entrypoints=args.entrypoint, checkers=args.checker, command=json.loads(args.command_json) if args.command_json else None, actor=args.actor, reason=args.reason)
+                    result = register_household(Path.cwd(), card_id=args.id, title=args.title, summary=args.summary, includes=args.include, excludes=args.exclude, floors=args.floor, capability=args.capability, implementation=args.implementation, status=args.status, replaced_by=args.replaced_by, entrypoints=args.entrypoint, checkers=args.checker, command=json.loads(args.command_json) if args.command_json else None, grain=args.grain, meaning=args.meaning, contract=args.contract, decider=args.decider, actor=args.actor, reason=args.reason)
                 elif args.govern_command == "household-gate":
                     result = set_household_enforcement(Path.cwd(), enabled=args.mode == "enforce", actor=args.actor, reason=args.reason)
+                elif args.govern_command == "tighten":
+                    result = tighten_household(Path.cwd(), card_id=args.id, grain=args.grain, meaning=args.meaning, contract=args.contract, decider=args.decider, actor=args.actor, reason=args.reason)
+                elif args.govern_command == "renew-exploring":
+                    result = renew_exploring(Path.cwd(), card_id=args.id, actor=args.actor, reason=args.reason)
                 else:
                     result = review_census(Path.cwd(), card_ids=args.card, all_cards=args.all, actor=args.actor, reason=args.reason) if args.record else read_census(Path.cwd())
                 print(_json(result))

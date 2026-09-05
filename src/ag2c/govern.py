@@ -26,6 +26,10 @@ PENDING_TITLES = {
     "assertion-conflict": "文档要点和记录冲突",
     "new-interface": "检测到新的公开界面",
     "undeclared-product": "还没有产品验收",
+    "census-review-required": "目录户口需要普查",
+    "tighten-or-renew": "开工区结构已撑破，需要收紧或续期",
+    "opaque-household": "户口自称说清，但仍是黑盒",
+    "fake-child": "子户口没有落在父范围的真子集上",
 }
 PENDING_HINTS = {
     "add-or-expand-floor": "补目录归属",
@@ -35,6 +39,10 @@ PENDING_HINTS = {
     "review-then-sync-knowledge": "核对要点后再同步",
     "add-boundary": "登记公开界面，并补上对应检查",
     "declare-product-checks": "补上要验的能力和对应检查",
+    "review-directory-census": "记录目录普查，不能把黑盒写成说清",
+    "tighten-or-renew-exploring": "收紧一档，或显式续期开工",
+    "tighten-or-decompose": "拆出真子集子户口后再收紧",
+    "split-proper-subset": "把子户口改成更短的目录 glob",
 }
 DOC_NAMES = ("README.md", "README.zh-CN.md", "README.en.md", "CONTRIBUTING.md", "CHANGELOG.md", "AGENTS.md")
 DOC_DIRS = ("docs", "doc", "handbook")
@@ -314,6 +322,28 @@ def pending_updates(start: Path, changed_paths: list[str] | None = None) -> dict
                 items.append({"kind": "new-interface", "path": normalized, "action": "add-boundary"})
     if not policy.contracts and not any(checker.stage in {"boundary", "scenario"} for checker in policy.checkers):
         items.append({"kind": "undeclared-product", "path": ".", "action": "declare-product-checks"})
+    from .households import census_report, load_renewals
+
+    try:
+        report = census_report(manifest, policy)
+        renewals = load_renewals(manifest)
+    except AG2CError:
+        report = None
+        renewals = {}
+    if report:
+        for record in report.get("households") or []:
+            if not record.get("jurisdiction"):
+                continue
+            card_id = str(record["id"])
+            codes = {str(issue.get("code")) for issue in record.get("issues") or []}
+            if record.get("identity") == "opaque" or "opaque-claimed" in codes:
+                items.append({"kind": "opaque-household", "path": card_id, "action": "tighten-or-decompose"})
+            if "child-not-proper-subset" in codes:
+                items.append({"kind": "fake-child", "path": card_id, "action": "split-proper-subset"})
+            if record.get("identity") == "exploring" and record.get("child_directories"):
+                acknowledged = list((renewals.get(card_id) or {}).get("child_directories") or [])
+                if acknowledged != list(record.get("child_directories") or []):
+                    items.append({"kind": "tighten-or-renew", "path": card_id, "action": "tighten-or-renew-exploring"})
     unique: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for item in items:
@@ -368,7 +398,8 @@ def settle_pending(start: Path, *, actor: str, reason: str) -> dict[str, Any]:
         policy = load_policy(manifest)
         sync_knowledge(manifest, policy, card_ids=stale_ids, actor=actor, reason=reason)
         actions.append("sync")
-    # Assertion conflicts stay pending until an explicit knowledge sync after review.
+    # Assertion conflicts and household identity debts stay pending; settle never
+    # records a census as named or clears exploring/opaque/fake-child items.
     remaining = pending_updates(start)
     event = append_event(
         load_manifest(discover_manifest(repository_root(start))).ledger_path,

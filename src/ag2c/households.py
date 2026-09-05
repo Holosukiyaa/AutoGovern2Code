@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .errors import AG2CError, ConfigurationError
+from .errors import AG2CError, ConfigurationError, WidenError
 from .index import _discover_files, _git, _scope_matches, primary_owners
 from .model import Card, Manifest, Policy
 from .util import digest_file, digest_json, path_matches
@@ -25,6 +25,18 @@ JURISDICTION_FIELDS = frozenset({"capability", "implementation", "status", "entr
 RECORD_BLOCK_ISSUES = frozenset(
     {"opaque-claimed", "undecomposed-directory", "child-unclaimed", "child-not-proper-subset", "grain-overflow"}
 )
+GRAIN_RANK = {"subtree": 0, "directory": 1, "module": 2}
+MEANING_RANK = {"none": 0, "named": 1}
+CONTRACT_RANK = {"none": 0, "partial": 1, "machine": 2}
+DECIDER_RANK = {"none": 0, "machine": 1, "confirm": 2}
+STRATEGY_RANKS = {
+    "grain": GRAIN_RANK,
+    "meaning": MEANING_RANK,
+    "contract": CONTRACT_RANK,
+    "decider": DECIDER_RANK,
+}
+RENEWAL_SCHEMA = "ag2c.household-renewal.v1"
+RENEWAL_FILENAME = "household-renewals.json"
 
 
 def coerce_jurisdiction(value: Any) -> dict[str, Any] | None:
@@ -48,6 +60,38 @@ def coerce_jurisdiction(value: Any) -> dict[str, Any] | None:
         "contract": str(value.get("contract") or "none"),
         "decider": str(value.get("decider") or "none"),
     }
+
+
+def assert_monotonic(old: dict[str, Any], new: dict[str, Any]) -> None:
+    changed = False
+    for field, ranks in STRATEGY_RANKS.items():
+        previous = str(old.get(field) or "")
+        current = str(new.get(field) or "")
+        if previous not in ranks or current not in ranks:
+            raise WidenError(f"unknown {field} value: {previous} -> {current}")
+        if ranks[current] < ranks[previous]:
+            raise WidenError(f"cannot loosen {field} from {previous} to {current}")
+        if ranks[current] > ranks[previous]:
+            changed = True
+    if not changed:
+        raise AG2CError("tighten requires at least one stricter grain, meaning, contract, or decider")
+
+
+def renewal_path(manifest: Manifest) -> Path:
+    return manifest.state_dir / RENEWAL_FILENAME
+
+
+def load_renewals(manifest: Manifest) -> dict[str, Any]:
+    path = renewal_path(manifest)
+    if not path.is_file():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict) or raw.get("schema") != RENEWAL_SCHEMA or not isinstance(raw.get("cards"), dict):
+        return {}
+    return {str(key): value for key, value in raw["cards"].items() if isinstance(value, dict)}
 
 
 def directory_scope(pattern: str) -> str:

@@ -25,3 +25,7 @@ class SliceError(AG2CError):
 
 class LedgerError(AG2CError):
     """Raised when the evidence ledger is invalid."""
+
+
+class WidenError(AG2CError):
+    """Raised when a household strategy would become looser."""

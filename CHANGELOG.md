@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add `start-tray.bat` (and `打开管理界面.bat`) so the Qt tray can be started with a double-click from the repo.
 - Replace the WinForms tray with a Python Qt host (PySide6). The window uses stock Qt widgets and Qt Style Sheets instead of a hand-drawn control set or an embedded browser. The governance engine stays Python; Qt is an optional `gui` extra and is frozen only into the Windows tray.
 - Skin the native tray to the previous light-console look: blue AG mark, 236×76 project cards, pill filters, white file-tree pane and mint knowledge-card pane. Still no browser.
 - A portable folder (`portable.ini` next to `AutoGovern2Code.exe`, or `--portable`) keeps evidence in `data\` and MinGit in `git\`. It does not write Start Menu, PATH, or login startup. Moving that folder rebases store paths in the registry and keeps using the shipped Git.

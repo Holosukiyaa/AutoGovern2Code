@@ -363,6 +363,10 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("portable.ini", script)
         self.assertIn("install_git_runtime", script)
         self.assertIn("{app}\\git", installer)
+        launcher = (root / "start-tray.bat").read_text(encoding="utf-8")
+        self.assertIn("packaging\\windows\\desktop\\app.py", launcher)
+        self.assertIn("pythonw.exe", launcher)
+        self.assertTrue((root / "打开管理界面.bat").is_file())
 
 
 class TrayHostHelperTests(unittest.TestCase):

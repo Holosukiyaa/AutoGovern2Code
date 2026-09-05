@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -20,9 +19,7 @@ from .storage import (
     PROJECT_KEY_CONFIG_KEY,
     find_project_record,
     project_records,
-    project_store,
     registered_manifest,
-    registry_path,
     set_project_governance,
     unregister_project,
 )
@@ -216,51 +213,6 @@ def managed_projects() -> list[dict[str, Any]]:
         result.append({**record, **current})
     order = {"attention": 0, "inactive": 1, "stopped": 2, "missing": 3, "protected": 4}
     return sorted(result, key=lambda item: (order.get(str(item.get("state")), 9), str(item.get("name", "")).lower()))
-
-
-def _mtime_token(path: Path) -> str:
-    try:
-        stat = path.stat()
-    except OSError:
-        return "0"
-    return f"{int(stat.st_mtime)}:{stat.st_size}"
-
-
-def _directory_token(path: Path) -> str:
-    if not path.is_dir():
-        return "0"
-    marks = [_mtime_token(path)]
-    try:
-        children = list(path.iterdir())
-    except OSError:
-        return marks[0]
-    for child in children:
-        if child.is_file():
-            marks.append(f"{child.name}:{_mtime_token(child)}")
-        elif child.is_dir() and child.name in {"tasks", "state"}:
-            marks.append(f"{child.name}:{_directory_token(child)}")
-    return ";".join(sorted(marks))
-
-
-def projects_revision() -> dict[str, str]:
-    parts = [_mtime_token(registry_path())]
-    for record in project_records():
-        root = Path(str(record.get("root", "")))
-        parts.append(str(record.get("key", "")))
-        parts.append(str(record.get("governance", "")))
-        if root.is_dir():
-            try:
-                parts.append(str(git(root, "rev-parse", "HEAD", check=False)).strip())
-                parts.append("\0".join(status_entries(root)))
-            except (AG2CError, OSError, ValueError):
-                parts.append("git-unavailable")
-            try:
-                parts.append(_directory_token(project_store(root, record.get("key"))))
-            except (AG2CError, OSError, TypeError, ValueError):
-                parts.append("store-unavailable")
-        else:
-            parts.append("missing")
-    return {"revision": hashlib.sha256("\n".join(parts).encode("utf-8", errors="replace")).hexdigest()}
 
 
 def align_managed_projects() -> list[dict[str, Any]]:

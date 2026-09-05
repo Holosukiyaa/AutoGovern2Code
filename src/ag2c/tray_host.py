@@ -195,7 +195,7 @@ def coverage_rows(details: dict[str, Any] | None, query: str, flag: str) -> tupl
         if not isinstance(raw, dict):
             continue
         kind = text(raw, "kind")
-        if kind in {"knowledge", "gap"}:
+        if kind in {"knowledge", "gap", "work"}:
             if node_matches(raw, query, flag):
                 cards.append(raw)
             continue
@@ -302,28 +302,6 @@ def apply_startup(enabled: bool, executable: str) -> None:
                 winreg.DeleteValue(key, STARTUP_VALUE)
             except OSError:
                 pass
-
-
-def tray_hint_shown() -> bool:
-    if os.name != "nt":
-        return True
-    import winreg
-
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, APP_KEY) as key:
-            value, _ = winreg.QueryValueEx(key, "TrayHintShown")
-            return int(value) != 0
-    except OSError:
-        return False
-
-
-def mark_tray_hint_shown() -> None:
-    if os.name != "nt":
-        return
-    import winreg
-
-    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, APP_KEY) as key:
-        winreg.SetValueEx(key, "TrayHintShown", 0, winreg.REG_DWORD, 1)
 
 
 def register_app(executable: str, version: str = "0.8.4") -> None:

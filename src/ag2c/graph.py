@@ -1,4 +1,4 @@
-"""Dagre-combo governance graph: real project files on one side, knowledge cards on the other."""
+"""File tree and knowledge-card payload for the Hello ImGui tray."""
 
 from __future__ import annotations
 
@@ -28,10 +28,7 @@ KIND_LABELS = {
     "boundary": "协议面",
     "gap": "空洞",
     "work": "施工",
-    "directory": "代码目录",
     "file": "文件",
-    "capability": "产品能力",
-    "side": "分区",
 }
 
 
@@ -98,48 +95,6 @@ def _basename(path: str) -> str:
     if not text or text == ".":
         return "."
     return text.rsplit("/", 1)[-1]
-
-
-def _parent_path(path: str) -> str | None:
-    text = _normalize_path(path)
-    if not text or text == ".":
-        return None
-    if "/" not in text:
-        return "."
-    return text.rsplit("/", 1)[0]
-
-
-def _annotate_coverage(
-    nodes: dict[str, dict[str, Any]],
-    edges: list[dict[str, Any]],
-    combos: dict[str, dict[str, Any]] | None = None,
-) -> None:
-    combos = combos or {}
-    for item in (*nodes.values(), *combos.values()):
-        item.setdefault("coveredBy", [])
-        item.setdefault("coversDirectories", [])
-    for edge in edges:
-        if edge.get("relation") != "covers":
-            continue
-        source = nodes.get(edge.get("source", ""))
-        target = nodes.get(edge.get("target", "")) or combos.get(edge.get("target", ""))
-        if not source or not target:
-            continue
-        title = _text(source.get("title")) or source["id"]
-        path = _text(target.get("path")) or _text(target.get("title")) or target["id"]
-        if path.startswith("app:"):
-            path = path[4:]
-        if title not in target["coveredBy"]:
-            target["coveredBy"].append(title)
-        if target.get("kind") == "file":
-            continue
-        if path and path not in source["coversDirectories"]:
-            source["coversDirectories"].append(path)
-    for item in (*nodes.values(), *combos.values()):
-        if item.get("kind") in {"directory", "file"}:
-            item["coverageLabel"] = "、".join(item["coveredBy"]) if item["coveredBy"] else "无知识卡覆盖"
-        elif item.get("coversDirectories"):
-            item["coverageLabel"] = "覆盖 " + "、".join(item["coversDirectories"][:8])
 
 
 def _primary_flag(flags: Iterable[str]) -> str:
@@ -271,12 +226,7 @@ def _worktree_paths(worktrees: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
 
 
 def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Compile a two-sided coverage graph from project details.
-
-    The left combo is the real project tree, including every code file the
-    census observed. The right combo is knowledge cards. A covers edge is the
-    only claim that a card owns a directory or file; missing edges are holes.
-    """
+    """Compile files and knowledge cards the tray lists, with coverage on each file."""
 
     source = _mapping(details)
     cards = [_mapping(item) for item in _items(source.get("cards"))]
@@ -286,21 +236,10 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
     if pending and not isinstance(source.get("pending"), Mapping) and not _items(_mapping(source.get("pending")).get("items")):
         pending = [_mapping(item) for item in _items(source.get("pending"))]
     worktrees = [_mapping(item) for item in _items(source.get("worktrees"))]
-    relations = [_mapping(item) for item in _items(source.get("relations"))]
     checkers = [_text(item.get("id") or item) for item in _items(source.get("checkers"))]
 
     nodes: dict[str, dict[str, Any]] = {}
-    edges: list[dict[str, Any]] = []
-    combos: dict[str, dict[str, Any]] = {}
     writing = _worktree_paths(worktrees)
-
-    def add_edge(source_id: str, target_id: str, relation: str) -> None:
-        if not source_id or not target_id or source_id == target_id:
-            return
-        edge_id = f"{source_id}>{relation}>{target_id}"
-        if any(item["id"] == edge_id for item in edges):
-            return
-        edges.append({"id": edge_id, "source": source_id, "target": target_id, "relation": relation})
 
     def mark_writing(node_id: str, task: Mapping[str, Any]) -> None:
         node = nodes.get(node_id)
@@ -309,12 +248,9 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
         flags = list(node["flags"])
         if "writing" not in flags:
             flags.append("writing")
-        extra = dict(node)
-        writers = list(extra.get("writers") or [])
+        writers = list(node.get("writers") or [])
         if task["id"] not in writers:
             writers.append(task["id"])
-        extra["writers"] = writers
-        extra["writingGoal"] = task["goal"]
         nodes[node_id] = _node(
             node_id,
             kind=node["kind"],
@@ -356,9 +292,6 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
             detection=detection,
         )
 
-    for relation in relations:
-        add_edge(_text(relation.get("source")), _text(relation.get("target")), _text(relation.get("type")) or "related_to")
-
     knowledge_cards = [card for card in cards if _text(card.get("type")) == "knowledge"]
     knowledge_paths = [path for card in knowledge_cards for path in _scope_paths(card)]
     floor_dirs = _floor_directories(cards)
@@ -368,7 +301,6 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
             continue
         gap_id = f"gap:{directory}"
         finding_hit = any(_covers([directory], _text(item.get("artifact_id"))) for item in findings)
-        flags = ["unowned"]
         summary = f"{directory} 已被目录认领，但没有知识卡说明它是什么。"
         if finding_hit:
             summary = f"{directory} 有未被认领的文件，也没有知识卡。"
@@ -377,18 +309,11 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
             kind="gap",
             title=directory,
             summary=summary,
-            flags=flags,
+            flags=["unowned"],
             path=directory,
             protocol="无对外协议",
             detection="缺知识卡",
         )
-        owners = [
-            _text(card.get("id"))
-            for card in cards
-            if _text(card.get("type")) == "floor" and _covers(_scope_paths(card), directory)
-        ]
-        for owner in owners or [_text(card.get("id")) for card in cards if _text(card.get("type")) == "constitution"]:
-            add_edge(gap_id, owner, "exposes")
 
     for finding in findings:
         if _text(finding.get("finding_type")) != "scope-uncovered":
@@ -423,9 +348,6 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
             protocol="未声明",
             detection="缺产品检查",
         )
-        constitution = next((card_id for card_id, node in nodes.items() if node["kind"] == "constitution"), "")
-        if constitution:
-            add_edge("gap:product", constitution, "blocks")
 
     for task in writing:
         matched = False
@@ -453,16 +375,16 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
                 detection="施工未挂叶",
                 extra={"writers": [task["id"]], "writingGoal": task["goal"]},
             )
-            constitution = next((card_id for card_id, node in nodes.items() if node["kind"] == "constitution"), "")
-            if constitution:
-                add_edge(work_id, constitution, "exposes")
 
     census = _mapping(source.get("census"))
     if census:
-        actual_floor_gaps = {"gap:" + (_directory_of(_text(item.get("artifact_id"))) or _normalize_path(_text(item.get("artifact_id")))) for item in findings if item.get("finding_type") == "scope-uncovered"}
+        actual_floor_gaps = {
+            "gap:" + (_directory_of(_text(item.get("artifact_id"))) or _normalize_path(_text(item.get("artifact_id"))))
+            for item in findings
+            if item.get("finding_type") == "scope-uncovered"
+        }
         for node_id in [key for key in nodes if key.startswith("gap:") and key != "gap:product" and key not in actual_floor_gaps]:
             nodes.pop(node_id)
-        edges = [edge for edge in edges if edge["source"] in nodes and edge["target"] in nodes]
         for household in _items(census.get("households")):
             card_id = household["id"]
             declaration = _mapping(household.get("jurisdiction"))
@@ -471,7 +393,12 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
             identity = _text(household.get("identity"))
             if identity == "exploring":
                 flags.append("exploring")
-            if identity == "opaque" or {issue["code"] for issue in household.get("issues", [])} & {"opaque-claimed", "undecomposed-directory", "child-unclaimed", "grain-overflow"}:
+            if identity == "opaque" or {issue["code"] for issue in household.get("issues", [])} & {
+                "opaque-claimed",
+                "undecomposed-directory",
+                "child-unclaimed",
+                "grain-overflow",
+            }:
                 flags.append("opaque")
             if freshness in {"never", "stale"}:
                 flags.append("unreviewed" if freshness == "never" else "stale")
@@ -485,78 +412,51 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
             if "competing-current-implementations" in issue_codes or len(household.get("canvas_engines", [])) > 1:
                 flags.append("multiple")
             paths = [pattern for scope in household.get("scopes", []) for pattern in scope.get("includes", [])]
-            nodes[card_id] = _node(card_id, kind=household["kind"], title=household["title"], summary=household["summary"], flags=flags, path="、".join(paths), detection="、".join(household.get("checkers", [])) or "未绑定实现检测", extra={"household": household, "jurisdiction": declaration, "freshness": freshness})
-            nodes[card_id]["combo"] = "combo:knowledge-cards"
-        combos = {
-            "combo:project-dirs": {
-                "id": "combo:project-dirs",
-                "kind": "side",
-                "kindLabel": KIND_LABELS["side"],
-                "title": "项目目录",
-                "combo": None,
-                "coveredBy": [],
-                "coversDirectories": [],
-                "flags": [],
-            },
-            "combo:knowledge-cards": {
-                "id": "combo:knowledge-cards",
-                "kind": "side",
-                "kindLabel": KIND_LABELS["side"],
-                "title": "知识卡片",
-                "combo": None,
-                "coveredBy": [],
-                "coversDirectories": [],
-                "flags": [],
-            },
-        }
-
-        def ensure_dir_combo(target: str, path: str) -> str:
-            combo_id = f"directory:{target}:{path}"
-            if combo_id in combos:
-                return combo_id
-            parent = _parent_path(path)
-            parent_id = ensure_dir_combo(target, parent) if parent is not None else "combo:project-dirs"
-            combos[combo_id] = {
-                "id": combo_id,
-                "kind": "directory",
-                "kindLabel": KIND_LABELS["directory"],
-                "title": target if path in {".", ""} else _basename(path),
-                "path": f"{target}:{path}",
-                "combo": parent_id,
-                "coveredBy": [],
-                "coversDirectories": [],
-                "flags": [],
-                "files": [],
-                "owners": [],
-            }
-            return combo_id
-
+            nodes[card_id] = _node(
+                card_id,
+                kind=household["kind"],
+                title=household["title"],
+                summary=household["summary"],
+                flags=flags,
+                path="、".join(paths),
+                detection="、".join(household.get("checkers", [])) or "未绑定实现检测",
+                extra={"household": household, "jurisdiction": declaration, "freshness": freshness, "coversDirectories": []},
+            )
+        history_by_target = _mapping(source.get("file_history"))
         for directory in _items(census.get("directories")):
             target = str(directory.get("target") or "app")
-            path = _normalize_path(str(directory.get("path") or ".")) or "."
-            combo_id = ensure_dir_combo(target, path)
             flags = []
             if directory.get("unowned"):
                 flags.append("unowned")
             if directory.get("ambiguous"):
                 flags.append("ambiguous")
-            combos[combo_id]["flags"] = flags
-            combos[combo_id]["files"] = [_normalize_path(str(item)) for item in directory.get("files") or []]
-            combos[combo_id]["owners"] = [str(item) for item in directory.get("owners") or []]
-            combos[combo_id]["summary"] = (
-                f'{len(combos[combo_id]["files"])} 个代码文件；未认领 {directory.get("unowned") or 0}，重复认领 {directory.get("ambiguous") or 0}。'
-            )
-            for owner in combos[combo_id]["owners"]:
-                add_edge(owner, combo_id, "covers")
-            history = _mapping(_mapping(source.get("file_history")).get(target))
-            for relative in combos[combo_id]["files"]:
+            owners = [str(item) for item in directory.get("owners") or []]
+            owner_titles: list[str] = []
+            directory_path = _normalize_path(str(directory.get("path") or ".")) or "."
+            for owner in owners:
+                node = nodes.get(owner)
+                if node is None:
+                    continue
+                title = _text(node.get("title")) or owner
+                if title not in owner_titles:
+                    owner_titles.append(title)
+                covered = list(node.get("coversDirectories") or [])
+                if directory_path not in covered:
+                    covered.append(directory_path)
+                node["coversDirectories"] = covered
+            history = _mapping(_mapping(history_by_target.get(target)))
+            for relative in [_normalize_path(str(item)) for item in directory.get("files") or []]:
                 if not relative:
                     continue
-                file_id = f"file:{target}:{relative}"
+                extra: dict[str, Any] = {
+                    "floors": _floors_for(cards, relative),
+                    "coveredBy": list(owner_titles),
+                    "coverageLabel": "、".join(owner_titles) if owner_titles else "无知识卡覆盖",
+                }
                 commit = _mapping(history.get(relative))
-                extra: dict[str, Any] = {"floors": _floors_for(cards, relative)}
                 if commit:
                     extra["lastCommit"] = commit
+                file_id = f"file:{target}:{relative}"
                 nodes[file_id] = _node(
                     file_id,
                     kind="file",
@@ -566,25 +466,7 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
                     path=f"{target}:{relative}",
                     extra=extra,
                 )
-                nodes[file_id]["combo"] = combo_id
-                for owner in combos[combo_id]["owners"]:
-                    add_edge(owner, file_id, "covers")
-        for node in nodes.values():
-            if node.get("kind") in {"knowledge", "boundary", "gap", "work"}:
-                node["combo"] = "combo:knowledge-cards"
-                node.pop("hidden", None)
-            elif node.get("kind") in {"floor", "constitution", "capability"}:
-                node["hidden"] = True
-        for capability in _items(census.get("implementations")):
-            node_id = "capability:" + capability["capability"]
-            nodes[node_id] = _node(node_id, kind="capability", title=capability["capability"], summary="当前实现：" + "、".join(capability["current"]), flags=["multiple"] if capability["competing"] else [], extra={"capability": capability, "hidden": True})
-            for card_id in capability["cards"]:
-                add_edge(card_id, node_id, "implements")
-        if census.get("error"):
-            nodes["gap:census"] = _node("gap:census", kind="gap", title="普查不可用", summary=str(census["error"]), flags=["stale"])
-            nodes["gap:census"]["combo"] = "combo:knowledge-cards"
 
-    _annotate_coverage(nodes, edges, combos)
     knowledge_by_title = {
         _text(node.get("title")) or node["id"]: node
         for node in nodes.values()
@@ -593,10 +475,6 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
     for node in nodes.values():
         if node.get("kind") != "file":
             continue
-        parent = combos.get(str(node.get("combo") or ""))
-        if parent and parent.get("coveredBy") and not node.get("coveredBy"):
-            node["coveredBy"] = list(parent["coveredBy"])
-            node["coverageLabel"] = parent.get("coverageLabel") or "无知识卡覆盖"
         owners = [knowledge_by_title[title] for title in node.get("coveredBy") or [] if title in knowledge_by_title]
         role, role_label = _file_role(list(node.get("coveredBy") or []), node.get("flags") or [], owners)
         node["role"] = role
@@ -608,29 +486,19 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
                 if text and text not in replacements:
                     replacements.append(text)
         node["replacedBy"] = replacements
-    for combo in combos.values():
-        owners = [knowledge_by_title[title] for title in combo.get("coveredBy") or [] if title in knowledge_by_title]
-        role, role_label = _file_role(list(combo.get("coveredBy") or []), combo.get("flags") or [], owners)
-        combo["role"] = role
-        combo["roleLabel"] = role_label
-        flags = [flag for flag in LAZINESS_FLAGS if flag in set(combo.get("flags") or [])]
-        combo["flags"] = flags
-        combo["primary"] = _primary_flag(flags)
-        combo["lazy"] = bool(flags)
-        combo["statusLabel"] = " · ".join(FLAG_LABELS[flag] for flag in flags) or FLAG_LABELS["current"]
-        combo.setdefault("kindLabel", KIND_LABELS.get(str(combo.get("kind") or ""), str(combo.get("kind") or "")))
-        if combo.get("kind") == "directory":
-            combo.setdefault("coverageLabel", "、".join(combo.get("coveredBy") or []) or "无知识卡覆盖")
+        node.setdefault("coverageLabel", "、".join(node.get("coveredBy") or []) or "无知识卡覆盖")
 
-    counts = {flag: 0 for flag in (*LAZINESS_FLAGS, "exploring", "current", "nodes", "edges", "leaves", "files", "combos")}
+    for node in nodes.values():
+        if node.get("coversDirectories") and node.get("kind") != "file":
+            node["coverageLabel"] = "覆盖 " + "、".join(list(node["coversDirectories"])[:8])
+
+    counts = {flag: 0 for flag in (*LAZINESS_FLAGS, "exploring", "current", "nodes", "leaves", "files")}
     for node in nodes.values():
         counts["nodes"] += 1
         if node["kind"] == "file":
             counts["files"] += 1
         if node["kind"] in {"knowledge", "gap", "work"}:
             counts["leaves"] += 1
-        if node.get("hidden"):
-            continue
         if node["lazy"]:
             for flag in node["flags"]:
                 if flag in counts:
@@ -639,24 +507,19 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
             counts["exploring"] += 1
         else:
             counts["current"] += 1
-    counts["edges"] = len(edges)
-    counts["combos"] = len(combos)
     lazy_total = sum(counts[flag] for flag in LAZINESS_FLAGS)
     file_count = counts["files"]
-    card_count = sum(1 for node in nodes.values() if node.get("kind") == "knowledge" and not node.get("hidden"))
+    card_count = sum(1 for node in nodes.values() if node.get("kind") == "knowledge")
 
     return {
         "schema": GRAPH_SCHEMA,
-        "layout": "tree",
         "nodes": sorted(nodes.values(), key=lambda item: (item["kind"], item["id"])),
-        "edges": edges,
-        "combos": sorted(combos.values(), key=lambda item: item["id"]),
         "counts": counts,
         "lazy": lazy_total > 0,
         "census": {key: census.get(key) for key in ("observed_at", "required", "revisions", "counts")},
         "headline": (
             f"文件树 {file_count} 个文件 · 知识卡 {card_count} 张。开工 {counts['exploring']} · 黑盒 {counts['opaque']} · 废弃未清 {counts['abandoned']}。搜 frontend 可定位前端。无主 {counts['unowned']} · 未普查 {counts['unreviewed']} · 过期 {counts['stale']} · 多实现线索 {counts['multiple']} · 未验收 {counts['undeclared']}"
-            if combos or lazy_total
+            if file_count or lazy_total
             else f"{counts['leaves']} 张知识叶，没有可藏的偷懒"
         ),
     }

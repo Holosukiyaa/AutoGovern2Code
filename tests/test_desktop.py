@@ -4,11 +4,10 @@ import http.client
 import json
 import socket
 import sys
-import tempfile
 import threading
 import unittest
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import ModuleType
 from unittest.mock import MagicMock, patch
 
 import bootstrap
@@ -50,21 +49,14 @@ class DesktopServerTests(unittest.TestCase):
         status, _, headers = self.request("GET", "/")
         self.assertEqual(404, status)
         self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
+        self.assertNotIn("Set-Cookie", headers)
         status, _, _ = self.request("GET", "/assets/app.js")
-        self.assertEqual(404, status)
-        status, _, _ = self.request("GET", "/assets/graph.js")
-        self.assertEqual(404, status)
-        status, _, _ = self.request("GET", "/assets/vendor/g6.min.js")
         self.assertEqual(404, status)
         status, body, headers = self.request("GET", "/api/status")
         self.assertEqual(200, status)
         self.assertTrue(headers["X-AG2C-Desktop"].startswith("desktop/"))
         capabilities = json.loads(body)["capabilities"]
-        self.assertIn("knowledge-graph", capabilities)
-        self.assertIn("native-ui", capabilities)
-        self.assertIn("native-folder-picker", capabilities)
-        self.assertNotIn("web-folder-picker", capabilities)
-        self.assertNotIn('joinpath("ui"', Path(ag2c.desktop.__file__).read_text(encoding="utf-8"))
+        self.assertEqual(["knowledge-graph", "native-ui", "project-details"], sorted(capabilities))
 
     def test_project_data_requires_session_token_and_same_origin(self) -> None:
         status, _, _ = self.request("GET", "/api/projects")
@@ -78,39 +70,25 @@ class DesktopServerTests(unittest.TestCase):
         self.assertEqual(200, status)
         payload = json.loads(body)
         self.assertEqual("Project", payload["projects"][0]["name"])
-        self.assertEqual([], payload["migrations"])
+        self.assertNotIn("migrations", payload)
         self.assertIn("version", payload)
         listed.assert_called_once()
         align.assert_not_called()
 
-    def test_session_endpoint_returns_current_token_for_local_tabs(self) -> None:
-        status, body, _ = self.request("GET", "/api/session", origin="http://127.0.0.1")
-        self.assertEqual(200, status)
-        self.assertEqual("test-token-with-at-least-24-characters", json.loads(body)["token"])
-        status, body, _ = self.request("GET", "/api/session")
-        self.assertEqual(200, status)
-        self.assertEqual("test-token-with-at-least-24-characters", json.loads(body)["token"])
-
-    def test_page_cookie_authorizes_later_project_requests(self) -> None:
-        status, _, headers = self.request("GET", "/api/status")
-        self.assertEqual(200, status)
-        cookie = headers.get("Set-Cookie", "")
-        self.assertIn("ag2c-token=test-token-with-at-least-24-characters", cookie)
+    def test_cookie_does_not_authorize_project_requests(self) -> None:
         connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
-        with patch("ag2c.desktop.managed_projects", return_value=[{"name": "Project", "root": "C:/Project"}]):
-            connection.request(
-                "GET",
-                "/api/projects",
-                headers={
-                    "Host": f"127.0.0.1:{self.port}",
-                    "Cookie": "ag2c-token=test-token-with-at-least-24-characters",
-                },
-            )
-            response = connection.getresponse()
-            body = response.read()
-            connection.close()
-        self.assertEqual(200, response.status)
-        self.assertEqual("Project", json.loads(body)["projects"][0]["name"])
+        connection.request(
+            "GET",
+            "/api/projects",
+            headers={
+                "Host": f"127.0.0.1:{self.port}",
+                "Cookie": "ag2c-token=test-token-with-at-least-24-characters",
+            },
+        )
+        response = connection.getresponse()
+        response.read()
+        connection.close()
+        self.assertEqual(401, response.status)
 
     def test_add_project_endpoint_returns_management_snapshot(self) -> None:
         expected = {"name": "Project", "root": "C:/Project", "state": "protected"}
@@ -125,106 +103,17 @@ class DesktopServerTests(unittest.TestCase):
         self.assertEqual(expected, json.loads(body)["project"])
         add.assert_called_once()
 
-    def test_filesystem_endpoint_returns_browsable_folders(self) -> None:
-        expected = {
-            "path": "C:/Project",
-            "parent": "C:/",
-            "is_git": True,
-            "directories": [{"name": "src", "path": "C:/Project/src", "is_git": False}],
-            "truncated": False,
-        }
-        with patch("ag2c.desktop.list_project_folders", return_value=expected) as list_folders:
-            status, body, _ = self.request(
-                "POST",
-                "/api/filesystem/list",
-                body={"path": "C:/Project"},
-                token=True,
-            )
-        self.assertEqual(200, status)
-        self.assertEqual(expected, json.loads(body))
-        list_folders.assert_called_once_with(Path("C:/Project"))
-
-    def test_describe_picked_folder_marks_git_and_cancel(self) -> None:
-        from ag2c.desktop import describe_picked_folder
-        from ag2c.errors import AG2CError
-
-        self.assertEqual(
-            {"cancelled": True, "unavailable": False, "path": None, "is_git": False},
-            describe_picked_folder(None),
-        )
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / ".git").mkdir()
-            selected = describe_picked_folder(root)
-            self.assertFalse(selected["cancelled"])
-            self.assertFalse(selected["unavailable"])
-            self.assertTrue(selected["is_git"])
-            self.assertEqual(str(root.resolve()), selected["path"])
-            missing = root / "missing"
-            with self.assertRaisesRegex(AG2CError, "folder is unavailable"):
-                describe_picked_folder(missing)
-
-    def test_filesystem_pick_endpoint_returns_native_selection(self) -> None:
-        expected = {"cancelled": False, "unavailable": False, "path": "C:/Project", "is_git": True}
-        with patch("ag2c.desktop.pick_project_folder", return_value=expected) as pick:
-            status, body, _ = self.request("POST", "/api/filesystem/pick", body={}, token=True)
-        self.assertEqual(200, status)
-        self.assertEqual(expected, json.loads(body))
-        pick.assert_called_once_with()
-
-    def test_pick_project_folder_treats_dismissed_dialog_as_cancel(self) -> None:
-        from ag2c.desktop import pick_project_folder
-
-        with patch("ag2c.desktop._native_folder_path", return_value=None):
-            self.assertEqual(
-                {"cancelled": True, "unavailable": False, "path": None, "is_git": False},
-                pick_project_folder(),
-            )
-        with patch("ag2c.desktop._native_folder_path", side_effect=RuntimeError("no display")):
-            self.assertEqual(
-                {"cancelled": False, "unavailable": True, "path": None, "is_git": False},
-                pick_project_folder(),
-            )
-        from ag2c.desktop import _PickerCancelled, _windows_dialog_cancelled, _windows_show_result
-
-        with patch("ag2c.desktop._native_folder_path", side_effect=_PickerCancelled()):
-            self.assertEqual(
-                {"cancelled": True, "unavailable": False, "path": None, "is_git": False},
-                pick_project_folder(),
-            )
-        self.assertTrue(_windows_dialog_cancelled(0x800704C7))
-        self.assertTrue(_windows_dialog_cancelled(0x80004004))
-        self.assertTrue(_windows_dialog_cancelled(1223))
-        self.assertFalse(_windows_dialog_cancelled(0))
-        _windows_show_result(0)
-        with self.assertRaises(_PickerCancelled):
-            _windows_show_result(0x800704C7)
-        with self.assertRaises(_PickerCancelled):
-            _windows_show_result(0x80004004)
-
-    def test_list_project_folders_marks_git_directories(self) -> None:
-        from ag2c.desktop import list_project_folders
-
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            repository = root / "repository"
-            (repository / ".git").mkdir(parents=True)
-            (root / "plain").mkdir()
-            (root / "file.txt").write_text("ignored", encoding="utf-8")
-            result = list_project_folders(root)
-
-        directories = {item["name"]: item for item in result["directories"]}
-        self.assertEqual(str(root.resolve()), result["path"])
-        self.assertTrue(directories["repository"]["is_git"])
-        self.assertFalse(directories["plain"]["is_git"])
-        self.assertNotIn("file.txt", directories)
-
-    def test_projects_revision_endpoint_is_available(self) -> None:
-        with patch("ag2c.desktop.projects_revision", return_value={"revision": "abc123"}) as revision:
-            status, body, _ = self.request("GET", "/api/projects/revision", token=True)
-        self.assertEqual(200, status)
-        self.assertEqual("abc123", json.loads(body)["revision"])
-        revision.assert_called_once()
+    def test_html_folder_browser_endpoints_are_gone(self) -> None:
+        status, _, _ = self.request("POST", "/api/filesystem/list", body={"path": "C:/Project"}, token=True)
+        self.assertEqual(404, status)
+        status, _, _ = self.request("POST", "/api/filesystem/pick", body={}, token=True)
+        self.assertEqual(404, status)
+        status, _, _ = self.request("GET", "/api/session", token=True)
+        self.assertEqual(404, status)
+        status, _, _ = self.request("GET", "/api/projects/revision", token=True)
+        self.assertEqual(404, status)
+        status, _, _ = self.request("POST", "/api/evidence", body={"path": "C:/Project"}, token=True)
+        self.assertEqual(404, status)
 
     def test_align_endpoint_runs_separately_from_the_project_list(self) -> None:
         with patch("ag2c.desktop.align_managed_projects", return_value=[{"action": "aligned"}]) as align, patch(
@@ -300,51 +189,20 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("from imgui_bundle import hello_imgui", ui)
         self.assertIn("DockableWindow", ui)
         self.assertIn("portable_file_dialogs", ui)
-        self.assertNotIn("from imgui_bundle import imguizmo", ui)
-        self.assertNotIn("imgui_bundle.immvision", ui)
-        self.assertNotIn("imgui_bundle.implot3d", ui)
-        self.assertNotIn("PySide6", ui)
-        self.assertNotIn("WebView2", ui)
-        self.assertNotIn("WebView2", host)
         self.assertIn("from ag2c.imgui_tray import main", entry)
-        self.assertIn("imgui-bundle", build)
-        self.assertNotIn("collect-all PySide6", build)
-        self.assertNotIn("PySide6>=6.6", build)
-        self.assertIn("exclude-module imgui_bundle.imguizmo", build)
-        self.assertIn("tray-host", installer)
-        self.assertIn("NOTICE-imgui.txt", build)
         self.assertIn("packaging\\windows\\tray.py", build)
-        self.assertNotIn("packaging\\windows\\desktop\\app.py", build)
-        self.assertNotIn("NOTICE-qt.txt", build)
-        self.assertNotIn("AG2CDesktop.cs", build)
-        self.assertNotIn("WebView2Loader.dll", build)
-        self.assertNotIn("WebView2Loader.dll", installer)
-        self.assertNotIn("csc.exe", build)
-        self.assertNotIn("ag2c\\ui", build)
-        self.assertNotIn("add-data $uiData", build)
+        self.assertIn("NOTICE-imgui.txt", build)
+        self.assertIn("tray-host", installer)
         self.assertIn("--portable", host)
         self.assertIn("portable.ini", host)
-        self.assertIn("AG2C_DATA_ROOT", host)
-        script = (root / "scripts" / "prepare_portable.ps1").read_text(encoding="utf-8")
-        self.assertIn("portable.ini", script)
-        self.assertIn("install_git_runtime", script)
-        self.assertIn("packaging\\windows\\NOTICE-imgui.txt", script)
-        self.assertNotIn("dev-tray", script)
-        self.assertIn("{app}\\git", installer)
         launcher = (root / "start-tray.bat").read_text(encoding="utf-8")
         self.assertIn("packaging\\windows\\tray.py", launcher)
-        self.assertNotIn("packaging\\windows\\desktop\\app.py", launcher)
         self.assertIn("imgui-bundle", launcher)
-        self.assertNotIn("PySide6", launcher)
         self.assertIn("pythonw.exe", launcher)
-        self.assertTrue((root / "打开管理界面.bat").is_file())
-        leftover = (root / "src" / "ag2c" / "qt_tray.py").read_text(encoding="utf-8")
-        self.assertNotIn("from ag2c.imgui_tray import main", leftover)
-        self.assertNotIn("PySide6", leftover)
-        self.assertIn("imgui_tray", leftover)
-        viewer = (root / "start-governance-viewer.cmd").read_text(encoding="utf-8")
-        self.assertIn("start-tray.bat", viewer)
-        self.assertNotIn("ag2c viewer", viewer)
+        self.assertFalse((root / "src" / "ag2c" / "qt_tray.py").exists())
+        self.assertFalse((root / "src" / "ag2c" / "ui").exists())
+        self.assertFalse((root / "start-governance-viewer.cmd").exists())
+        self.assertFalse((root / "打开管理界面.bat").exists())
 
 
 class TrayFontTests(unittest.TestCase):

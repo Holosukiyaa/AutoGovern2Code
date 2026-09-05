@@ -192,31 +192,16 @@ class GovernanceGraphTests(unittest.TestCase):
                 },
             }
         )
-        covered = next(combo for combo in graph["combos"] if combo["id"] == "directory:app:src/frontend")
-        self.assertIn("当前画布", covered["coveredBy"])
-        self.assertEqual("当前画布", covered["coverageLabel"])
         frontend_file = next(node for node in graph["nodes"] if node["id"] == "file:app:src/frontend/main.tsx")
-        self.assertEqual("directory:app:src/frontend", frontend_file["combo"])
         self.assertIn("当前画布", frontend_file["coveredBy"])
-        hole = next(combo for combo in graph["combos"] if combo["id"] == "directory:app:prototypes/demo-free-layout")
-        self.assertEqual([], hole["coveredBy"])
-        self.assertEqual("无知识卡覆盖", hole["coverageLabel"])
+        self.assertEqual("当前画布", frontend_file["coverageLabel"])
         hole_file = next(node for node in graph["nodes"] if node["id"] == "file:app:prototypes/demo-free-layout/src/app.tsx")
-        self.assertEqual("directory:app:prototypes/demo-free-layout", hole_file["combo"])
+        self.assertEqual([], hole_file["coveredBy"])
+        self.assertEqual("无知识卡覆盖", hole_file["coverageLabel"])
         card = next(node for node in graph["nodes"] if node["id"] == "knowledge.workbench")
-        self.assertEqual("combo:knowledge-cards", card["combo"])
         self.assertIn("src/frontend", card["coversDirectories"])
         self.assertEqual("current", frontend_file["role"])
         self.assertIn("src", frontend_file["floors"])
         self.assertEqual("unowned", hole_file["role"])
-        self.assertTrue(any(combo["id"] == "combo:project-dirs" for combo in graph["combos"]))
-        self.assertTrue(any(combo["id"] == "combo:knowledge-cards" for combo in graph["combos"]))
-        self.assertEqual("tree", graph["layout"])
-        self.assertTrue(
-            any(
-                edge["relation"] == "covers"
-                and edge["source"] == "knowledge.workbench"
-                and "src/frontend" in edge["target"]
-                for edge in graph["edges"]
-            )
-        )
+        self.assertNotIn("combos", graph)
+        self.assertNotIn("edges", graph)

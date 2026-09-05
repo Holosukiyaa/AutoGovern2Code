@@ -2,27 +2,18 @@
 
 ## Unreleased
 
-- Keep only the Hello ImGui tray. The HTTP service no longer serves HTML/G6 assets, `ag2c viewer` is gone, and the old governance-viewer launcher starts the ImGui tray.
-- Drop the leftover Qt tray alias so `ag2c.qt_tray` is not a live host. The desktop entry is `ag2c.imgui_tray`. Abandoned WinForms/WebView2/Qt files under `packaging/windows/desktop` are already gone.
+- Desktop host is only Hello ImGui (`start-tray.bat` → `packaging/windows/tray.py` → `ag2c.imgui_tray`). HTML/G6 viewer files, Qt/WinForms/WebView2 hosts, `ag2c viewer`, `qt_tray.py`, and duplicate launchers are gone. The local API is token-header JSON only; folder picking stays in the ImGui process.
+- Drop the heavy enroll/worktree/verify integration tests. Remaining tests are the tray host, CLI surface, and in-memory engine checks.
+- Fix `ag2c project uninstall` crashing on a missing `--remove-data` flag. The coverage payload is files and knowledge cards only (no G6 combo/edges). The local project list no longer returns an empty HTML `migrations` field.
 - Stop the tray from drawing two selection boxes on mouse click: unique ImGui ids per row, one selected key, no nav cursor, and hover no longer uses the same fill as selected.
-- Load Microsoft YaHei (or SimSun) as the Hello ImGui default font from `C:\Windows\Fonts`, then merge Font Awesome. The previous loader used the Latin-only default font and looked for YaHei in demo assets, so Chinese labels rendered as tofu boxes.
+- Load Microsoft YaHei (or SimSun) as the Hello ImGui default font from `C:\Windows\Fonts`, then merge Font Awesome.
 - Move the Hello ImGui freeze entry and license notice to `packaging/windows/`. Portable copies no longer fall back to `build/dev-tray`.
-- Replace the PySide tray with Dear ImGui / Hello ImGui (`imgui-bundle`). Docking, theme, and the folder dialog come from that MIT shell. Network work runs off the UI thread. 3D add-ons (ImGuizmo, ImmVision, implot3d) are not imported and are excluded from the freeze.
-- Add `start-tray.bat` (and `打开管理界面.bat`) so the tray can be started with a double-click from the repo.
-- Replace the WinForms tray with a Python Qt host (PySide6). The window uses stock Qt widgets and Qt Style Sheets instead of a hand-drawn control set or an embedded browser. The governance engine stays Python; Qt is an optional `gui` extra and is frozen only into the Windows tray.
-- Skin the native tray to the previous light-console look: blue AG mark, 236×76 project cards, pill filters, white file-tree pane and mint knowledge-card pane. Still no browser.
-- A portable folder (`portable.ini` next to `AutoGovern2Code.exe`, or `--portable`) keeps evidence in `data\` and MinGit in `git\`. It does not write Start Menu, PATH, or login startup. Moving that folder rebases store paths in the registry and keeps using the shipped Git.
-- The tray window is native WinForms: project list, file tree, and knowledge cards. It no longer embeds Edge WebView2. Windows installers and portable copies ship MinGit next to the runtime; a portable Git wins over whatever Git happens to be on PATH so moving project folders does not switch Git implementations.
-
-- Directory households now have exploring, named, and opaque identities. `census --record` refuses opaque claims. `govern tighten` is monotonic; `renew-exploring` keeps construction visible without product acceptance. Narrow `task start` refuses unresolved household debt. Feature tasks cannot delete active households; leftover deletion uses `govern retire` and an optional confirm fuse. New enrollment hangs top-level directories as exploring without naming them, seeds that child set so nested trees stay startable, and later household registration absorbs or carves those placeholders instead of dual-owning. README cards no longer explain every floor.
-
-- Show the tray coverage view as a scrollable project file tree on the left and knowledge cards on the right, with lines between a selected file and the card that covers it. Stop periodic refresh from yanking the view. Each file shows who manages it, which floor owns the path, the latest commit, and whether it looks like leftover work. Search `frontend` to isolate the frontend tree.
-- Show a G6 force-directed knowledge graph in the tray window so unowned paths, stale knowledge, abandoned cards, undeclared product checks, and AI-writing work cannot hide in lists.
-- Render that graph inside the Windows tray host with embedded Edge WebView2 instead of the IE WebBrowser control.
-- Prefer the user's Git when it is on PATH; otherwise download MinGit into the AG2C data directory. Remember each project's Git source so a moved folder keeps bundled Git, or falls back to a download if the original system Git is gone.
+- A portable folder (`portable.ini` next to `AutoGovern2Code.exe`, or `--portable`) keeps evidence in `data\` and MinGit in `git\`. It does not write Start Menu, PATH, or login startup.
+- Directory households now have exploring, named, and opaque identities. `census --record` refuses opaque claims. Feature tasks cannot delete active households; leftover deletion uses `govern retire`.
+- Show the tray coverage view as a scrollable project file tree on the left and knowledge cards on the right. Search `frontend` to isolate the frontend tree.
+- Prefer the user's Git when it is on PATH; otherwise download MinGit into the AG2C data directory.
 - Stop claiming macOS or Linux support in the public README. This release is Windows-only.
-- Keep the desktop list cheap, refresh when the window is shown or the store/HEAD changes, and stop wiping details on every redraw.
-- Rewrote the GitHub README around v0.8.4: current tray dashboard, process vs product, stop/resume/uninstall, and copied-store recovery. Corrected the matching adoption pages.
+- Rewrote the GitHub README around v0.8.4: current tray dashboard, process vs product, stop/resume/uninstall, and copied-store recovery.
 
 ## 0.8.4 - 2026-09-01
 

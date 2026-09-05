@@ -87,13 +87,12 @@ project check checks all households; a scoped task checks its selected household
 
 ## Tray acceptance
 
-Search by directory, card ID, responsibility or implementation. Select a node
-directly or through the picker; follow labelled floor, scope and replacement
-links. Inspect exclusions, full file lists, entrypoints, checker commands, issues,
-survey time/version, latest source change and review history. Status filtering
-keeps neighboring nodes so a suspicious directory does not lose its owner or
-replacement context. Refreshing an unchanged graph preserves the selected node.
+The Hello ImGui tray shows a project file tree on the left and knowledge cards on
+the right. Search by path, card title, or `frontend`. Select a file or card to
+inspect who covers it, which floor owns the path, the latest commit, and leftover
+status. Status filters keep the matching files and cards; they do not draw a
+force graph or combo layout.
 
 Do not mark a cleanup complete until the reviewed current product is identified,
 obsolete implementations are either removed with evidence or explicitly retained,
-and the actual product tests pass. A tidy graph alone is not product acceptance.
+and the actual product tests pass. A tidy tree alone is not product acceptance.

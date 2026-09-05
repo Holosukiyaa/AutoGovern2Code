@@ -489,7 +489,7 @@ def main(argv: list[str] | None = None) -> int:
                 result = project_status(args.path)
                 print(_json(result))
                 return 0 if result["managed"] else 1
-            print(_json(stop_managing(args.path, remove_data=bool(args.remove_data) or args.project_command == "uninstall")))
+            print(_json(stop_managing(args.path, remove_data=args.project_command == "uninstall" or bool(getattr(args, "remove_data", False)))))
             return 0
         if args.command == "desktop":
             from .desktop import serve_desktop

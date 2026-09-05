@@ -14,6 +14,7 @@ from .households import (
     RECORD_BLOCK_ISSUES,
     RENEWAL_SCHEMA,
     _history,
+    _is_proper_subdir,
     assert_monotonic,
     census_path,
     census_report,
@@ -40,6 +41,56 @@ def _identity(actor: str, reason: str) -> tuple[str, str]:
     if not actor.strip() or not reason.strip():
         raise AG2CError("household governance requires --actor and --reason")
     return actor.strip(), reason.strip()
+
+
+def _raw_include_roots(card: dict) -> set[str]:
+    roots: set[str] = set()
+    for scope in card.get("scopes") or []:
+        for pattern in scope.get("include") or []:
+            roots.add(directory_scope(pattern))
+    return roots
+
+
+def _is_enrollment_placeholder(card: dict) -> bool:
+    if card.get("type") != "knowledge":
+        return False
+    jurisdiction = card.get("jurisdiction")
+    if not isinstance(jurisdiction, dict):
+        return False
+    if str(jurisdiction.get("meaning") or "none") != "none" or str(jurisdiction.get("status") or "current") != "current":
+        return False
+    return str(jurisdiction.get("implementation") or "").endswith(".exploring")
+
+
+def _carve_exploring_placeholders(raw: dict, card_id: str, includes: list[str]) -> None:
+    new_roots = {directory_scope(pattern) for pattern in includes}
+    remaining = []
+    removed: set[str] = set()
+    for card in raw.get("cards") or []:
+        if card.get("id") == card_id or not _is_enrollment_placeholder(card):
+            remaining.append(card)
+            continue
+        parent_roots = _raw_include_roots(card)
+        if parent_roots and parent_roots <= new_roots:
+            removed.add(str(card["id"]))
+            continue
+        for scope in card.get("scopes") or []:
+            excludes = list(scope.get("exclude") or [])
+            for pattern in includes:
+                child = directory_scope(pattern)
+                for parent_pattern in scope.get("include") or []:
+                    parent = directory_scope(parent_pattern)
+                    if child != parent and _is_proper_subdir(child, parent) and pattern not in excludes:
+                        excludes.append(pattern)
+            scope["exclude"] = excludes
+        remaining.append(card)
+    raw["cards"] = remaining
+    if removed:
+        raw["relations"] = [
+            item
+            for item in raw.get("relations") or []
+            if item.get("source") not in removed and item.get("target") not in removed
+        ]
 
 
 def _save_policy(manifest, raw: dict, actor: str, reason: str, event_type: str, payload: dict, after_load=None) -> dict:
@@ -81,8 +132,12 @@ def register_household(start: Path, *, card_id: str, title: str, summary: str, i
         checker = {"id": checker_id, "stage": "scenario", "target": "app", "cwd": ".", "command": command, "timeout": 600, "implementation": implementation}
         raw["checkers"] = [item for item in raw.get("checkers", []) if item["id"] != checker_id] + [checker]
         selected_checkers.append(checker_id)
+    _carve_exploring_placeholders(raw, card_id, includes)
     card = {"id": card_id, "type": "knowledge", "title": title.strip(), "summary": summary.strip(), "scopes": [{"target": "app", "include": includes, "exclude": excludes, "ownership": "reference"}], "references": [], "checkers": list(dict.fromkeys(selected_checkers)), "jurisdiction": {"capability": capability, "implementation": implementation, "status": status, "entrypoints": list(entrypoints or []), "grain": grain or "subtree", "meaning": meaning or "none", "contract": contract or "none", "decider": decider or "none"}}
     raw["cards"] = [item for item in raw.get("cards", []) if item["id"] != card_id] + [card]
+    coverage = raw.get("coverage")
+    if isinstance(coverage, dict) and coverage.get("level") == "baseline":
+        coverage["level"] = "structured"
     raw["relations"] = [item for item in raw.get("relations", []) if not (item["source"] == card_id and item["type"] in {"explains", "replaced_by"})]
     raw["relations"].extend({"source": card_id, "type": "explains", "target": floor} for floor in floors)
     if replaced_by:

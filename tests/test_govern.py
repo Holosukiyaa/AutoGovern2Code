@@ -98,6 +98,9 @@ class GovernanceIngestTests(unittest.TestCase):
             self.assertIn("floor.src", card_ids)
             self.assertIn("route", guidance)
             self.assertIn("households", guidance)
+            src = next(item for item in guidance["households"] if item["id"] == "knowledge.src")
+            self.assertEqual("exploring", src["identity"])
+            self.assertFalse(src["explained"])
 
     def test_ingest_detects_directories_whose_files_have_spaces(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -131,10 +134,14 @@ class GovernanceIngestTests(unittest.TestCase):
 
             result = settle_pending(root, actor="codex", reason="docs area was added after merge")
             self.assertIn("ingest", result["actions"])
-            self.assertEqual({"undeclared-product"}, {item["kind"] for item in result["pending"]})
+            remaining = {item["kind"] for item in result["pending"]}
+            self.assertIn("undeclared-product", remaining)
+            self.assertNotIn("unowned-area", remaining)
+            self.assertNotIn("new-document", remaining)
             policy = json.loads(load_manifest(discover_manifest(root)).policy_path.read_text(encoding="utf-8"))
             self.assertIn("floor.docs", {card["id"] for card in policy["cards"]})
             self.assertIn("knowledge.docs-guide-md", {card["id"] for card in policy["cards"]})
+            self.assertIn("knowledge.docs", {card["id"] for card in policy["cards"]})
 
     def test_ingest_refreshes_new_documents_on_baseline_projects(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

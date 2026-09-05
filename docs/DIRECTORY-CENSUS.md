@@ -15,6 +15,14 @@ product acceptance. Delete leftover bytes only after `govern retire`, and only
 inside a dedicated task. Current and unabandoned exploring directories cannot be
 removed in a feature diff.
 
+New enrollment hangs each top-level directory as an exploring household. That is
+ownership without a named explanation: files are not 无主, and they are not 说清.
+Enrollment also records the current child set so a nested tree does not start
+life as `tighten-or-renew` debt. Registering a household on the same glob
+absorbs that exploring placeholder. Registering a proper-subset glob carves it
+out of the exploring parent with an exclude. Ingest does not put the placeholder
+back over a household that already covers the directory.
+
 The tray graph shows code directories separately from cards. A README cannot
 cover sibling source code. Unowned files, overlapping claims, competing current
 implementations and old implementations remain visible. Frontend entrypoint and

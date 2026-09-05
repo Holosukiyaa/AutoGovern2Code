@@ -40,6 +40,9 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
    `--all` only for an explicit compression/retirement task. Never use a vague
    goal to invent a narrow route. Guidance includes `households` with identity,
    children, and `explained`; do not treat an exploring household as named.
+   Enrollment already hangs top-level directories as exploring; register a
+   tighter household on a subset glob, or tighten the existing card, instead of
+   hanging a second card on the same glob.
 
 6. Read the JSON response and move into `worktree.path`. Perform every write, dependency install, build, test, screenshot, and generated output only in that external worktree. `ag2c task list` reports worktree lifecycle: constructing, verified but unmerged, diverged, abandoned, or merged.
 

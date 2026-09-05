@@ -89,6 +89,37 @@ def _first_line(path: Path) -> str:
     return path.name
 
 
+def _card_include_roots(card: dict[str, Any]) -> set[str]:
+    from .households import directory_scope
+
+    roots: set[str] = set()
+    for scope in card.get("scopes") or []:
+        for pattern in scope.get("include") or []:
+            text = str(pattern)
+            if text.endswith("/**") or text == "**":
+                roots.add(directory_scope(text))
+    return roots
+
+
+def _jurisdiction_include_roots(cards: list[Any]) -> set[str]:
+    roots: set[str] = set()
+    for card in cards:
+        if not isinstance(card, dict) or not card.get("jurisdiction"):
+            continue
+        roots.update(_card_include_roots(card))
+    return roots
+
+
+def _include_roots_overlap(left: set[str], right: set[str]) -> bool:
+    from .households import _is_proper_subdir
+
+    for first in left:
+        for second in right:
+            if first == second or _is_proper_subdir(first, second) or _is_proper_subdir(second, first):
+                return True
+    return False
+
+
 def _floor_for_path(cards: list[dict[str, Any]], relative: str) -> str | None:
     normalized = relative.replace("\\", "/").lstrip("./")
     best_id = None
@@ -201,6 +232,37 @@ def compose_baseline_governance(root: Path, project_roots: list[str], checker_id
         floor_id = _floor_for_path(cards, relative)
         if floor_id:
             relations.append({"source": card_id, "type": "related_to", "target": floor_id})
+    for name in [item for item in project_roots if (root / item).is_dir()]:
+        card_id = f"knowledge.{_slug(name)}"
+        if card_id in used:
+            continue
+        floor_id = _floor_for_path(cards, f"{name}/.")
+        if not floor_id:
+            continue
+        used.add(card_id)
+        slug = _slug(name)
+        cards.append(
+            {
+                "id": card_id,
+                "type": "knowledge",
+                "title": f"{name} exploring household",
+                "summary": f"Declared exploring household for the top-level {name} directory. Meaning is none; this does not explain the tree.",
+                "scopes": [{"target": "app", "include": [f"{name}/**"], "ownership": "reference"}],
+                "references": [],
+                "checkers": [],
+                "jurisdiction": {
+                    "capability": slug,
+                    "implementation": f"{slug}.exploring",
+                    "status": "current",
+                    "entrypoints": [],
+                    "grain": "subtree",
+                    "meaning": "none",
+                    "contract": "none",
+                    "decider": "none",
+                },
+            }
+        )
+        relations.append({"source": card_id, "type": "explains", "target": floor_id})
     return {"cards": cards, "relations": relations, "contracts": []}
 
 
@@ -211,6 +273,12 @@ def finalize_ingest(manifest: Manifest, *, actor: str, reason: str) -> dict[str,
     if knowledge_ids:
         synced = sync_knowledge(manifest, policy, card_ids=knowledge_ids, actor=actor, reason=reason)
     build_index(manifest, policy, index_path(manifest))
+    try:
+        from .households import acknowledge_exploring
+
+        acknowledge_exploring(manifest, policy, actor=actor, reason=reason)
+    except AG2CError:
+        pass
     event = append_event(
         manifest.ledger_path,
         "governance-ingested",
@@ -263,10 +331,15 @@ def ingest_project(start: Path, *, actor: str, reason: str) -> dict[str, Any]:
         }
     else:
         existing = {str(card.get("id")) for card in raw.get("cards", []) if isinstance(card, dict)}
+        owned_roots = _jurisdiction_include_roots(raw.get("cards") or [])
         for card in composed["cards"]:
-            if card["id"] not in existing and card["type"] in {"knowledge", "boundary"}:
-                raw.setdefault("cards", []).append(card)
-                existing.add(card["id"])
+            if card["id"] in existing or card["type"] not in {"knowledge", "boundary"}:
+                continue
+            if card.get("jurisdiction") and _include_roots_overlap(_card_include_roots(card), owned_roots):
+                continue
+            raw.setdefault("cards", []).append(card)
+            existing.add(card["id"])
+            owned_roots.update(_card_include_roots(card))
         known = {str(item.get("source")) + ":" + str(item.get("type")) + ":" + str(item.get("target")) for item in raw.get("relations", [])}
         for relation in composed["relations"]:
             key = f"{relation['source']}:{relation['type']}:{relation['target']}"
@@ -343,6 +416,12 @@ def pending_updates(start: Path, changed_paths: list[str] | None = None) -> dict
                 acknowledged = list((renewals.get(card_id) or {}).get("child_directories") or [])
                 if acknowledged != list(record.get("child_directories") or []):
                     items.append({"kind": "tighten-or-renew", "path": card_id, "action": "tighten-or-renew-exploring"})
+        exploring_ids = {str(item["id"]) for item in report.get("households") or [] if item.get("identity") == "exploring"}
+        items = [
+            item
+            for item in items
+            if not (item.get("kind") == "census-review-required" and item.get("path") in exploring_ids)
+        ]
     unique: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for item in items:

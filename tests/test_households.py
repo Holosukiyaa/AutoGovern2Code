@@ -60,13 +60,20 @@ class HouseholdTests(unittest.TestCase):
 
     def test_floor_and_readme_do_not_claim_source_directories(self):
         before = read_census(self.root)
-        self.assertEqual(0, before["counts"]["jurisdictions"])
-        self.assertGreater(before["counts"]["unowned"], 0)
-        self.assertTrue(any(item["path"] == "src/value.py" for item in before["gaps"]))
+        src = next(item for item in before["households"] if item["id"] == "knowledge.src")
+        tests = next(item for item in before["households"] if item["id"] == "knowledge.tests")
+        self.assertEqual("exploring", src["identity"])
+        self.assertEqual("exploring", tests["identity"])
+        self.assertGreaterEqual(before["counts"]["exploring"], 2)
+        self.assertFalse(any(item["path"] == "src/value.py" for item in before["gaps"]))
+        self.assertFalse(any(item["path"] == "tests/test_value.py" for item in before["gaps"]))
+        self.assertTrue(all(item.get("identity") != "named" for item in before["households"] if item.get("jurisdiction")))
         self.register()
         after = read_census(self.root)
+        self.assertFalse(any(item["id"] == "knowledge.src" and item.get("jurisdiction") for item in after["households"]))
+        self.assertEqual("exploring", self.household()["identity"])
         self.assertFalse(any(item["path"] == "src/value.py" for item in after["gaps"]))
-        self.assertTrue(any(item["path"] == "tests/test_value.py" for item in after["gaps"]))
+        self.assertFalse(any(item["path"] == "tests/test_value.py" for item in after["gaps"]))
 
     def test_census_tracks_time_commit_summary_and_content_not_refresh(self):
         self.register()
@@ -163,7 +170,10 @@ class HouseholdTests(unittest.TestCase):
         self.assertEqual(3, len(report["implementations"][0]["current"]))
         self.assertTrue(report["implementations"][0]["competing"])
         graph = build_governance_graph({"census": report})
-        self.assertTrue(any(combo["id"] == "directory:app:src" and "unowned" in combo["flags"] for combo in graph["combos"]))
+        src_dir = next(item for item in report["directories"] if item["path"] == "src")
+        self.assertIn("knowledge.src", src_dir["owners"])
+        self.assertEqual(0, src_dir["unowned"])
+        self.assertTrue(any(node["id"] == "knowledge.src" and "exploring" in node["flags"] for node in graph["nodes"]))
         self.assertTrue(any(node["id"] == "capability:frontend" and "multiple" in node["flags"] for node in graph["nodes"]))
 
     def test_retirement_with_remaining_code_and_overlap_are_not_green(self):
@@ -415,6 +425,46 @@ class HouseholdTests(unittest.TestCase):
         record = self.household()
         self.assertEqual("retired", record["jurisdiction"]["status"])
         self.assertEqual("leftover", record["identity"])
+
+    def test_child_register_carves_exploring_parent(self):
+        self._add_code("src/core/runner.py")
+        self.register(
+            "knowledge.core",
+            includes=["src/core/**"],
+            excludes=[],
+            implementation="value.core",
+            entrypoints=["src/core/runner.py"],
+            command=None,
+        )
+        parent = self.household("knowledge.src")
+        self.assertEqual("exploring", parent["identity"])
+        excludes = [pattern for scope in parent["scopes"] for pattern in scope.get("excludes") or []]
+        self.assertIn("src/core/**", excludes)
+        census = read_census(self.root)
+        self.assertFalse(any(item["path"] == "src/core/runner.py" for item in census["gaps"]))
+        self.assertFalse(any(item["path"] == "src/value.py" for item in census["gaps"]))
+
+    def test_enrollment_nested_tree_acknowledges_children_without_blocking_start(self):
+        workspace = tempfile.TemporaryDirectory()
+        self.addCleanup(workspace.cleanup)
+        root = git_project(Path(workspace.name) / "nested")
+        (root / "src" / "core").mkdir()
+        (root / "src" / "core" / "runner.py").write_text("VALUE = 1\n", encoding="utf-8")
+        git(root, "add", "-A")
+        git(root, "commit", "-m", "nested")
+        enroll_project(root, project_id="nested-enroll", skill_root=Path(workspace.name) / "skills")
+        kinds = {item["kind"] for item in pending_updates(root)["items"]}
+        self.assertNotIn("tighten-or-renew", kinds)
+        src = next(item for item in read_census(root)["households"] if item["id"] == "knowledge.src")
+        self.assertEqual("exploring", src["identity"])
+        self.assertIn("app:src/core", src["child_directories"])
+        start_task(
+            root,
+            goal="change the managed value",
+            path_specs=["app:src/value.py"],
+            contract_specs=[],
+            worktree_root=Path(workspace.name) / "worktrees",
+        )
 
 
 if __name__ == "__main__":

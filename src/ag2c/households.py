@@ -165,6 +165,38 @@ def load_renewals(manifest: Manifest) -> dict[str, Any]:
     return {str(key): value for key, value in raw["cards"].items() if isinstance(value, dict)}
 
 
+def acknowledge_exploring(manifest: Manifest, policy: Policy, *, actor: str, reason: str) -> int:
+    """Record the current child set of exploring households without naming them."""
+    report = census_report(manifest, policy)
+    cards = load_renewals(manifest)
+    added = 0
+    timestamp = datetime.now(timezone.utc).isoformat()
+    for item in report.get("households") or []:
+        if item.get("identity") != "exploring":
+            continue
+        card_id = str(item["id"])
+        if card_id in cards:
+            continue
+        cards[card_id] = {
+            "renewed_at": timestamp,
+            "actor": actor,
+            "reason": reason,
+            "child_directories": list(item.get("child_directories") or []),
+        }
+        added += 1
+    if not added:
+        return 0
+    path = renewal_path(manifest)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(
+        json.dumps({"schema": RENEWAL_SCHEMA, "cards": cards}, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, path)
+    return added
+
+
 def directory_scope(pattern: str) -> str:
     if pattern == "**":
         return "."

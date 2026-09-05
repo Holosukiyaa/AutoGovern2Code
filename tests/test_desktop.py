@@ -193,6 +193,8 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("enable_viewports = False", ui)
         self.assertIn("AutoGovern2Code/tray.ini", ui)
         self.assertIn("restore_previous_geometry = False", ui)
+        self.assertNotIn("show_view_menu", ui)
+        self.assertIn("_dialog_lock", ui)
         self.assertIn("from ag2c.imgui_tray import main", entry)
         self.assertIn("packaging\\windows\\tray.py", build)
         self.assertIn("NOTICE-imgui.txt", build)

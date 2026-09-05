@@ -58,6 +58,7 @@ class AppState:
         self.busy = False
         self._worker: threading.Thread | None = None
         self.really_exit = False
+        self._dialog_lock = False
 
     def run_job(self, fn: Callable[[], None]) -> None:
         with self.lock:
@@ -188,10 +189,10 @@ def _load_fonts() -> None:
     global _FONTS_LOADED
     from imgui_bundle import hello_imgui
 
-    # Hello ImGui may call this again after a DPI/atlas rebuild. Loading YaHei twice
-    # recreates the GLFW window and looks like an endless stream of tiny loading windows.
+    # Mark loaded before load_font: that call can rebuild the GLFW window and re-enter.
     if _FONTS_LOADED:
         return
+    _FONTS_LOADED = True
     cjk = cjk_font_path()
     if cjk is not None:
         params = hello_imgui.FontLoadingParams()
@@ -203,10 +204,8 @@ def _load_fonts() -> None:
             hello_imgui.load_font("fonts/fontawesome-webfont.ttf", 16.0, icons)
         except Exception:
             pass
-        _FONTS_LOADED = True
         return
     hello_imgui.imgui_default_settings.load_default_font_with_font_awesome_icons()
-    _FONTS_LOADED = True
 
 
 def _splits():
@@ -266,7 +265,6 @@ def _menus(state: AppState) -> None:
         if imgui.menu_item("退出", None, False)[0]:
             hello_imgui.get_runner_params().app_shall_exit = True
         imgui.end_menu()
-    hello_imgui.show_view_menu(hello_imgui.get_runner_params())
 
 
 def _status_bar(state: AppState) -> None:
@@ -282,7 +280,7 @@ def _status_bar(state: AppState) -> None:
 def _gui_projects(state: AppState) -> None:
     from imgui_bundle import imgui
 
-    if imgui.button("添加项目"):
+    if imgui.button("添加项目") and not state._dialog_lock:
         _choose_project(state)
     imgui.same_line()
     if imgui.button("刷新") and not state.busy:
@@ -386,8 +384,8 @@ def _gui_inspect(state: AppState) -> None:
         if issues:
             imgui.text_wrapped("！  " + "；".join(issues))
         governance = text(project, "governance")
-        if imgui.button("打开文件夹"):
-            _open_folder(text(project, "root"))
+        if imgui.button("打开文件夹") and not state._dialog_lock:
+            _open_folder(state, text(project, "root"))
         imgui.same_line()
         if imgui.button("重新检查"):
             state.run_job(lambda: _post(state, "api/projects/check", text(project, "root")))
@@ -420,17 +418,23 @@ def _gui_inspect(state: AppState) -> None:
 
 
 def _choose_project(state: AppState) -> None:
+    if state._dialog_lock:
+        return
     try:
         from imgui_bundle import portable_file_dialogs as pfd
     except Exception:
         return
-    picker = pfd.select_folder("选择要纳入 AutoGovern2Code 治理的 Git 项目")
-    if picker is None:
-        return
-    path = picker.result()
-    if not path or state.api is None:
-        return
-    state.run_job(lambda: _add_project(state, path))
+    state._dialog_lock = True
+    try:
+        picker = pfd.select_folder("选择要纳入 AutoGovern2Code 治理的 Git 项目")
+        if picker is None:
+            return
+        path = picker.result()
+        if not path or state.api is None:
+            return
+        state.run_job(lambda: _add_project(state, path))
+    finally:
+        state._dialog_lock = False
 
 
 def _start_backend(state: AppState) -> None:
@@ -511,9 +515,15 @@ def _post(state: AppState, route: str, root: str) -> None:
     _refresh(state)
 
 
-def _open_folder(root: str) -> None:
-    if os.name == "nt" and root and Path(root).is_dir():
-        os.startfile(root)  # noqa: S606
+def _open_folder(state: AppState, root: str) -> None:
+    if state._dialog_lock or not root:
+        return
+    state._dialog_lock = True
+    try:
+        if os.name == "nt" and Path(root).is_dir():
+            os.startfile(root)  # noqa: S606
+    finally:
+        state._dialog_lock = False
 
 
 def _shutdown(state: AppState) -> None:

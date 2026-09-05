@@ -1,3 +1,5 @@
+// Leftover WinForms host. The installer now freezes packaging/windows/desktop/app.py
+// (PySide6). Do not build this file. Remove it in a retirement task.
 // AutoGovern2Code desktop host: native WinForms + NotifyIcon.
 // Project cards, file tree, and knowledge cards are WinForms controls skinned
 // to the previous light-console CSS. The host does not embed a browser.

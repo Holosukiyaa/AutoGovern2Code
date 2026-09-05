@@ -30,6 +30,9 @@ Documentation = "https://github.com/Holosukiyaa/AutoGovern2Code#readme"
 Issues = "https://github.com/Holosukiyaa/AutoGovern2Code/issues"
 Source = "https://github.com/Holosukiyaa/AutoGovern2Code"
 
+[project.optional-dependencies]
+gui = ["PySide6>=6.6"]
+
 [project.scripts]
 ag2c = "ag2c.cli:main"
 

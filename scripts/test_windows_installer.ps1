@@ -134,14 +134,16 @@ try {
         throw 'Installer did not install the desktop tray application.'
     }
     foreach ($hostFile in @(
-        'AutoGovern2Code.exe.config',
         'Microsoft.Web.WebView2.Core.dll',
         'Microsoft.Web.WebView2.WinForms.dll',
         'WebView2Loader.dll'
     )) {
-        if (-not (Test-Path -LiteralPath (Join-Path $installRoot $hostFile))) {
-            throw "Installer did not ship the embedded Edge host file: $hostFile"
+        if (Test-Path -LiteralPath (Join-Path $installRoot $hostFile)) {
+            throw "Installer still ships an Edge WebView2 host file: $hostFile"
         }
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $installRoot 'NOTICE-qt.txt'))) {
+        throw 'Installer did not ship the Qt license notice.'
     }
     $startupInstalled = Get-StartupState
     if (-not $startupInstalled.Exists -or $startupInstalled.Value -notmatch [regex]::Escape($desktop)) {

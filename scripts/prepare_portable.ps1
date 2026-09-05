@@ -15,6 +15,7 @@ New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
 
 $exeSource = $null
 foreach ($candidate in @(
+        (Join-Path $runtimeRoot 'tray-host\AutoGovern2Code.exe'),
         (Join-Path $runtimeRoot 'AutoGovern2Code.exe'),
         (Join-Path $devTray 'AutoGovern2Code.exe')
     )) {
@@ -27,10 +28,14 @@ if (-not $exeSource) {
     throw "Native AutoGovern2Code.exe was not found. Build the tray host first."
 }
 
-Copy-Item -LiteralPath $exeSource -Destination (Join-Path $OutputRoot 'AutoGovern2Code.exe') -Force
-$config = Join-Path $repoRoot 'packaging\windows\desktop\AutoGovern2Code.exe.config'
-if (Test-Path -LiteralPath $config) {
-    Copy-Item -LiteralPath $config -Destination (Join-Path $OutputRoot 'AutoGovern2Code.exe.config') -Force
+$trayDir = Split-Path -Parent $exeSource
+Get-ChildItem -LiteralPath $trayDir | ForEach-Object {
+    if ($_.Name -eq 'ag2c') { return }
+    Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $OutputRoot $_.Name) -Recurse -Force
+}
+$notice = Join-Path $repoRoot 'packaging\windows\desktop\NOTICE-qt.txt'
+if (Test-Path -LiteralPath $notice) {
+    Copy-Item -LiteralPath $notice -Destination (Join-Path $OutputRoot 'NOTICE-qt.txt') -Force
 }
 
 $ag2cSource = $null

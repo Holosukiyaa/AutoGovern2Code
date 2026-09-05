@@ -333,36 +333,58 @@ class DesktopServerTests(unittest.TestCase):
 
 
 class TrayHostSourceTests(unittest.TestCase):
-    def test_tray_host_is_native_winforms_without_webview2(self) -> None:
+    def test_tray_host_is_pyside6_without_webview2(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        source = (root / "packaging" / "windows" / "desktop" / "AG2CDesktop.cs").read_text(encoding="utf-8")
+        ui = (root / "src" / "ag2c" / "qt_tray.py").read_text(encoding="utf-8")
+        host = (root / "src" / "ag2c" / "tray_host.py").read_text(encoding="utf-8")
+        entry = (root / "packaging" / "windows" / "desktop" / "app.py").read_text(encoding="utf-8")
         build = (root / "scripts" / "build_windows_installer.ps1").read_text(encoding="utf-8")
         installer = (root / "packaging" / "windows" / "AutoGovern2Code.iss").read_text(encoding="utf-8")
-        self.assertNotIn("WebView2", source)
-        self.assertNotIn("Microsoft.Web.WebView2", source)
-        self.assertNotIn("new WebBrowser", source)
-        self.assertIn("new TreeView", source)
-        self.assertIn("class ProjectCard", source)
-        self.assertIn("class ChipButton", source)
-        self.assertIn("FromArgb(37, 99, 235)", source)
-        self.assertIn("FromArgb(243, 244, 246)", source)
-        self.assertIn("FromArgb(248, 250, 249)", source)
-        self.assertIn("OwnerDrawText", source)
-        self.assertIn("OwnerDrawVariable", source)
-        self.assertIn("PlaceSplitter", source)
-        self.assertNotIn("Panel2MinSize = 360", source)
-        self.assertNotIn("Panel2MinSize = 240", source)
-        self.assertIn("FolderBrowserDialog", source)
-        self.assertIn("install_git_runtime", build)
-        self.assertIn("{app}\\git", installer)
+        self.assertIn("from PySide6.QtWidgets import QApplication", ui)
+        self.assertIn("QTreeWidget", ui)
+        self.assertIn("QListWidget", ui)
+        self.assertIn("QFileDialog", ui)
+        self.assertIn("QSystemTrayIcon", ui)
+        self.assertNotIn("WebView2", ui)
+        self.assertNotIn("WebView2", host)
+        self.assertNotIn("QWebEngineView", ui)
+        self.assertIn("from ag2c.qt_tray import main", entry)
+        self.assertIn("PySide6", build)
+        self.assertIn("tray-host", build)
+        self.assertIn("tray-host", installer)
+        self.assertIn("NOTICE-qt.txt", build)
         self.assertNotIn("WebView2Loader.dll", build)
         self.assertNotIn("WebView2Loader.dll", installer)
-        self.assertIn("--portable", source)
-        self.assertIn("portable.ini", source)
-        self.assertIn("AG2C_DATA_ROOT", source)
+        self.assertNotIn("csc.exe", build)
+        self.assertIn("--portable", host)
+        self.assertIn("portable.ini", host)
+        self.assertIn("AG2C_DATA_ROOT", host)
         script = (root / "scripts" / "prepare_portable.ps1").read_text(encoding="utf-8")
         self.assertIn("portable.ini", script)
         self.assertIn("install_git_runtime", script)
+        self.assertIn("{app}\\git", installer)
+
+
+class TrayHostHelperTests(unittest.TestCase):
+    def test_coverage_filter_keeps_exploring_cards(self) -> None:
+        from ag2c.tray_host import coverage_rows, node_matches
+
+        details = {
+            "graph": {
+                "headline": "对照",
+                "nodes": [
+                    {"kind": "knowledge", "id": "k1", "title": "frontend", "flags": ["exploring"], "path": "app:src"},
+                    {"kind": "file", "path": "app:src/main.py", "flags": ["exploring"]},
+                    {"kind": "file", "path": "app:docs/readme.md", "flags": ["unowned"]},
+                ],
+            }
+        }
+        files, cards, headline = coverage_rows(details, "", "exploring")
+        self.assertEqual("对照", headline)
+        self.assertEqual(["src/main.py"], [path for path, _ in files])
+        self.assertEqual(["k1"], [card["id"] for card in cards])
+        self.assertTrue(node_matches(details["graph"]["nodes"][0], "front", "exploring"))
+        self.assertFalse(node_matches(details["graph"]["nodes"][2], "", "exploring"))
 
 
 if __name__ == "__main__":

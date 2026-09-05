@@ -1,0 +1,10 @@
+The AutoGovern2Code tray host on Windows uses Qt for Python (PySide6).
+
+PySide6 and the Qt libraries are licensed under the GNU Lesser General
+Public License v3. The Qt sources are available from https://code.qt.io
+and the PySide6 project. The frozen Windows layout keeps those Qt DLLs
+as separate files next to AutoGovern2Code.exe so they can be replaced
+with another LGPL-compatible Qt build.
+
+AutoGovern2Code itself remains MIT licensed. This notice covers only the
+bundled Qt/PySide6 binaries.

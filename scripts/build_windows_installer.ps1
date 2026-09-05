@@ -15,10 +15,8 @@ $skillSource = Join-Path $repoRoot 'src\ag2c\skills'
 $skillData = "${skillSource}:ag2c\skills"
 $uiSource = Join-Path $repoRoot 'src\ag2c\ui'
 $uiData = "${uiSource}:ag2c\ui"
-$desktopSource = Join-Path $repoRoot 'packaging\windows\desktop\AG2CDesktop.cs'
-$desktopManifest = Join-Path $repoRoot 'packaging\windows\desktop\app.manifest'
-$desktopConfig = Join-Path $repoRoot 'packaging\windows\desktop\AutoGovern2Code.exe.config'
-$webExtensions = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\System.Web.Extensions.dll'
+$desktopEntry = Join-Path $repoRoot 'packaging\windows\desktop\app.py'
+$desktopNotice = Join-Path $repoRoot 'packaging\windows\desktop\NOTICE-qt.txt'
 
 if (-not (Test-Path -LiteralPath (Join-Path $skillSource 'ag2c-governed-development\SKILL.md'))) {
     throw "Packaged AG2C Skill source is missing from $skillSource."
@@ -78,19 +76,8 @@ if ($skillProbeExitCode -ne 0 -or -not (Test-Path -LiteralPath $skillProbe)) {
 }
 Remove-Item -LiteralPath $skillProbeRoot -Recurse -Force
 
-$cscCandidates = @(
-    (Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'),
-    (Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe')
-) | Where-Object { Test-Path -LiteralPath $_ }
-if (-not $cscCandidates) {
-    throw '.NET Framework csc.exe was not found; the desktop tray host cannot be built.'
-}
-$csc = $cscCandidates | Select-Object -First 1
-if (-not (Test-Path -LiteralPath $desktopConfig)) {
-    throw "Desktop host config is missing: $desktopConfig"
-}
-if (-not (Test-Path -LiteralPath $webExtensions)) {
-    throw "System.Web.Extensions.dll was not found at $webExtensions"
+if (-not (Test-Path -LiteralPath $desktopEntry)) {
+    throw "Desktop tray host entry is missing: $desktopEntry"
 }
 $gitRoot = Join-Path $runtimeRoot 'git'
 $env:PYTHONPATH = Join-Path $repoRoot 'src'
@@ -111,23 +98,38 @@ if (Test-Path -LiteralPath $ag2cGit) {
     Remove-Item -LiteralPath $ag2cGit -Recurse -Force
 }
 Copy-Item -LiteralPath $gitRoot -Destination $ag2cGit -Recurse -Force
-$desktop = Join-Path $runtimeRoot 'AutoGovern2Code.exe'
-& $csc `
-    /nologo `
-    /platform:x64 `
-    /target:winexe `
-    "/out:$desktop" `
-    /reference:System.dll `
-    /reference:System.Drawing.dll `
-    /reference:System.Net.Http.dll `
-    /reference:System.Windows.Forms.dll `
-    "/reference:$webExtensions" `
-    "/win32manifest:$desktopManifest" `
-    $desktopSource
-if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $desktop)) {
+& python -m pip install --disable-pip-version-check "PySide6>=6.6"
+if ($LASTEXITCODE -ne 0) {
+    throw "PySide6 install failed with exit code $LASTEXITCODE."
+}
+$trayDist = Join-Path $buildRoot 'tray'
+& python -m PyInstaller `
+    --noconfirm `
+    --clean `
+    --windowed `
+    --onedir `
+    --name AutoGovern2Code `
+    --paths (Join-Path $repoRoot 'src') `
+    --collect-all PySide6 `
+    --hidden-import ag2c.qt_tray `
+    --hidden-import ag2c.tray_host `
+    --distpath $trayDist `
+    --workpath (Join-Path $buildRoot 'pyinstaller-tray') `
+    --specpath (Join-Path $buildRoot 'spec-tray') `
+    $desktopEntry
+if ($LASTEXITCODE -ne 0) {
     throw "Desktop tray host build failed with exit code $LASTEXITCODE."
 }
-Copy-Item -LiteralPath $desktopConfig -Destination (Join-Path $runtimeRoot 'AutoGovern2Code.exe.config') -Force
+$trayOut = Join-Path $trayDist 'AutoGovern2Code'
+if (-not (Test-Path -LiteralPath (Join-Path $trayOut 'AutoGovern2Code.exe'))) {
+    throw "Desktop tray host exe was not created."
+}
+$trayHost = Join-Path $runtimeRoot 'tray-host'
+if (Test-Path -LiteralPath $trayHost) {
+    Remove-Item -LiteralPath $trayHost -Recurse -Force
+}
+Copy-Item -LiteralPath $trayOut -Destination $trayHost -Recurse -Force
+Copy-Item -LiteralPath $desktopNotice -Destination (Join-Path $trayHost 'NOTICE-qt.txt') -Force
 
 $isccCandidates = @(
     (Get-Command iscc.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),

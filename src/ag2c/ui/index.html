@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
   <title>AutoGovern2Code</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=0.8.4">
+  <link rel="stylesheet" href="/assets/styles.css?v=0.8.4.dagre-combo">
 </head>
 <body>
   <div class="app-shell">
@@ -72,18 +72,17 @@
                 <header class="dash-head">
                   <div>
                     <h3>治理图谱</h3>
-                    <p id="graphHeadline" class="graph-headline">每个目录旁边写出罩住它的知识卡。没有知识卡的目录就是空洞。</p>
+                    <p id="graphHeadline" class="graph-headline">左边是项目真实目录和文件，右边是知识卡片，连线表示覆盖。有多少个文件就画出多少个文件。</p>
                   </div>
                   <span id="graphBanner" class="status-label">G6</span>
                 </header>
                 <div class="graph-search-row">
-                  <label for="graphSearch">查户口</label><input id="graphSearch" type="search" placeholder="职责、目录、卡片 ID 或实现名称" />
-                  <select id="graphNodePicker" aria-label="选择户口"><option value="">选择一张卡或一个目录</option></select>
+                  <label for="graphSearch">查目录或知识卡</label><input id="graphSearch" type="search" placeholder="文件名、目录、知识卡或实现名称" />
+                  <select id="graphNodePicker" aria-label="选择目录、文件或知识卡"><option value="">选择目录、文件或知识卡</option></select>
                   <button id="graphFit" type="button">全图</button>
-                  <label class="graph-detail-toggle"><input id="graphShowDirectories" type="checkbox" />展开更细的子目录</label>
                 </div>
+                <p class="graph-hint">拖动画布平移，滚轮缩放，双击文件夹折叠。不要拖节点。连线 = 这张知识卡覆盖这些目录和文件。</p>
                 <p id="graphCensusSummary" class="graph-census-summary"></p>
-                <div id="graphCoverageList" class="graph-coverage-list" aria-label="目录被哪张知识卡覆盖"></div>
                 <div id="graphFilters" class="graph-filters" role="toolbar" aria-label="户口状态过滤器">
                   <button type="button" data-graph-filter="" data-label="全部">全部</button>
                   <button type="button" data-graph-filter="unowned" data-label="无主">无主</button>
@@ -96,10 +95,10 @@
                   <button type="button" data-graph-filter="writing" data-label="AI正在写">AI正在写</button>
                 </div>
                 <div class="knowledge-graph-shell">
-                  <div id="knowledgeGraph" class="knowledge-graph-canvas" aria-label="散开的知识图谱"></div>
+                  <div id="knowledgeGraph" class="knowledge-graph-canvas" aria-label="项目目录与知识卡片对照图谱"></div>
                   <aside id="graphInspector" class="graph-inspector">
-                    <strong id="graphInspectTitle">点一张卡</strong>
-                    <p id="graphInspectStatus">点目录看被哪张知识卡覆盖，点知识卡看它罩住哪些目录。</p>
+                    <strong id="graphInspectTitle">点目录、文件或知识卡</strong>
+                    <p id="graphInspectStatus">左边看真实目录，右边看知识卡。点文件能看到罩住它的知识卡。</p>
                     <p id="graphInspectSummary"></p>
                     <dl>
                       <div><dt>叶子</dt><dd id="graphInspectKind">—</dd></div>
@@ -264,8 +263,8 @@
     </div>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </div>
-  <script src="/assets/vendor/g6.min.js?v=0.8.4"></script>
-  <script src="/assets/graph.js?v=0.8.4"></script>
-  <script src="/assets/app.js?v=0.8.4"></script>
+  <script src="/assets/vendor/g6.min.js?v=0.8.4.dagre-combo"></script>
+  <script src="/assets/graph.js?v=0.8.4.dagre-combo"></script>
+  <script src="/assets/app.js?v=0.8.4.dagre-combo"></script>
 </body>
 </html>

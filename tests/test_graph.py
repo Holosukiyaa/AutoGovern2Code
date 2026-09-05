@@ -189,15 +189,23 @@ class GovernanceGraphTests(unittest.TestCase):
                 },
             }
         )
-        covered = next(node for node in graph["nodes"] if node["id"] == "directory-group:app:src/frontend")
-        self.assertFalse(covered.get("detailOnly"))
+        covered = next(combo for combo in graph["combos"] if combo["id"] == "directory:app:src/frontend")
         self.assertIn("当前画布", covered["coveredBy"])
         self.assertEqual("当前画布", covered["coverageLabel"])
-        hole = next(node for node in graph["nodes"] if node["id"] == "directory-group:app:prototypes/demo-free-layout")
+        frontend_file = next(node for node in graph["nodes"] if node["id"] == "file:app:src/frontend/main.tsx")
+        self.assertEqual("directory:app:src/frontend", frontend_file["combo"])
+        self.assertIn("当前画布", frontend_file["coveredBy"])
+        hole = next(combo for combo in graph["combos"] if combo["id"] == "directory:app:prototypes/demo-free-layout")
         self.assertEqual([], hole["coveredBy"])
         self.assertEqual("无知识卡覆盖", hole["coverageLabel"])
+        hole_file = next(node for node in graph["nodes"] if node["id"] == "file:app:prototypes/demo-free-layout/src/app.tsx")
+        self.assertEqual("directory:app:prototypes/demo-free-layout", hole_file["combo"])
         card = next(node for node in graph["nodes"] if node["id"] == "knowledge.workbench")
+        self.assertEqual("combo:knowledge-cards", card["combo"])
         self.assertIn("src/frontend", card["coversDirectories"])
+        self.assertTrue(any(combo["id"] == "combo:project-dirs" for combo in graph["combos"]))
+        self.assertTrue(any(combo["id"] == "combo:knowledge-cards" for combo in graph["combos"]))
+        self.assertEqual("antv-dagre", graph["layout"])
         self.assertTrue(
             any(
                 edge["relation"] == "covers"

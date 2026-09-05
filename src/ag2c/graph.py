@@ -1,4 +1,4 @@
-"""Force-directed governance graph: knowledge leaves plus laziness that cannot hide."""
+"""Dagre-combo governance graph: real project files on one side, knowledge cards on the other."""
 
 from __future__ import annotations
 
@@ -27,7 +27,9 @@ KIND_LABELS = {
     "gap": "空洞",
     "work": "施工",
     "directory": "代码目录",
+    "file": "文件",
     "capability": "产品能力",
+    "side": "分区",
 }
 
 
@@ -89,30 +91,53 @@ def _covers(paths: Iterable[str], candidate: str) -> bool:
     return False
 
 
-def _annotate_coverage(nodes: dict[str, dict[str, Any]], edges: list[dict[str, Any]]) -> None:
-    for node in nodes.values():
-        node.setdefault("coveredBy", [])
-        node.setdefault("coversDirectories", [])
+def _basename(path: str) -> str:
+    text = _normalize_path(path)
+    if not text or text == ".":
+        return "."
+    return text.rsplit("/", 1)[-1]
+
+
+def _parent_path(path: str) -> str | None:
+    text = _normalize_path(path)
+    if not text or text == ".":
+        return None
+    if "/" not in text:
+        return "."
+    return text.rsplit("/", 1)[0]
+
+
+def _annotate_coverage(
+    nodes: dict[str, dict[str, Any]],
+    edges: list[dict[str, Any]],
+    combos: dict[str, dict[str, Any]] | None = None,
+) -> None:
+    combos = combos or {}
+    for item in (*nodes.values(), *combos.values()):
+        item.setdefault("coveredBy", [])
+        item.setdefault("coversDirectories", [])
     for edge in edges:
         if edge.get("relation") != "covers":
             continue
         source = nodes.get(edge.get("source", ""))
-        target = nodes.get(edge.get("target", ""))
+        target = nodes.get(edge.get("target", "")) or combos.get(edge.get("target", ""))
         if not source or not target:
             continue
         title = _text(source.get("title")) or source["id"]
-        path = _text(target.get("title")) or _text(target.get("path")) or target["id"]
+        path = _text(target.get("path")) or _text(target.get("title")) or target["id"]
+        if path.startswith("app:"):
+            path = path[4:]
         if title not in target["coveredBy"]:
             target["coveredBy"].append(title)
-        if not target.get("detailOnly") and path not in source["coversDirectories"]:
+        if target.get("kind") == "file":
+            continue
+        if path and path not in source["coversDirectories"]:
             source["coversDirectories"].append(path)
-    for node in nodes.values():
-        if node.get("kind") == "directory":
-            node["coverageLabel"] = "、".join(node["coveredBy"]) if node["coveredBy"] else "无知识卡覆盖"
-            owners = node["coverageLabel"]
-            node["summary"] = f"知识卡：{owners}。" + _text(node.get("summary"))
-        elif node.get("coversDirectories"):
-            node["coverageLabel"] = "覆盖 " + "、".join(node["coversDirectories"][:8])
+    for item in (*nodes.values(), *combos.values()):
+        if item.get("kind") in {"directory", "file"}:
+            item["coverageLabel"] = "、".join(item["coveredBy"]) if item["coveredBy"] else "无知识卡覆盖"
+        elif item.get("coversDirectories"):
+            item["coverageLabel"] = "覆盖 " + "、".join(item["coversDirectories"][:8])
 
 
 def _primary_flag(flags: Iterable[str]) -> str:
@@ -214,11 +239,11 @@ def _worktree_paths(worktrees: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
 
 
 def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Compile a spread-out knowledge graph from project details.
+    """Compile a two-sided coverage graph from project details.
 
-    Knowledge cards are leaves. Unowned directories, stale or abandoned cards,
-    undeclared product checks, and open AI worktrees become nodes or flags so
-    additive-only work cannot hide in lists.
+    The left combo is the real project tree, including every code file the
+    census observed. The right combo is knowledge cards. A covers edge is the
+    only claim that a card owns a directory or file; missing edges are holes.
     """
 
     source = _mapping(details)
@@ -234,6 +259,7 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
 
     nodes: dict[str, dict[str, Any]] = {}
     edges: list[dict[str, Any]] = []
+    combos: dict[str, dict[str, Any]] = {}
     writing = _worktree_paths(worktrees)
 
     def add_edge(source_id: str, target_id: str, relation: str) -> None:
@@ -423,67 +449,148 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
                 flags.append("multiple")
             paths = [pattern for scope in household.get("scopes", []) for pattern in scope.get("includes", [])]
             nodes[card_id] = _node(card_id, kind=household["kind"], title=household["title"], summary=household["summary"], flags=flags, path="、".join(paths), detection="、".join(household.get("checkers", [])) or "未绑定实现检测", extra={"household": household, "jurisdiction": declaration, "freshness": freshness})
-        grouped_directories: dict[str, dict] = {}
+            nodes[card_id]["combo"] = "combo:knowledge-cards"
+        combos = {
+            "combo:project-dirs": {
+                "id": "combo:project-dirs",
+                "kind": "side",
+                "kindLabel": KIND_LABELS["side"],
+                "title": "项目目录",
+                "combo": None,
+                "coveredBy": [],
+                "coversDirectories": [],
+                "flags": [],
+            },
+            "combo:knowledge-cards": {
+                "id": "combo:knowledge-cards",
+                "kind": "side",
+                "kindLabel": KIND_LABELS["side"],
+                "title": "知识卡片",
+                "combo": None,
+                "coveredBy": [],
+                "coversDirectories": [],
+                "flags": [],
+            },
+        }
+
+        def ensure_dir_combo(target: str, path: str) -> str:
+            combo_id = f"directory:{target}:{path}"
+            if combo_id in combos:
+                return combo_id
+            parent = _parent_path(path)
+            parent_id = ensure_dir_combo(target, parent) if parent is not None else "combo:project-dirs"
+            combos[combo_id] = {
+                "id": combo_id,
+                "kind": "directory",
+                "kindLabel": KIND_LABELS["directory"],
+                "title": target if path in {".", ""} else _basename(path),
+                "path": f"{target}:{path}",
+                "combo": parent_id,
+                "coveredBy": [],
+                "coversDirectories": [],
+                "flags": [],
+                "files": [],
+                "owners": [],
+            }
+            return combo_id
+
         for directory in _items(census.get("directories")):
-            node_id = f'directory:{directory["target"]}:{directory["path"]}'
+            target = str(directory.get("target") or "app")
+            path = _normalize_path(str(directory.get("path") or ".")) or "."
+            combo_id = ensure_dir_combo(target, path)
             flags = []
             if directory.get("unowned"):
                 flags.append("unowned")
             if directory.get("ambiguous"):
                 flags.append("ambiguous")
-            nodes[node_id] = _node(node_id, kind="directory", title=directory["path"], summary=f'{len(directory["files"])} 个代码文件；未认领 {directory["unowned"]}，重复认领 {directory["ambiguous"]}。', flags=flags, path=f'{directory["target"]}:{directory["path"]}', extra={"directory": directory})
-            nodes[node_id]["detailOnly"] = True
-            for owner in directory.get("owners", []):
-                add_edge(owner, node_id, "covers")
-            group_path = "/".join(directory["path"].split("/")[:2])
-            group_id = f'directory-group:{directory["target"]}:{group_path}'
-            group = grouped_directories.setdefault(group_id, {"target": directory["target"], "path": group_path, "files": [], "owners": set(), "unowned": 0, "ambiguous": 0, "children": []})
-            group["files"].extend(directory["files"])
-            group["owners"].update(directory.get("owners", []))
-            group["unowned"] += directory["unowned"]
-            group["ambiguous"] += directory["ambiguous"]
-            group["children"].append(node_id)
-        for group_id, group in grouped_directories.items():
-            flags = (["unowned"] if group["unowned"] else []) + (["ambiguous"] if group["ambiguous"] else [])
-            group["owners"] = sorted(group["owners"])
-            nodes[group_id] = _node(group_id, kind="directory", title=group["path"], summary=f'{len(group["files"])} 个代码文件，{len(group["children"])} 个目录；未认领 {group["unowned"]}，重复认领 {group["ambiguous"]}。展开目录明细可逐层查证。', flags=flags, path=f'{group["target"]}:{group["path"]}', extra={"directory": group, "directoryGroup": True})
-            for owner in group["owners"]:
-                add_edge(owner, group_id, "covers")
-            for child in group["children"]:
-                add_edge(group_id, child, "contains")
+            combos[combo_id]["flags"] = flags
+            combos[combo_id]["files"] = [_normalize_path(str(item)) for item in directory.get("files") or []]
+            combos[combo_id]["owners"] = [str(item) for item in directory.get("owners") or []]
+            combos[combo_id]["summary"] = (
+                f'{len(combos[combo_id]["files"])} 个代码文件；未认领 {directory.get("unowned") or 0}，重复认领 {directory.get("ambiguous") or 0}。'
+            )
+            for owner in combos[combo_id]["owners"]:
+                add_edge(owner, combo_id, "covers")
+            for relative in combos[combo_id]["files"]:
+                if not relative:
+                    continue
+                file_id = f"file:{target}:{relative}"
+                nodes[file_id] = _node(
+                    file_id,
+                    kind="file",
+                    title=_basename(relative),
+                    summary=relative,
+                    flags=flags,
+                    path=f"{target}:{relative}",
+                )
+                nodes[file_id]["combo"] = combo_id
+                for owner in combos[combo_id]["owners"]:
+                    add_edge(owner, file_id, "covers")
+        for node in nodes.values():
+            if node.get("kind") in {"knowledge", "boundary", "gap", "work"}:
+                node["combo"] = "combo:knowledge-cards"
+                node.pop("hidden", None)
+            elif node.get("kind") in {"floor", "constitution", "capability"}:
+                node["hidden"] = True
         for capability in _items(census.get("implementations")):
             node_id = "capability:" + capability["capability"]
-            nodes[node_id] = _node(node_id, kind="capability", title=capability["capability"], summary="当前实现：" + "、".join(capability["current"]), flags=["multiple"] if capability["competing"] else [], extra={"capability": capability})
+            nodes[node_id] = _node(node_id, kind="capability", title=capability["capability"], summary="当前实现：" + "、".join(capability["current"]), flags=["multiple"] if capability["competing"] else [], extra={"capability": capability, "hidden": True})
             for card_id in capability["cards"]:
                 add_edge(card_id, node_id, "implements")
         if census.get("error"):
             nodes["gap:census"] = _node("gap:census", kind="gap", title="普查不可用", summary=str(census["error"]), flags=["stale"])
+            nodes["gap:census"]["combo"] = "combo:knowledge-cards"
 
-    _annotate_coverage(nodes, edges)
+    _annotate_coverage(nodes, edges, combos)
+    for node in nodes.values():
+        if node.get("kind") != "file":
+            continue
+        parent = combos.get(str(node.get("combo") or ""))
+        if parent and parent.get("coveredBy") and not node.get("coveredBy"):
+            node["coveredBy"] = list(parent["coveredBy"])
+            node["coverageLabel"] = parent.get("coverageLabel") or "无知识卡覆盖"
+    for combo in combos.values():
+        flags = [flag for flag in LAZINESS_FLAGS if flag in set(combo.get("flags") or [])]
+        combo["flags"] = flags
+        combo["primary"] = _primary_flag(flags)
+        combo["lazy"] = bool(flags)
+        combo["statusLabel"] = " · ".join(FLAG_LABELS[flag] for flag in flags) or FLAG_LABELS["current"]
+        combo.setdefault("kindLabel", KIND_LABELS.get(str(combo.get("kind") or ""), str(combo.get("kind") or "")))
+        if combo.get("kind") == "directory":
+            combo.setdefault("coverageLabel", "、".join(combo.get("coveredBy") or []) or "无知识卡覆盖")
 
-    counts = {flag: 0 for flag in (*LAZINESS_FLAGS, "current", "nodes", "edges", "leaves")}
+    counts = {flag: 0 for flag in (*LAZINESS_FLAGS, "current", "nodes", "edges", "leaves", "files", "combos")}
     for node in nodes.values():
         counts["nodes"] += 1
+        if node["kind"] == "file":
+            counts["files"] += 1
         if node["kind"] in {"knowledge", "gap", "work"}:
             counts["leaves"] += 1
+        if node.get("hidden"):
+            continue
         if node["lazy"]:
             for flag in node["flags"]:
                 counts[flag] += 1
         else:
             counts["current"] += 1
     counts["edges"] = len(edges)
+    counts["combos"] = len(combos)
     lazy_total = sum(counts[flag] for flag in LAZINESS_FLAGS)
+    file_count = counts["files"]
+    card_count = sum(1 for node in nodes.values() if node.get("kind") == "knowledge" and not node.get("hidden"))
 
     return {
         "schema": GRAPH_SCHEMA,
+        "layout": "antv-dagre",
         "nodes": sorted(nodes.values(), key=lambda item: (item["kind"], item["id"])),
         "edges": edges,
+        "combos": sorted(combos.values(), key=lambda item: item["id"]),
         "counts": counts,
         "lazy": lazy_total > 0,
         "census": {key: census.get(key) for key in ("observed_at", "required", "revisions", "counts")},
         "headline": (
-            f"无主 {counts['unowned']} · 未普查 {counts['unreviewed']} · 过期 {counts['stale']} · 旧实现 {counts['abandoned']} · 多实现线索 {counts['multiple']} · 未验收 {counts['undeclared']}"
-            if lazy_total
+            f"项目目录 {file_count} 个文件 · 知识卡 {card_count} 张。无主 {counts['unowned']} · 未普查 {counts['unreviewed']} · 过期 {counts['stale']} · 旧实现 {counts['abandoned']} · 多实现线索 {counts['multiple']} · 未验收 {counts['undeclared']}"
+            if combos or lazy_total
             else f"{counts['leaves']} 张知识叶，没有可藏的偷懒"
         ),
     }

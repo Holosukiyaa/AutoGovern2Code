@@ -152,7 +152,7 @@ class HouseholdTests(unittest.TestCase):
         self.assertEqual(3, len(report["implementations"][0]["current"]))
         self.assertTrue(report["implementations"][0]["competing"])
         graph = build_governance_graph({"census": report})
-        self.assertTrue(any(node["id"] == "directory:app:src" and "unowned" in node["flags"] for node in graph["nodes"]))
+        self.assertTrue(any(combo["id"] == "directory:app:src" and "unowned" in combo["flags"] for combo in graph["combos"]))
         self.assertTrue(any(node["id"] == "capability:frontend" and "multiple" in node["flags"] for node in graph["nodes"]))
 
     def test_retirement_with_remaining_code_and_overlap_are_not_green(self):

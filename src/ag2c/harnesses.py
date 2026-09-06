@@ -14,6 +14,36 @@ GOVERNANCE_SKILL_NAME = "ag2c-governance-update"
 PACKAGED_SKILLS = (SKILL_NAME, GOVERNANCE_SKILL_NAME)
 SUPPORTED_HARNESSES = ("codex", "claude", "cursor", "agents")
 
+SKILL_ENTRY_PROMPT = """This Git repository is managed by AutoGovern2Code (AG2C).
+
+Install the AG2C Skills into THIS agent's own skills directory. Do not edit product files to do it.
+
+1. If this repo has docs/skills/ag2c-governed-development/SKILL.md, copy these folders into your skills home:
+   - docs/skills/ag2c-governed-development
+   - docs/skills/ag2c-governance-update
+   Typical skills homes:
+   - Codex: ~/.codex/skills
+   - Claude Code: ~/.claude/skills
+   - Cursor: ~/.cursor/skills
+   - Other Agent Skills hosts: ~/.agents/skills
+   If your product uses another skills folder, use that folder instead.
+2. If those docs/skills copies are missing, run: ag2c skill install
+   (or copy from the AG2C install/portable folder's packaged skills).
+3. Then in this repository run: ag2c guard status
+4. After that, file-changing work in this repo must follow ag2c-governed-development. Do not git commit on the canonical checkout.
+
+Git delivery stays blocked until work goes through an AG2C task worktree. Installing the Skill is only the entry.
+"""
+
+
+def skill_entry_prompt(*, project: Path | None = None) -> str:
+    root = (project or Path.cwd()).resolve()
+    local = root / "docs" / "skills" / "ag2c-governed-development" / "SKILL.md"
+    text = SKILL_ENTRY_PROMPT.strip() + "\n"
+    if local.is_file():
+        text += f"\nLocal skill copy in this repo:\n{local}\n"
+    return text
+
 
 def skill_source(name: str = SKILL_NAME) -> Path:
     source = Path(__file__).with_name("skills") / name

@@ -24,3 +24,12 @@ class CLITests(unittest.TestCase):
             self.assertEqual(0, main(["project", "uninstall", "C:/tmp/project"]))
         stop.assert_called_once()
         self.assertTrue(stop.call_args.kwargs["remove_data"])
+
+    def test_skill_prompt_prints_plain_entry_text(self) -> None:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(0, main(["skill", "prompt", "--project", "."]))
+        text = output.getvalue()
+        self.assertIn("ag2c skill install", text)
+        self.assertIn("ag2c guard status", text)
+        self.assertIn("docs/skills/ag2c-governed-development", text)

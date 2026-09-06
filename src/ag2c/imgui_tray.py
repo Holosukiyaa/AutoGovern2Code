@@ -45,6 +45,7 @@ from .tray_host import (
     project_gate_rows,
     register_app,
     runtime_command,
+    skill_prompt_text,
     session_token,
     start_desktop_server,
     state_label,
@@ -1054,10 +1055,32 @@ def _gui_gate_strip(state: AppState, project: dict[str, Any]) -> None:
             imgui.pop_style_color(pushed)
         if picked:
             audit(state, "查看" + label, "项目栏", value)
-            _inspect_gate(state, kind, project, details)
+            copied = ""
+            if kind == "gate":
+                copied = _copy_skill_prompt(text(project, "root"))
+                with state.lock:
+                    state.status = "提示词已复制，贴进当前 AI"
+            _inspect_gate(state, kind, project, details, prompt=copied)
 
 
-def _inspect_gate(state: AppState, kind: str, project: dict[str, Any], details: dict[str, Any] | None) -> None:
+def _copy_skill_prompt(root: str) -> str:
+    from imgui_bundle import imgui
+
+    prompt = skill_prompt_text(root)
+    try:
+        imgui.set_clipboard_text(prompt)
+    except Exception:
+        pass
+    return prompt
+
+
+def _inspect_gate(
+    state: AppState,
+    kind: str,
+    project: dict[str, Any],
+    details: dict[str, Any] | None,
+    prompt: str = "",
+) -> None:
     agents = [item for item in (project.get("agents") or []) if isinstance(item, dict)]
     last = project.get("last_task") if isinstance(project.get("last_task"), dict) else None
     worktrees = [item for item in ((details or {}).get("worktrees") or []) if isinstance(item, dict)]
@@ -1066,7 +1089,7 @@ def _inspect_gate(state: AppState, kind: str, project: dict[str, Any], details: 
         state.inspect = {
             "mode": kind,
             "title": titles.get(kind, kind),
-            "status": "",
+            "status": "提示词已复制，贴进当前 AI" if kind == "gate" and prompt else "",
             "summary": "",
             "claim": "",
             "path": text(project, "root"),
@@ -1074,6 +1097,7 @@ def _inspect_gate(state: AppState, kind: str, project: dict[str, Any], details: 
             "files": [],
             "cards": [],
             "message": "",
+            "prompt": prompt or (skill_prompt_text(text(project, "root")) if kind == "gate" else ""),
             "agents": agents,
             "entry_ready": bool(project.get("entry_ready")),
             "delivery_enforced": bool(project.get("delivery_enforced")),
@@ -1855,15 +1879,22 @@ def _gui_inspect(state: AppState) -> None:
         else:
             imgui.text_disabled(status)
     if mode == "gate":
-        agents = [item for item in (fields.get("agents") or []) if isinstance(item, dict)]
         imgui.separator()
-        if not agents:
-            imgui.text_wrapped("还没有检测到 Codex、Claude Code、Cursor 或通用 Agent Skills 入口")
-            return
-        for item in agents:
-            name = HARNESS_LABELS.get(str(item.get("harness")), str(item.get("harness") or ""))
-            status = HARNESS_STATE_LABELS.get(str(item.get("state") or ""), "未检测")
-            imgui.text(f"{name}  ·  {status}")
+        imgui.text_wrapped("把提示词贴进当前 AI。Skill 装进那个 agent 自己的目录；AG2C 不给每家写安装器。")
+        if imgui.button("复制提示词"):
+            copied = _copy_skill_prompt(str(fields.get("path") or ""))
+            with state.lock:
+                state.inspect["prompt"] = copied
+                state.inspect["status"] = "提示词已复制，贴进当前 AI"
+                state.status = "提示词已复制，贴进当前 AI"
+            audit(state, "复制提示词", "详情", "")
+        imgui.text_disabled("核对：Codex ~/.codex/skills · Claude ~/.claude/skills · Cursor ~/.cursor/skills")
+        if not fields.get("entry_ready"):
+            imgui.text_colored((0.92, 0.78, 0.35, 1.0), "观察：还没接到入口")
+        prompt = str(fields.get("prompt") or "")
+        if prompt:
+            imgui.separator()
+            imgui.text_wrapped(prompt)
         return
     if mode == "delivery":
         imgui.separator()

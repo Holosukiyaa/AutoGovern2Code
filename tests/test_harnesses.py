@@ -9,10 +9,22 @@ from unittest.mock import patch
 import bootstrap
 
 from ag2c.enrollment import _native_checkers
-from ag2c.harnesses import harness_status, install_skills, remove_skills
+from ag2c.harnesses import harness_status, install_skills, remove_skills, skill_entry_prompt
 
 
 class HarnessAdapterTests(unittest.TestCase):
+    def test_skill_entry_prompt_tells_the_agent_to_install_into_its_own_home(self) -> None:
+        prompt = skill_entry_prompt(project=Path(tempfile.gettempdir()))
+        self.assertIn("docs/skills/ag2c-governed-development", prompt)
+        self.assertIn("ag2c skill install", prompt)
+        self.assertIn("ag2c guard status", prompt)
+        self.assertIn("~/.codex/skills", prompt)
+        self.assertNotIn(str(Path(tempfile.gettempdir()) / "docs" / "skills"), prompt)
+        repo = Path(__file__).resolve().parents[1]
+        local = skill_entry_prompt(project=repo)
+        self.assertIn("Local skill copy in this repo:", local)
+        self.assertIn("docs", local.casefold())
+
     def test_default_install_covers_codex_claude_cursor_and_generic_agents(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)

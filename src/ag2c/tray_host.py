@@ -212,21 +212,23 @@ def _open_worktrees(details: dict[str, Any] | None) -> list[dict[str, Any]]:
     return [row for row in rows if isinstance(row, dict) and str(row.get("state") or "") in {"active", "verified"}]
 
 
+def skill_prompt_text(project_root: str = "") -> str:
+    from .harnesses import skill_entry_prompt
+
+    return skill_entry_prompt(project=Path(project_root) if project_root else Path.cwd())
+
+
 def project_gate_rows(project: dict[str, Any] | None, details: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Always-on operator strip: AI entry, delivery gate, deliveries, construction."""
     if not project:
         return []
     agents = [item for item in (project.get("agents") or []) if isinstance(item, dict)]
     ready = [HARNESS_LABELS.get(str(item.get("harness")), str(item.get("harness"))) for item in agents if item.get("integrated")]
-    missing = [item for item in agents if item.get("detected") and not item.get("integrated")]
     if ready:
-        entry_value = "已就绪 · " + " ".join(ready)
+        entry_value = "复制提示词"
         entry_warn = False
-    elif missing:
-        entry_value = "缺少 Skill"
-        entry_warn = True
     else:
-        entry_value = "未就绪"
+        entry_value = "复制提示词 · 还没接到"
         entry_warn = True
     delivery_ok = bool(project.get("delivery_enforced"))
     completed = int(project.get("completed_tasks") or 0)

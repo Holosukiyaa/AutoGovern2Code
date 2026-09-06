@@ -1151,7 +1151,10 @@ def guard_pre_commit(start: Path) -> int:
             append_event(manifest.ledger_path, "violation-blocked", {"kind": "canonical-commit", "paths": status_entries(root)})
         except Exception:
             pass
-        raise AG2CError("AG2C blocks commits in the canonical worktree; use a AG2C task worktree")
+        raise AG2CError(
+            "AG2C blocks commits in the canonical worktree; use a AG2C task worktree. "
+            "Copy the Skill prompt with `ag2c skill prompt` and paste it into your coding agent."
+        )
     branch = current_branch(root)
     if not branch.startswith("ag2c/"):
         raise AG2CError(f"AG2C blocks commits from an unmanaged worktree branch: {branch}")

@@ -340,6 +340,17 @@ def empty_inspect(headline: str = "") -> dict[str, Any]:
     }
 
 
+def preferred_project_root(projects: list[dict[str, Any]]) -> str:
+    for wanted in ("attention", "protected", "stopped", "inactive"):
+        for row in projects:
+            if str(row.get("state") or "") != wanted:
+                continue
+            root = text(row, "root")
+            if root:
+                return root
+    return ""
+
+
 def row_key(node: dict[str, Any], fallback: str = "") -> str:
     return text(node, "id") or text(node, "path") or fallback
 

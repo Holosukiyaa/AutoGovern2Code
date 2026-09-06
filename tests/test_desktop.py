@@ -705,6 +705,111 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertEqual(sentinel, third)
         self.assertEqual(2, compute.call_count)
 
+    def test_project_details_missing_folder_does_not_run_git(self) -> None:
+        from ag2c.errors import AG2CError
+        from ag2c.management import project_details
+
+        gone = Path(tempfile.mkdtemp()) / "demo"
+        with patch("ag2c.gitops.git", side_effect=AssertionError("git must not run")) as git_fn, patch(
+            "ag2c.management.repository_root", side_effect=AssertionError("git must not run")
+        ) as repo, patch("ag2c.management.harness_status", return_value=[]), patch(
+            "ag2c.management.find_project_record", return_value={"name": "demo", "root": str(gone)}
+        ):
+            payload = project_details(gone)
+        self.assertFalse(payload["available"])
+        self.assertEqual("missing", payload["project"]["state"])
+        self.assertIn("project folder is unavailable", payload["project"]["issues"])
+        git_fn.assert_not_called()
+        repo.assert_not_called()
+
+        empty = Path(tempfile.mkdtemp())
+        failure = AG2CError(
+            "Git command failed (rev-parse --show-toplevel): fatal: cannot change to "
+            f"'{empty / 'demo'}': No such file or directory"
+        )
+        with patch("ag2c.management.repository_root", side_effect=failure) as repo, patch(
+            "ag2c.management.harness_status", return_value=[]
+        ), patch("ag2c.management.find_project_record", return_value=None):
+            payload = project_details(empty)
+        self.assertFalse(payload["available"])
+        self.assertEqual("inactive", payload["project"]["state"])
+        repo.assert_called_once()
+
+    def test_preferred_project_root_skips_missing_folders(self) -> None:
+        from ag2c.tray_host import preferred_project_root
+
+        vanished = {"name": "demo", "root": r"C:\Users\Holo\AppData\Local\Temp\tmpxoioswl5\demo", "state": "missing"}
+        live = {"name": "AutoGovern2Code-main", "root": r"C:\_HOLOLAB\code\AutoGovern2Code-main", "state": "protected"}
+        attention = {"name": "CartridgeFlow", "root": r"C:\WorkSpace\Code\CartridgeFlow", "state": "attention"}
+        self.assertEqual(live["root"], preferred_project_root([vanished, live]))
+        self.assertEqual(attention["root"], preferred_project_root([vanished, live, attention]))
+        self.assertEqual("", preferred_project_root([vanished]))
+        self.assertEqual("", preferred_project_root([]))
+
+    def test_load_projects_drops_a_selection_that_left_the_registry(self) -> None:
+        from ag2c.imgui_tray import _load_projects
+
+        vanished = r"C:\Users\Holo\AppData\Local\Temp\tmpxoioswl5\demo"
+        live = r"C:\_HOLOLAB\code\AutoGovern2Code-main"
+
+        class State:
+            def __init__(self, api, selected: str) -> None:
+                self.api = api
+                self.lock = threading.Lock()
+                self.busy = False
+                self.status = ""
+                self.projects: list = []
+                self.selected_root = selected
+
+        class GoneFromRegistry:
+            def request(self, method: str, path: str, body=None):
+                return {"projects": [{"name": "AutoGovern2Code-main", "root": live, "state": "protected"}]}
+
+        state = State(GoneFromRegistry(), vanished)
+        _load_projects(state)
+        self.assertEqual(live, state.selected_root)
+
+        class Mixed:
+            def request(self, method: str, path: str, body=None):
+                return {
+                    "projects": [
+                        {"name": "demo", "root": vanished, "state": "missing"},
+                        {"name": "AutoGovern2Code-main", "root": live, "state": "protected"},
+                    ]
+                }
+
+        state = State(Mixed(), "")
+        _load_projects(state)
+        self.assertEqual(live, state.selected_root)
+
+        class StillListed:
+            def request(self, method: str, path: str, body=None):
+                return {"projects": [{"name": "demo", "root": vanished, "state": "missing"}]}
+
+        state = State(StillListed(), vanished)
+        _load_projects(state)
+        self.assertEqual(vanished, state.selected_root)
+
+    def test_managed_projects_sorts_missing_last_and_skips_git(self) -> None:
+        from ag2c import management
+
+        gone = Path(tempfile.mkdtemp()) / "demo"
+        live_root = Path(tempfile.mkdtemp())
+        live_card = {"name": "live", "root": str(live_root), "state": "protected"}
+        with patch(
+            "ag2c.management.project_records",
+            return_value=[
+                {"name": "demo", "root": str(gone), "governance": "active"},
+                {"name": "live", "root": str(live_root), "governance": "active"},
+            ],
+        ), patch("ag2c.management.harness_status", return_value=[]), patch(
+            "ag2c.management.project_list_item", return_value=live_card
+        ) as listed, patch("ag2c.management.repository_root") as repo:
+            rows = management.managed_projects()
+        listed.assert_called_once()
+        repo.assert_not_called()
+        self.assertEqual(["protected", "missing"], [row["state"] for row in rows])
+
 
 class TrayGateTests(unittest.TestCase):
     def test_project_gate_rows_report_entry_delivery_records_and_anomalies(self) -> None:

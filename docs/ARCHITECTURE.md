@@ -67,7 +67,7 @@ The full self-digesting receipt binds route, checks, acceptance, Manifest, Polic
 
 The Windows tray host is a Dear ImGui application through Hello ImGui (`imgui-bundle`, MIT). It starts the frozen AG2C runtime as a child process on a random `127.0.0.1` port, uses a per-session header token, and shows projects, the file tree, a read-only knowledge-card pedigree canvas (`imgui-node-editor`, MIT), knowledge cards, and an inspector in Hello ImGui dock spaces. Network calls run on a worker thread. It does not embed Edge WebView2, does not use PySide/Qt, and does not import ImGuizmo, ImmVision, or 3D plotting modules. The Python runtime serves a local JSON API for the tray. It does not ship HTML viewer assets, cookies, or an in-page folder browser. The server rejects non-local hosts and origins and sends a restrictive content security policy.
 
-The UI can add, inspect, recheck, open, and stop managing projects. It cannot edit Policy or evidence. Hello ImGui's portable folder dialog handles project selection, so users never type paths. Knowledge cards, unowned directories, stale or abandoned cards, undeclared product checks, and open AI worktrees are flagged in the tree, card list, and inspector.
+The UI can add, inspect, recheck, open, and stop managing projects. A registered folder that no longer exists is listed as unavailable; the tray does not run Git on it and does not auto-select it. It cannot edit Policy or evidence. Hello ImGui's portable folder dialog handles project selection, so users never type paths. Knowledge cards, unowned directories, stale or abandoned cards, undeclared product checks, and open AI worktrees are flagged in the tree, card list, and inspector.
 
 ## Git guard and limits
 

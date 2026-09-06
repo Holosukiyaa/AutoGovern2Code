@@ -212,7 +212,7 @@ def managed_projects() -> list[dict[str, Any]]:
         except (AG2CError, OSError, ValueError) as exc:
             current = _unavailable_project(record, agents, issue=str(exc), state="inactive")
         result.append({**record, **current})
-    order = {"attention": 0, "inactive": 1, "stopped": 2, "missing": 3, "protected": 4}
+    order = {"attention": 0, "protected": 1, "stopped": 2, "inactive": 3, "missing": 4}
     return sorted(result, key=lambda item: (order.get(str(item.get("state")), 9), str(item.get("name", "")).lower()))
 
 
@@ -289,8 +289,34 @@ def _write_details_cache(root: Path, fingerprint: str, details: dict[str, Any]) 
         pass
 
 
+def _empty_details(project: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "project": project,
+        "available": False,
+        "manifest": None,
+        "cards": [],
+        "relations": [],
+        "contracts": [],
+        "checkers": [],
+        "index": {"current": False, "errors": [], "summary": None, "findings": []},
+        "knowledge": [],
+        "pending": {"items": []},
+        "worktrees": [],
+        "ledger": None,
+        "journals": [],
+    }
+
+
 def project_details(path: Path, *, refresh: bool = False) -> dict[str, Any]:
-    root = repository_root(path)
+    start = path.expanduser().resolve()
+    if not start.is_dir():
+        record = find_project_record(start) or {"root": str(start), "name": start.name}
+        return _empty_details(_unavailable_project(record, harness_status(), issue="project folder is unavailable", state="missing"))
+    try:
+        root = repository_root(start)
+    except AG2CError as exc:
+        record = find_project_record(start) or {"root": str(start), "name": start.name}
+        return _empty_details(_unavailable_project(record, harness_status(), issue=str(exc), state="inactive"))
     fingerprint = details_fingerprint(root)
     if not refresh:
         cached, cached_fp = _read_details_cache(root)

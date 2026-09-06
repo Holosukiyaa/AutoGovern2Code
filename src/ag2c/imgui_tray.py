@@ -37,6 +37,7 @@ from .tray_host import (
     focus_card,
     focus_file,
     inspect_fields,
+    preferred_project_root,
     is_portable,
     issue_label,
     portable_env,
@@ -2124,8 +2125,9 @@ def _load_projects(state: AppState) -> None:
             state.status = "还没有治理项目" if not projects else f"已接入 {len(projects)} 个项目"
         elif projects and state.status in {"正在启动", "已连接"}:
             state.status = f"已接入 {len(projects)} 个项目"
-        if not state.selected_root and projects:
-            state.selected_root = text(projects[0], "root")
+        roots = {text(row, "root") for row in projects}
+        if not state.selected_root or state.selected_root not in roots:
+            state.selected_root = preferred_project_root(projects)
 
 
 def _refresh(state: AppState) -> None:
@@ -2155,6 +2157,7 @@ def _load_details(state: AppState, root: str, *, refresh: bool = False) -> None:
     payload = state.api.request("POST", "api/project/details", {"path": root, "refresh": refresh})
     with state.lock:
         state.details = payload
+        state.error = ""
         state.clear_focus()
         graph = payload.get("graph") if isinstance(payload.get("graph"), dict) else {}
         headline = graph.get("headline")

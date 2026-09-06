@@ -17,9 +17,10 @@ python_path_entries = [entry for entry in python_path.split(os.pathsep) if entry
 if SOURCE_ROOT not in python_path_entries:
     os.environ["PYTHONPATH"] = os.pathsep.join([SOURCE_ROOT, *python_path_entries])
 
-if "AG2C_DATA_ROOT" not in os.environ:
-    _TEST_DATA_ROOT = tempfile.mkdtemp(prefix="ag2c-tests-")
-    os.environ["AG2C_DATA_ROOT"] = _TEST_DATA_ROOT
-    atexit.register(shutil.rmtree, _TEST_DATA_ROOT, ignore_errors=True)
-if "AG2C_PORTABLE" not in os.environ:
-    os.environ["AG2C_PORTABLE"] = "0"
+# Always isolate from the operator registry. `ag2c task verify` inherits
+# AG2C_PORTABLE/AG2C_DATA_ROOT from a self-governed checkout; leaving those
+# in place enrolled TemporaryDirectory demos into the live tray list.
+_TEST_DATA_ROOT = tempfile.mkdtemp(prefix="ag2c-tests-")
+os.environ["AG2C_DATA_ROOT"] = _TEST_DATA_ROOT
+os.environ["AG2C_PORTABLE"] = "0"
+atexit.register(shutil.rmtree, _TEST_DATA_ROOT, ignore_errors=True)

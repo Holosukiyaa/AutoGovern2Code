@@ -16,6 +16,7 @@
 - Show the tray coverage view as a scrollable project file tree on the left and knowledge cards on the right. Search `frontend` to isolate the frontend tree.
 - Nest the tray file tree so folders like `src` expand to their children instead of rendering as empty leaves. Clicking a folder opens it; the first level starts expanded.
 - File tree and knowledge cards are bidirectional: each file shows 未认领 / card title / 重复认领, clicking a file highlights 同类 and the card, clicking a card expands and lights its files in place, and the inspector shows 设计思路.
+- Stop the tray from exiting when a knowledge-card file list is drawn: Hello ImGui `selectable` always receives the required selected flag. Cache project details by Git HEAD and status so a second launch does not rebuild the census.
 - Prefer the user's Git when it is on PATH; otherwise download MinGit into the AG2C data directory.
 - Stop claiming macOS or Linux support in the public README. This release is Windows-only.
 - Rewrote the GitHub README around v0.8.4: current tray dashboard, process vs product, stop/resume/uninstall, and copied-store recovery.

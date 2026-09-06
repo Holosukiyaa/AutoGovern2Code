@@ -301,6 +301,8 @@ class TraySelectionTests(unittest.TestCase):
         self.assertIn("未认领", ui)
         self.assertIn("同类", ui)
         self.assertIn("治理文件", ui)
+        self.assertIn("def _selectable(", ui)
+        self.assertIn("_selectable(widget_id(rel, \"gov:\" + rel))", ui)
 
 
 class TrayHostHelperTests(unittest.TestCase):
@@ -433,6 +435,24 @@ class TrayHostHelperTests(unittest.TestCase):
         empty_focus = focus_card(files, empty)
         self.assertEqual(set(), empty_focus["highlight_paths"])
         self.assertEqual("这张卡还没有落到文件树上的代码文件", empty_focus["inspect"]["message"])
+
+    def test_project_details_cache_skips_rebuild_until_refresh(self) -> None:
+        from ag2c.management import project_details
+
+        root = Path(tempfile.mkdtemp())
+        sentinel = {"available": True, "graph": {"nodes": [{"kind": "file", "path": "app:src/a.py"}]}}
+        with patch("ag2c.management.repository_root", return_value=root), patch(
+            "ag2c.management.default_data_root", return_value=root / "data"
+        ), patch("ag2c.management.details_fingerprint", return_value="fp-1"), patch(
+            "ag2c.management._compute_project_details", return_value=sentinel
+        ) as compute:
+            first = project_details(root)
+            second = project_details(root)
+            third = project_details(root, refresh=True)
+        self.assertEqual(sentinel, first)
+        self.assertEqual(sentinel, second)
+        self.assertEqual(sentinel, third)
+        self.assertEqual(2, compute.call_count)
 
 
 class HiddenConsoleTests(unittest.TestCase):

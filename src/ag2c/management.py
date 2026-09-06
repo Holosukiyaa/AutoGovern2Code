@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +26,7 @@ from .storage import (
     unregister_project,
 )
 from .tasks import evidence, list_tasks
+from .util import default_data_root
 
 
 def _unavailable_project(record: dict[str, Any], agents: list[dict[str, Any]], *, issue: str, state: str) -> dict[str, Any]:
@@ -247,8 +250,60 @@ def add_project(path: Path) -> dict[str, Any]:
     return project_status(path)
 
 
-def project_details(path: Path) -> dict[str, Any]:
+def details_fingerprint(root: Path) -> str:
+    try:
+        head = str(git(root, "rev-parse", "HEAD", check=False)).strip()
+    except AG2CError:
+        head = ""
+    try:
+        porcelain = str(git(root, "status", "--porcelain", check=False))
+    except AG2CError:
+        porcelain = ""
+    payload = f"{root.resolve()}\n{head}\n{porcelain}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _details_cache_file(root: Path) -> Path:
+    digest = hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()[:20]
+    return default_data_root() / "cache" / f"details-{digest}.json"
+
+
+def _read_details_cache(root: Path) -> tuple[dict[str, Any] | None, str]:
+    path = _details_cache_file(root)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeError):
+        return None, ""
+    if not isinstance(raw, dict) or not isinstance(raw.get("details"), dict):
+        return None, ""
+    return raw["details"], str(raw.get("fingerprint") or "")
+
+
+def _write_details_cache(root: Path, fingerprint: str, details: dict[str, Any]) -> None:
+    path = _details_cache_file(root)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"fingerprint": fingerprint, "details": details}, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
+def project_details(path: Path, *, refresh: bool = False) -> dict[str, Any]:
     root = repository_root(path)
+    fingerprint = details_fingerprint(root)
+    if not refresh:
+        cached, cached_fp = _read_details_cache(root)
+        if cached is not None and cached_fp == fingerprint:
+            return cached
+    result = _compute_project_details(root)
+    _write_details_cache(root, fingerprint, result)
+    return result
+
+
+def _compute_project_details(root: Path) -> dict[str, Any]:
     status = project_status(root)
     result: dict[str, Any] = {
         "project": status,

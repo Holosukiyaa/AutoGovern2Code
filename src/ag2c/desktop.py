@@ -156,7 +156,10 @@ class DesktopHandler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK, {"project": repair_and_check_project(self._request_path(body))})
                 return
             if path == "/api/project/details":
-                self._json(HTTPStatus.OK, project_details(self._request_path(body)))
+                self._json(
+                    HTTPStatus.OK,
+                    project_details(self._request_path(body), refresh=bool(body.get("refresh"))),
+                )
                 return
             if path == "/api/projects/remove":
                 self._json(HTTPStatus.OK, stop_managing(self._request_path(body)))

@@ -204,6 +204,21 @@ def widget_id(label: str, key: str) -> str:
     return f"{label}##{key}"
 
 
+def _selectable(label: str, selected: bool = False) -> bool:
+    from imgui_bundle import imgui
+
+    clicked, _checked = imgui.selectable(label, selected)
+    return bool(clicked)
+
+
+def _guarded(state: AppState, label: str, fn: Callable[[], None]) -> None:
+    try:
+        fn()
+    except Exception as exc:
+        with state.lock:
+            state.error = f"{label}: {exc}"
+
+
 def node_key(node: dict[str, Any], fallback: str = "") -> str:
     return text(node, "id") or text(node, "path") or fallback
 
@@ -277,10 +292,10 @@ def _windows(state: AppState):
         return item
 
     return [
-        window("项目", "ProjectSpace", lambda: _gui_projects(state)),
-        window("文件树", "MainDockSpace", lambda: _gui_tree(state)),
-        window("知识卡片", "CardSpace", lambda: _gui_cards(state)),
-        window("详情", "InspectorSpace", lambda: _gui_inspect(state)),
+        window("项目", "ProjectSpace", lambda: _guarded(state, "项目", lambda: _gui_projects(state))),
+        window("文件树", "MainDockSpace", lambda: _guarded(state, "文件树", lambda: _gui_tree(state))),
+        window("知识卡片", "CardSpace", lambda: _guarded(state, "知识卡片", lambda: _gui_cards(state))),
+        window("详情", "InspectorSpace", lambda: _guarded(state, "详情", lambda: _gui_inspect(state))),
     ]
 
 
@@ -328,7 +343,7 @@ def _gui_projects(state: AppState) -> None:
     for row in rows:
         root = text(row, "root")
         label = f"{text(row, 'name')}  ·  {state_label(text(row, 'state'))}"
-        clicked, _ = imgui.selectable(widget_id(label, root), selected == root)
+        clicked = _selectable(widget_id(label, root), selected == root)
         if imgui.is_item_hovered():
             imgui.set_tooltip(root)
         if clicked and root != selected:
@@ -465,7 +480,7 @@ def _gui_cards(state: AppState) -> None:
         count = len(files_for_card(all_files, node))
         label = f"{title}  ·  {status} · {count} 个文件" if status else f"{title}  ·  {count} 个文件"
         key = node_key(node, title)
-        if imgui.selectable(widget_id(label, key), selected_card == key)[0]:
+        if _selectable(widget_id(label, key), selected_card == key):
             _focus_card(state, node)
         if scroll_card and key == scroll_card:
             imgui.set_scroll_here_y(0.25)
@@ -528,14 +543,14 @@ def _gui_inspect(state: AppState) -> None:
                 if not isinstance(item, dict):
                     continue
                 title = str(item.get("title") or item.get("id") or "")
-                if imgui.selectable(widget_id(title, str(item.get("id") or title)))[0]:
+                if _selectable(widget_id(title, str(item.get("id") or title))):
                     _activate_owner(state, title)
         peers = [str(item) for item in fields.get("peers") or [] if str(item)]
         if peers:
             imgui.separator()
             imgui.text_disabled(f"同类 {len(peers)} 个文件")
             for rel in peers:
-                if imgui.selectable(widget_id(rel, rel), rel == text(fields, "path"))[0]:
+                if _selectable(widget_id(rel, rel), rel == text(fields, "path")):
                     _focus_path(state, rel)
         elif str(fields.get("claim") or "") == "未认领":
             imgui.separator()
@@ -552,7 +567,7 @@ def _gui_inspect(state: AppState) -> None:
         if governed:
             imgui.text_disabled(f"治理文件 {len(governed)} 个")
             for rel in governed:
-                if imgui.selectable(widget_id(rel, "gov:" + rel))[0]:
+                if _selectable(widget_id(rel, "gov:" + rel)):
                     _focus_path(state, rel)
         else:
             imgui.text_wrapped(str(fields.get("message") or "这张卡还没有落到文件树上的代码文件"))
@@ -626,7 +641,24 @@ def _start_backend(state: AppState) -> None:
         state.loading = False
         state.status = "已连接"
     _load_projects(state)
-    _refresh(state)
+    with state.lock:
+        selected = state.selected_root
+        stopping = state.stopping
+    if selected:
+        _load_details(state, selected, refresh=False)
+    if stopping or state.api is None:
+        return
+    try:
+        state.api.request("POST", "api/projects/align", {})
+        _load_projects(state)
+        with state.lock:
+            selected = state.selected_root
+        if selected:
+            _load_details(state, selected, refresh=False)
+    except Exception as exc:
+        with state.lock:
+            if not state.error:
+                state.error = str(exc)
 
 
 def _load_projects(state: AppState) -> None:
@@ -657,13 +689,13 @@ def _refresh(state: AppState) -> None:
         if not state.stopping:
             state.status = "还没有治理项目" if not state.projects else f"已接入 {len(state.projects)} 个项目"
     if selected:
-        _load_details(state, selected)
+        _load_details(state, selected, refresh=True)
 
 
-def _load_details(state: AppState, root: str) -> None:
+def _load_details(state: AppState, root: str, *, refresh: bool = False) -> None:
     if state.api is None:
         return
-    payload = state.api.request("POST", "api/project/details", {"path": root})
+    payload = state.api.request("POST", "api/project/details", {"path": root, "refresh": refresh})
     with state.lock:
         state.details = payload
         state.clear_focus()

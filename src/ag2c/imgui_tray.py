@@ -1862,6 +1862,7 @@ def _gui_inspect(state: AppState) -> None:
     with state.lock:
         fields = dict(state.inspect)
         error = state.error
+        busy = state.busy or state.loading
     if error:
         imgui.push_style_color(imgui.Col_.text, (0.86, 0.2, 0.2, 1.0))
         imgui.text_wrapped(error)
@@ -1991,6 +1992,19 @@ def _gui_inspect(state: AppState) -> None:
             imgui.text_wrapped("未认领")
         return
     if mode == "card":
+        span = fields.get("span")
+        if span is not None:
+            imgui.separator()
+            imgui.text_disabled("覆盖")
+            imgui.text(str(fields.get("span_label") or "未打标"))
+            first = True
+            for key, label in (("none", "未打标"), ("folder", "整夹一张"), ("file", "一文件一张")):
+                if not first:
+                    imgui.same_line()
+                first = False
+                if imgui.small_button(f"{label}##span-{key}") and not busy:
+                    audit(state, "覆盖标签", "详情", f"{fields.get('card_id')}:{label}")
+                    state.run_job(lambda tag=key, card=str(fields.get("card_id") or ""): _set_span(state, card, tag))
         if fields.get("summary"):
             imgui.separator()
             imgui.text_disabled("设计思路")
@@ -2164,6 +2178,18 @@ def _post(state: AppState, route: str, root: str) -> None:
         return
     state.api.request("POST", route, {"path": root})
     _refresh(state)
+
+
+def _set_span(state: AppState, card_id: str, tag: str) -> None:
+    if state.api is None or not card_id:
+        return
+    root = ""
+    with state.lock:
+        root = state.selected_root
+    if not root:
+        return
+    state.api.request("POST", "api/household/span", {"path": root, "id": card_id, "tag": tag})
+    _load_details(state, root, refresh=True)
 
 
 def _open_folder(state: AppState, root: str) -> None:

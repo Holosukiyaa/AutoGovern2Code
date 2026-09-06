@@ -13,6 +13,7 @@ from .govern import _atomic_json, _read_json
 from .households import (
     RECORD_BLOCK_ISSUES,
     RENEWAL_SCHEMA,
+    SPAN_LABELS,
     _history,
     _is_proper_subdir,
     assert_monotonic,
@@ -21,6 +22,7 @@ from .households import (
     coerce_jurisdiction,
     directory_scope,
     load_renewals,
+    normalize_span,
     renewal_path,
 )
 
@@ -143,7 +145,7 @@ def _save_policy(manifest, raw: dict, actor: str, reason: str, event_type: str, 
     return {**payload, "actor": actor, "reason": reason, "ledger_event_digest": event["event_digest"]}
 
 
-def register_household(start: Path, *, card_id: str, title: str, summary: str, includes: list[str], excludes: list[str], floors: list[str], capability: str, implementation: str, status: str, replaced_by: str = "", entrypoints: list[str] | None = None, checkers: list[str] | None = None, command: list[str] | None = None, grain: str = "", meaning: str = "", contract: str = "", decider: str = "", actor: str, reason: str) -> dict:
+def register_household(start: Path, *, card_id: str, title: str, summary: str, includes: list[str], excludes: list[str], floors: list[str], capability: str, implementation: str, status: str, replaced_by: str = "", entrypoints: list[str] | None = None, checkers: list[str] | None = None, command: list[str] | None = None, grain: str = "", meaning: str = "", contract: str = "", decider: str = "", span: str = "", actor: str, reason: str) -> dict:
     actor, reason = _identity(actor, reason)
     manifest, policy = _context(start)
     raw = _read_json(manifest.policy_path)
@@ -167,8 +169,12 @@ def register_household(start: Path, *, card_id: str, title: str, summary: str, i
         checker = {"id": checker_id, "stage": "scenario", "target": "app", "cwd": ".", "command": command, "timeout": 600, "implementation": implementation}
         raw["checkers"] = [item for item in raw.get("checkers", []) if item["id"] != checker_id] + [checker]
         selected_checkers.append(checker_id)
+    previous = known.get(card_id)
+    previous_span = ""
+    if previous is not None and previous.jurisdiction is not None:
+        previous_span = str((coerce_jurisdiction(previous.jurisdiction) or {}).get("span") or "none")
     _carve_exploring_placeholders(raw, card_id, includes)
-    card = {"id": card_id, "type": "knowledge", "title": title.strip(), "summary": summary.strip(), "scopes": [{"target": "app", "include": includes, "exclude": excludes, "ownership": "reference"}], "references": [], "checkers": list(dict.fromkeys(selected_checkers)), "jurisdiction": {"capability": capability, "implementation": implementation, "status": status, "entrypoints": list(entrypoints or []), "grain": grain or "subtree", "meaning": meaning or "none", "contract": contract or "none", "decider": decider or "none"}}
+    card = {"id": card_id, "type": "knowledge", "title": title.strip(), "summary": summary.strip(), "scopes": [{"target": "app", "include": includes, "exclude": excludes, "ownership": "reference"}], "references": [], "checkers": list(dict.fromkeys(selected_checkers)), "jurisdiction": {"capability": capability, "implementation": implementation, "status": status, "entrypoints": list(entrypoints or []), "grain": grain or "subtree", "meaning": meaning or "none", "contract": contract or "none", "decider": decider or "none", "span": normalize_span(span or previous_span or "none")}}
     raw["cards"] = [item for item in raw.get("cards", []) if item["id"] != card_id] + [card]
     coverage = raw.get("coverage")
     if isinstance(coverage, dict) and coverage.get("level") == "baseline":
@@ -283,6 +289,44 @@ def tighten_household(
     pending_updates(start)
     report = census_report(*_context(start))
     result["identity"] = next(item["identity"] for item in report["households"] if item["id"] == card_id)
+    return result
+
+
+def set_household_span(start: Path, *, card_id: str, span: str, actor: str, reason: str) -> dict:
+    actor, reason = _identity(actor, reason)
+    card_id = card_id.strip()
+    chosen = normalize_span(span)
+    manifest, policy = _context(start)
+    card = next((item for item in policy.cards if item.card_id == card_id), None)
+    if card is None or card.jurisdiction is None:
+        raise AG2CError(f"unknown directory household: {card_id}")
+    old = coerce_jurisdiction(card.jurisdiction) or {}
+    new = dict(old)
+    new["span"] = chosen
+    raw = _read_json(manifest.policy_path)
+    found = False
+    for item in raw.get("cards", []):
+        if item.get("id") != card_id:
+            continue
+        item["jurisdiction"] = {**(item.get("jurisdiction") or {}), **new}
+        found = True
+        break
+    if not found:
+        raise AG2CError(f"unknown directory household: {card_id}")
+    result = _save_policy(
+        manifest,
+        raw,
+        actor,
+        reason,
+        "household-span",
+        {"id": card_id, "previous": old.get("span"), "span": chosen, "span_label": SPAN_LABELS[chosen]},
+        after_load=_refuse_household_write(card_id, "span-blocked"),
+    )
+    report = census_report(*_context(start))
+    record = next(item for item in report["households"] if item["id"] == card_id)
+    result["identity"] = record["identity"]
+    result["span"] = chosen
+    result["span_label"] = SPAN_LABELS[chosen]
     return result
 
 

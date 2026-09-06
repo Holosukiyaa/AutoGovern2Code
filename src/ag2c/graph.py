@@ -516,7 +516,13 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
                 flags=flags,
                 path="、".join(paths),
                 detection="、".join(household.get("checkers", [])) or "未绑定实现检测",
-                extra={"household": household, "jurisdiction": declaration, "freshness": freshness, "coversDirectories": []},
+                extra={
+                    "household": household,
+                    "jurisdiction": declaration,
+                    "freshness": freshness,
+                    "coversDirectories": [],
+                    "span": str(declaration.get("span") or "none"),
+                },
             )
         history_by_target = _mapping(source.get("file_history"))
         for directory in _items(census.get("directories")):

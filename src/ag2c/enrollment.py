@@ -320,6 +320,24 @@ def _runtime_command() -> list[str]:
     return [executable, "-m", "ag2c"]
 
 
+def _python_family_key(path: Path) -> tuple[str, str, str]:
+    resolved = path.resolve()
+    stem = resolved.stem.lower()
+    if stem == "pythonw":
+        stem = "python"
+    return (str(resolved.parent).lower(), stem, resolved.suffix.lower())
+
+
+def runtime_equivalent(configured: list[str], expected: list[str]) -> bool:
+    if not configured or not expected or configured[1:] != expected[1:]:
+        return False
+    left = Path(configured[0])
+    right = Path(expected[0])
+    if not left.is_file() or not right.is_file():
+        return False
+    return left.resolve() == right.resolve() or _python_family_key(left) == _python_family_key(right)
+
+
 def _existing_git_hook(directory: Path, name: str) -> Path | None:
     candidate = directory / name
     if candidate.is_file():
@@ -1173,12 +1191,7 @@ def activation_status(start: Path) -> dict[str, Any]:
         if not isinstance(configured_runtime, list) or not all(isinstance(item, str) for item in configured_runtime):
             configured_runtime = [str(activation.get("python_path", "")), "-m", "ag2c"]
         expected_runtime = _runtime_command()
-        configured_executable = Path(configured_runtime[0]) if configured_runtime and configured_runtime[0] else Path()
-        if (
-            not configured_executable.is_file()
-            or configured_executable.resolve() != Path(expected_runtime[0]).resolve()
-            or configured_runtime[1:] != expected_runtime[1:]
-        ):
+        if not runtime_equivalent([str(item) for item in configured_runtime], expected_runtime):
             issues.append("AG2C Git guard uses a missing or different runtime")
     else:
         issues.append("AG2C activation record is missing")

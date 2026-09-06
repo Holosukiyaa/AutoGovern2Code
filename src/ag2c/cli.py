@@ -275,6 +275,7 @@ def build_parser() -> argparse.ArgumentParser:
     household.add_argument("--meaning", choices=("none", "named"), default="")
     household.add_argument("--contract", choices=("none", "partial", "machine"), default="")
     household.add_argument("--decider", choices=("none", "machine", "confirm"), default="")
+    household.add_argument("--span", default="", help="未打标 / 整夹一张 / 一文件一张")
     household.add_argument("--replaced-by", default="")
     household.add_argument("--command-json", help="implementation-specific checker argv as JSON")
     household.add_argument("--format", choices=("text", "json"), default="json")
@@ -310,6 +311,12 @@ def build_parser() -> argparse.ArgumentParser:
     census.add_argument("--actor", default="")
     census.add_argument("--reason", default="")
     census.add_argument("--format", choices=("text", "json"), default="json")
+    span = govern_commands.add_parser("span", help="set a directory room's coverage tag: 未打标, 整夹一张, or 一文件一张")
+    span.add_argument("--id", required=True)
+    span.add_argument("--tag", required=True, help="未打标 / 整夹一张 / 一文件一张")
+    span.add_argument("--actor", required=True)
+    span.add_argument("--reason", required=True)
+    span.add_argument("--format", choices=("text", "json"), default="json")
     enforcement = govern_commands.add_parser("household-gate")
     enforcement.add_argument("--mode", choices=("enforce", "observe"), required=True)
     enforcement.add_argument("--actor", required=True)
@@ -645,7 +652,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "govern":
             from .govern import apply_change, ingest_project, pending_updates, retrieve_guidance, settle_pending
 
-            if args.govern_command in {"household", "census", "household-gate", "tighten", "renew-exploring", "retire", "retire-confirm"}:
+            if args.govern_command in {"household", "census", "household-gate", "tighten", "renew-exploring", "retire", "retire-confirm", "span"}:
                 from .household_commands import (
                     confirm_retirement,
                     read_census,
@@ -654,11 +661,12 @@ def main(argv: list[str] | None = None) -> int:
                     retire_household,
                     review_census,
                     set_household_enforcement,
+                    set_household_span,
                     tighten_household,
                 )
 
                 if args.govern_command == "household":
-                    result = register_household(Path.cwd(), card_id=args.id, title=args.title, summary=args.summary, includes=args.include, excludes=args.exclude, floors=args.floor, capability=args.capability, implementation=args.implementation, status=args.status, replaced_by=args.replaced_by, entrypoints=args.entrypoint, checkers=args.checker, command=json.loads(args.command_json) if args.command_json else None, grain=args.grain, meaning=args.meaning, contract=args.contract, decider=args.decider, actor=args.actor, reason=args.reason)
+                    result = register_household(Path.cwd(), card_id=args.id, title=args.title, summary=args.summary, includes=args.include, excludes=args.exclude, floors=args.floor, capability=args.capability, implementation=args.implementation, status=args.status, replaced_by=args.replaced_by, entrypoints=args.entrypoint, checkers=args.checker, command=json.loads(args.command_json) if args.command_json else None, grain=args.grain, meaning=args.meaning, contract=args.contract, decider=args.decider, span=args.span, actor=args.actor, reason=args.reason)
                 elif args.govern_command == "household-gate":
                     result = set_household_enforcement(Path.cwd(), enabled=args.mode == "enforce", actor=args.actor, reason=args.reason)
                 elif args.govern_command == "tighten":
@@ -669,6 +677,8 @@ def main(argv: list[str] | None = None) -> int:
                     result = retire_household(Path.cwd(), card_id=args.id, replaced_by=args.replaced_by, actor=args.actor, reason=args.reason)
                 elif args.govern_command == "retire-confirm":
                     result = confirm_retirement(Path.cwd(), card_id=args.id, actor=args.actor, reason=args.reason)
+                elif args.govern_command == "span":
+                    result = set_household_span(Path.cwd(), card_id=args.id, span=args.tag, actor=args.actor, reason=args.reason)
                 else:
                     result = review_census(Path.cwd(), card_ids=args.card, all_cards=args.all, actor=args.actor, reason=args.reason) if args.record else read_census(Path.cwd())
                 print(_json(result))

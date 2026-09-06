@@ -11,11 +11,12 @@ import bootstrap
 from support import git_project
 
 from ag2c.config import discover_manifest, load_manifest, load_policy
-from ag2c.enrollment import activation_status, enroll_project
+from ag2c.enrollment import activation_status, enroll_project, runtime_equivalent
 from ag2c.errors import AG2CError
 from ag2c.gitops import git, status_entries
-from ag2c.household_commands import register_household, tighten_household
-from ag2c.households import census_report
+from ag2c.govern import apply_change
+from ag2c.household_commands import register_household, set_household_span, tighten_household
+from ag2c.households import census_report, design_summary_for_file
 
 
 class EnrollmentTests(unittest.TestCase):
@@ -149,6 +150,7 @@ class EnrollmentTests(unittest.TestCase):
                     implementation="frontend.main",
                     status="current",
                     meaning="named",
+                    span="folder",
                     actor="codex",
                     reason="traced the UI subtree",
                 )
@@ -175,6 +177,7 @@ class EnrollmentTests(unittest.TestCase):
                     implementation="frontend.main",
                     status="current",
                     meaning="named",
+                    span="folder",
                     actor="codex",
                     reason="traced the UI subtree",
                 )
@@ -191,6 +194,7 @@ class EnrollmentTests(unittest.TestCase):
                         implementation="src.main",
                         status="current",
                         meaning="named",
+                        span="folder",
                         actor="codex",
                         reason="reclaim src after carving frontend",
                     )
@@ -211,3 +215,108 @@ class EnrollmentTests(unittest.TestCase):
             self.assertEqual(["knowledge.frontend"], frontend_dir["owners"])
             self.assertIn("src/frontend/**", src_excludes)
             self.assertEqual(0, report["counts"]["ambiguous"])
+
+    def test_unlabeled_household_does_not_supply_file_design(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = git_project(base / "demo")
+            data = base / "ag2c-data"
+            with patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False):
+                enroll_project(root, skill_root=base / "skills", harnesses=("agents",))
+                manifest = load_manifest(discover_manifest(root), project_root=root)
+                policy = load_policy(manifest)
+                src = next(item for item in census_report(manifest, policy)["households"] if item["id"] == "knowledge.src")
+                self.assertEqual("none", (src.get("jurisdiction") or {}).get("span"))
+                self.assertEqual("", design_summary_for_file(policy, src, "src/value.py"))
+                tagged = set_household_span(
+                    root,
+                    card_id="knowledge.src",
+                    span="整夹一张",
+                    actor="codex",
+                    reason="docs-like folder tag for the src room",
+                )
+                self.assertEqual("folder", tagged["span"])
+                self.assertEqual("整夹一张", tagged["span_label"])
+                policy = load_policy(manifest)
+                src = next(item for item in census_report(manifest, policy)["households"] if item["id"] == "knowledge.src")
+                self.assertEqual(src["summary"], design_summary_for_file(policy, src, "src/value.py"))
+
+    def test_named_requires_a_coverage_tag(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = git_project(base / "demo")
+            data = base / "ag2c-data"
+            with patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False):
+                enroll_project(root, skill_root=base / "skills", harnesses=("agents",))
+                with self.assertRaises(AG2CError) as raised:
+                    tighten_household(
+                        root,
+                        card_id="knowledge.src",
+                        meaning="named",
+                        actor="codex",
+                        reason="name without choosing a coverage tag",
+                    )
+                self.assertIn("span-unlabeled", str(raised.exception))
+
+    def test_file_span_named_requires_per_file_cards(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = git_project(base / "demo")
+            data = base / "ag2c-data"
+            with patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False):
+                enroll_project(root, skill_root=base / "skills", harnesses=("agents",))
+                set_household_span(root, card_id="knowledge.src", span="file", actor="codex", reason="core files need their own cards")
+                with self.assertRaises(AG2CError) as raised:
+                    tighten_household(
+                        root,
+                        card_id="knowledge.src",
+                        meaning="named",
+                        actor="codex",
+                        reason="name before per-file cards exist",
+                    )
+                self.assertIn("span-file-gap", str(raised.exception))
+                apply_change(
+                    root,
+                    action="add",
+                    kind="card",
+                    card_id="knowledge.src-value",
+                    actor="codex",
+                    reason="explain src/value.py",
+                    card_type="knowledge",
+                    title="src/value.py",
+                    summary="Holds VALUE for the demo.",
+                    include=["src/value.py"],
+                )
+                apply_change(
+                    root,
+                    action="add",
+                    kind="card",
+                    card_id="knowledge.src-init",
+                    actor="codex",
+                    reason="explain src/__init__.py",
+                    card_type="knowledge",
+                    title="src/__init__.py",
+                    summary="Package init.",
+                    include=["src/__init__.py"],
+                )
+                named = tighten_household(
+                    root,
+                    card_id="knowledge.src",
+                    meaning="named",
+                    actor="codex",
+                    reason="every code file has its own card",
+                )
+                self.assertEqual("named", named["identity"])
+                manifest = load_manifest(discover_manifest(root), project_root=root)
+                policy = load_policy(manifest)
+                src = next(item for item in census_report(manifest, policy)["households"] if item["id"] == "knowledge.src")
+                self.assertEqual("Holds VALUE for the demo.", design_summary_for_file(policy, src, "src/value.py"))
+                self.assertNotEqual(src["summary"], design_summary_for_file(policy, src, "src/value.py"))
+
+    def test_python_and_pythonw_count_as_the_same_runtime(self) -> None:
+        py = Path(r"C:\Users\Holo\AppData\Local\Programs\Python\Python312\python.exe")
+        pyw = Path(r"C:\Users\Holo\AppData\Local\Programs\Python\Python312\pythonw.exe")
+        if not py.is_file() or not pyw.is_file():
+            self.skipTest("python.exe/pythonw.exe pair is not installed")
+        self.assertTrue(runtime_equivalent([str(py), "-m", "ag2c"], [str(pyw), "-m", "ag2c"]))
+        self.assertFalse(runtime_equivalent([str(py), "-m", "ag2c"], [str(py), "-m", "other"]))

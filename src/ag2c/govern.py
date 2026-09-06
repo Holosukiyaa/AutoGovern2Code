@@ -259,6 +259,7 @@ def compose_baseline_governance(root: Path, project_roots: list[str], checker_id
                     "meaning": "none",
                     "contract": "none",
                     "decider": "none",
+                    "span": "none",
                 },
             }
         )

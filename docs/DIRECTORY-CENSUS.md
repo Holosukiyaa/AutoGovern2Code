@@ -8,8 +8,11 @@ knowledge card with a `jurisdiction`: capability, implementation identity,
 lifecycle, grain/meaning/contract/decider, directory scopes, entrypoints, explicit
 floor links and its own checks.
 
-Hanging a card is not the same as explaining the tree. `meaning=none` is
-**exploring** (legal and loose). `meaning=named` requires every code-bearing
+Hanging a card is not the same as explaining the tree. Each directory room has a
+**coverage tag** the operator supervises: 未打标 (routing only), 整夹一张 (one
+card covers the room), or 一文件一张 (each code file needs its own card).
+`meaning=none` is **exploring** (legal and loose). `meaning=named` requires a
+coverage tag other than 未打标, and every code-bearing
 direct child directory to be a proper-subset household. Registering or tightening
 a named claim that cannot reconstruct those children is **refused**; AG2C does
 not store it as a 黑盒. Re-including a parent glob that covers an existing child

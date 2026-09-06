@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Directory rooms carry a coverage tag the user can supervise: 未打标, 整夹一张, or 一文件一张. Untagged rooms do not paint 设计思路 onto files. Naming requires a tag; 一文件一张 naming requires one knowledge card per code file. `python.exe` and `pythonw.exe` count as the same Git-guard runtime.
 - Re-including a parent household glob that recaptures an existing child room is refused (`cannot-overlap-household`). AG2C does not save dual owners.
 - Packaged a third Skill, `ag2c-directory-census`, as the tree-investigation entry. The copy-prompt installs it with the development and governance-update pair.
 - Registering or tightening a named directory household that still has unexplained child directories is refused. AG2C no longer saves that catch-all as a 黑盒.

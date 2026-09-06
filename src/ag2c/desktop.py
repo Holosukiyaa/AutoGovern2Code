@@ -170,6 +170,29 @@ class DesktopHandler(BaseHTTPRequestHandler):
             if path == "/api/projects/resume":
                 self._json(HTTPStatus.OK, {"project": repair_and_check_project(self._request_path(body))})
                 return
+            if path == "/api/household/span":
+                from .household_commands import set_household_span
+
+                card_id = body.get("id")
+                tag = body.get("tag")
+                if not isinstance(card_id, str) or not card_id.strip():
+                    raise AG2CError("household id is required")
+                if not isinstance(tag, str) or not tag.strip():
+                    raise AG2CError("coverage tag is required")
+                reason = body.get("reason")
+                self._json(
+                    HTTPStatus.OK,
+                    {
+                        "project": set_household_span(
+                            self._request_path(body),
+                            card_id=card_id,
+                            span=tag,
+                            actor="tray",
+                            reason=str(reason).strip() if isinstance(reason, str) and reason.strip() else "operator retagged coverage",
+                        )
+                    },
+                )
+                return
             if path == "/api/shutdown":
                 self._json(HTTPStatus.OK, {"status": "stopping"})
                 threading.Thread(target=self.server.shutdown, daemon=True).start()

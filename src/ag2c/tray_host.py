@@ -46,6 +46,8 @@ ISSUE_LABELS = {
     "AG2C Git guard is not active": "交付门禁未接通",
 }
 
+SPAN_LABELS = {"none": "未打标", "folder": "整夹一张", "file": "一文件一张"}
+
 FLAG_LABELS = {
     "placeholder": "占位",
     "document": "文档",
@@ -432,6 +434,46 @@ def peer_rels(files: list[tuple[str, dict[str, Any]]], node: dict[str, Any]) -> 
     return [rel for rel, other in files if claim_owners(other) == [owner]]
 
 
+def _card_span(card: dict[str, Any]) -> str:
+    jurisdiction = card.get("jurisdiction") if isinstance(card.get("jurisdiction"), dict) else {}
+    household = card.get("household") if isinstance(card.get("household"), dict) else {}
+    nested = household.get("jurisdiction") if isinstance(household.get("jurisdiction"), dict) else {}
+    raw = card.get("span") or jurisdiction.get("span") or nested.get("span") or "none"
+    return str(raw or "none")
+
+
+def _file_card_summary(cards: list[dict[str, Any]], rel: str) -> str:
+    for card in cards:
+        if text(card, "kind") not in {"", "knowledge"} and text(card, "type") not in {"", "knowledge"}:
+            continue
+        if card.get("jurisdiction") or card.get("household"):
+            continue
+        includes: list[str] = []
+        for scope in card.get("scopes") or []:
+            if not isinstance(scope, dict):
+                continue
+            includes.extend(str(item) for item in (scope.get("include") or scope.get("includes") or []) if item)
+        paths = [item.replace("\\", "/").split(":", 1)[-1].lstrip("/") for item in includes]
+        if paths == [rel.replace("\\", "/").lstrip("/")]:
+            return text(card, "summary")
+    return ""
+
+
+def design_summary_for_file(rel: str, owner_cards: list[dict[str, Any]], all_cards: list[dict[str, Any]]) -> str:
+    if len(owner_cards) != 1:
+        return ""
+    owner = owner_cards[0]
+    household = bool(owner.get("jurisdiction") or owner.get("household") or owner.get("span"))
+    if not household:
+        return text(owner, "summary")
+    span = _card_span(owner)
+    if span == "folder":
+        return text(owner, "summary")
+    if span == "file":
+        return _file_card_summary(all_cards, rel)
+    return ""
+
+
 def inspect_file(
     node: dict[str, Any],
     files: list[tuple[str, dict[str, Any]]],
@@ -453,7 +495,7 @@ def inspect_file(
         if owner in seen or any(item["title"] == owner for item in related):
             continue
         related.append({"id": owner, "title": owner})
-    summary = text(matched[0], "summary") if len(matched) == 1 else ""
+    summary = design_summary_for_file(rel, matched, cards)
     return {
         "mode": "file",
         "title": text(node, "title") or rel.rsplit("/", 1)[-1],
@@ -472,23 +514,29 @@ def inspect_card(card: dict[str, Any], files: list[tuple[str, dict[str, Any]]]) 
     governed = files_for_card(files, card)
     flags = card.get("flags") if isinstance(card.get("flags"), list) else []
     placeholder = text(card, "statusTag") == "placeholder" or "placeholder" in {str(item) for item in flags}
+    household = bool(card.get("jurisdiction") or card.get("household") or card.get("span"))
+    span = _card_span(card) if household else ""
     if placeholder:
         message = "入学占位，还没有说清这个目录"
     elif governed:
         message = ""
     else:
         message = "这张卡还没有落到文件树上的代码文件"
+    show_design = bool(text(card, "summary")) and (not household or span == "folder")
     return {
         "mode": "card",
         "title": text(card, "title") or text(card, "id"),
         "status": first_flag_label(card),
-        "summary": text(card, "summary"),
+        "summary": text(card, "summary") if show_design else "",
         "claim": "",
         "path": "",
         "peers": [],
         "files": governed,
         "cards": [],
         "message": message,
+        "span": span if household else None,
+        "span_label": SPAN_LABELS.get(span, "未打标") if household else "",
+        "card_id": text(card, "id"),
     }
 
 

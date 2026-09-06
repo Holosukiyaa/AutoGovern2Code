@@ -22,9 +22,27 @@ GRAINS = frozenset({"subtree", "directory", "module"})
 MEANINGS = frozenset({"none", "named"})
 CONTRACTS = frozenset({"none", "partial", "machine"})
 DECIDERS = frozenset({"none", "machine", "confirm"})
-JURISDICTION_FIELDS = frozenset({"capability", "implementation", "status", "entrypoints", "grain", "meaning", "contract", "decider"})
+SPANS = frozenset({"none", "folder", "file"})
+SPAN_LABELS = {"none": "未打标", "folder": "整夹一张", "file": "一文件一张"}
+SPAN_ALIASES = {
+    "none": "none",
+    "未打标": "none",
+    "folder": "folder",
+    "整夹一张": "folder",
+    "file": "file",
+    "一文件一张": "file",
+}
+JURISDICTION_FIELDS = frozenset({"capability", "implementation", "status", "entrypoints", "grain", "meaning", "contract", "decider", "span"})
 RECORD_BLOCK_ISSUES = frozenset(
-    {"opaque-claimed", "undecomposed-directory", "child-unclaimed", "child-not-proper-subset", "grain-overflow"}
+    {
+        "opaque-claimed",
+        "undecomposed-directory",
+        "child-unclaimed",
+        "child-not-proper-subset",
+        "grain-overflow",
+        "span-unlabeled",
+        "span-file-gap",
+    }
 )
 GRAIN_RANK = {"subtree": 0, "directory": 1, "module": 2}
 MEANING_RANK = {"none": 0, "named": 1}
@@ -60,7 +78,36 @@ def coerce_jurisdiction(value: Any) -> dict[str, Any] | None:
         "meaning": str(value.get("meaning") or "none"),
         "contract": str(value.get("contract") or "none"),
         "decider": str(value.get("decider") or "none"),
+        "span": normalize_span(value.get("span")),
     }
+
+
+def normalize_span(value: Any) -> str:
+    text = str(value or "none").strip()
+    span = SPAN_ALIASES.get(text, "")
+    if span not in SPANS:
+        raise ConfigurationError(f"coverage tag must be 未打标, 整夹一张, or 一文件一张: {value}")
+    return span
+
+
+def file_card_summary(policy: Policy, path: str) -> str:
+    for card in policy.cards:
+        if card.card_type != "knowledge" or card.jurisdiction is not None:
+            continue
+        includes = [pattern for scope in card.scopes for pattern in scope.includes]
+        if includes == [path]:
+            return card.summary
+    return ""
+
+
+def design_summary_for_file(policy: Policy, household: dict[str, Any] | None, path: str) -> str:
+    declaration = coerce_jurisdiction((household or {}).get("jurisdiction")) or {}
+    span = str(declaration.get("span") or "none")
+    if span == "folder":
+        return str((household or {}).get("summary") or "")
+    if span == "file":
+        return file_card_summary(policy, path)
+    return ""
 
 
 def assert_monotonic(old: dict[str, Any], new: dict[str, Any]) -> None:
@@ -115,6 +162,8 @@ def household_guidance(report: dict[str, Any]) -> list[dict[str, Any]]:
                 "meaning": declaration.get("meaning"),
                 "contract": declaration.get("contract"),
                 "decider": declaration.get("decider"),
+                "span": declaration.get("span"),
+                "span_label": SPAN_LABELS.get(str(declaration.get("span") or "none"), "未打标"),
                 "status": declaration.get("status"),
                 "capability": declaration.get("capability"),
                 "implementation": declaration.get("implementation"),
@@ -232,6 +281,8 @@ def validate_declarations(cards: list[Card], relations: list) -> None:
             raise ConfigurationError(f"jurisdiction contract must be none, partial, or machine: {card.card_id}")
         if declaration.get("decider") not in DECIDERS:
             raise ConfigurationError(f"jurisdiction decider must be none, machine, or confirm: {card.card_id}")
+        if declaration.get("span") not in SPANS:
+            raise ConfigurationError(f"jurisdiction span must be none, folder, or file: {card.card_id}")
         for scope in card.scopes:
             for pattern in (*scope.includes, *scope.excludes):
                 directory_scope(pattern)
@@ -538,10 +589,21 @@ def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
                 issues.append({"code": "child-unclaimed", "paths": [f"{target}:{path}" for target, path in unclaimed]})
                 issues.append({"code": "undecomposed-directory"})
                 issues.append({"code": "opaque-claimed"})
+            span = str(declaration.get("span") or "none")
+            if declaration.get("meaning") == "named" and span == "none":
+                issues.append({"code": "span-unlabeled"})
+            if declaration.get("meaning") == "named" and span == "file":
+                missing = [
+                    item["path"]
+                    for item in matched
+                    if item.get("code") and not file_card_summary(policy, str(item["path"]))
+                ]
+                if missing:
+                    issues.append({"code": "span-file-gap", "paths": missing[:40]})
             issue_codes = {issue["code"] for issue in issues}
             if declaration.get("status") in {"legacy", "retired"} and any(item["code"] for item in matched):
                 identity = "leftover"
-            elif "opaque-claimed" in issue_codes or "grain-overflow" in issue_codes:
+            elif "opaque-claimed" in issue_codes or "grain-overflow" in issue_codes or "span-file-gap" in issue_codes:
                 identity = "opaque"
             elif declaration.get("meaning") == "named":
                 identity = "named"

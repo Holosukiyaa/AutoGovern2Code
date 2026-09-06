@@ -123,10 +123,11 @@ def build_parser() -> argparse.ArgumentParser:
     migrate.add_argument("--skill-destination", type=Path)
     _add_harness_arguments(migrate)
 
-    skill = subparsers.add_parser("skill", help="print the Skill prompt, or install/remove the packaged Skill")
+    skill = subparsers.add_parser("skill", help="print the Skill prompt and versions, or install/remove the packaged Skill")
     skill_commands = skill.add_subparsers(dest="skill_command", required=True)
     skill_prompt = skill_commands.add_parser("prompt")
     skill_prompt.add_argument("--project", type=Path, default=Path.cwd())
+    skill_commands.add_parser("version", help="print packaged Skill versions and digests")
     skill_install = skill_commands.add_parser("install")
     skill_install.add_argument(
         "--destination",
@@ -453,10 +454,13 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         if args.command == "skill":
-            from .harnesses import install_skills, remove_skills, skill_entry_prompt
+            from .harnesses import install_skills, packaged_skills_report, remove_skills, skill_entry_prompt
 
             if args.skill_command == "prompt":
                 print(skill_entry_prompt(project=args.project), end="")
+                return 0
+            if args.skill_command == "version":
+                print(_json(packaged_skills_report()))
                 return 0
             print(
                 _json(

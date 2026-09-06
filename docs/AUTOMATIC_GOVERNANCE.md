@@ -30,7 +30,7 @@ Only policy-declared argv checkers run. Failed attempts remain in evidence; a la
 
 Yes: **Skill for entry, Git hook for delivery.** Neither is enough alone.
 
-1. **Skill (soft).** Enrollment copies `ag2c-governed-development` into Codex, Claude Code, Cursor, and `~/.agents/skills`. A compatible harness is supposed to run `ag2c guard status` before the first write, start a task, and edit only the returned worktree. A model can ignore that. Reading copies live in [docs/skills](skills/README.md).
+1. **Skill (soft).** Enrollment copies `ag2c-governed-development` into Codex, Claude Code, Cursor, and `~/.agents/skills`. A compatible harness is supposed to run `ag2c guard status` before the first write, start a task, and edit only the returned worktree. A model can ignore that. Reading copies live in [docs/skills](skills/README.md). The AI-entry prompt names this AG2C's Skill version and digest; each paste tells the agent to replace its installed copy if they are not this AG2C's.
 2. **Git hijack (hard).** Activation sets `core.hooksPath` to an external hook that runs `ag2c guard pre-commit`. That hook refuses commits in the canonical worktree, refuses branches not named `ag2c/…`, and refuses a worktree that does not match an open task record. The tray can be closed. `git commit` on `main` still dies.
 3. **Worktree isolation.** Construction is a second Git checkout. Even when the agent obeys the Skill, the product branch does not move until `task finish` fast-forwards verified bytes.
 

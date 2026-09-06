@@ -1,5 +1,6 @@
 ---
 name: ag2c-governed-development
+version: 0.8.4
 description: Automatically govern software changes in Git projects registered with AutoGovern2Code (AG2C), whose enrollment is stored outside the project and discovered through local Git configuration. Use for implementation, fixes, refactors, tests, documentation, configuration, dependencies, builds, and releases when `ag2c guard status` reports managed; also use when the user asks to add, migrate, repair, or inspect AG2C. Restore activation without asking the user to operate governance, route before writing, work only in the external task worktree, verify the final diff, and finish through AG2C.
 ---
 

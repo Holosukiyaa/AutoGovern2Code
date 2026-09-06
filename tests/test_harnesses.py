@@ -8,8 +8,19 @@ from unittest.mock import patch
 
 import bootstrap
 
+from ag2c import __version__
 from ag2c.enrollment import _native_checkers
-from ag2c.harnesses import harness_status, install_skills, remove_skills, skill_entry_prompt
+from ag2c.harnesses import (
+    PACKAGED_SKILLS,
+    harness_status,
+    install_skills,
+    packaged_skill_identity,
+    packaged_skills_report,
+    remove_skills,
+    skill_entry_prompt,
+    skill_frontmatter_version,
+    skill_source,
+)
 
 
 class HarnessAdapterTests(unittest.TestCase):
@@ -17,13 +28,48 @@ class HarnessAdapterTests(unittest.TestCase):
         prompt = skill_entry_prompt(project=Path(tempfile.gettempdir()))
         self.assertIn("docs/skills/ag2c-governed-development", prompt)
         self.assertIn("ag2c skill install", prompt)
+        self.assertIn("ag2c skill version", prompt)
         self.assertIn("ag2c guard status", prompt)
         self.assertIn("~/.codex/skills", prompt)
+        self.assertIn(f"version {__version__}", prompt)
+        self.assertIn("replace the installed copy if missing or different", prompt)
+        self.assertIn("this AutoGovern2Code's packaged copy", prompt)
+        self.assertIn("do not keep a higher version from elsewhere", prompt)
         self.assertNotIn(str(Path(tempfile.gettempdir()) / "docs" / "skills"), prompt)
+        for name in PACKAGED_SKILLS:
+            identity = packaged_skill_identity(name)
+            self.assertIn(f"{name} version {identity['version']} digest {identity['digest'][:12]}", prompt)
         repo = Path(__file__).resolve().parents[1]
         local = skill_entry_prompt(project=repo)
         self.assertIn("Local skill copy in this repo:", local)
         self.assertIn("docs", local.casefold())
+
+    def test_packaged_skills_declare_this_ag2c_version(self) -> None:
+        report = packaged_skills_report()
+        self.assertEqual(__version__, report["package"])
+        self.assertEqual(list(PACKAGED_SKILLS), [item["name"] for item in report["skills"]])
+        repo = Path(__file__).resolve().parents[1]
+        for name in PACKAGED_SKILLS:
+            packaged = skill_source(name) / "SKILL.md"
+            reading = repo / "docs" / "skills" / name / "SKILL.md"
+            self.assertEqual(__version__, skill_frontmatter_version(packaged))
+            self.assertEqual(packaged.read_text(encoding="utf-8"), reading.read_text(encoding="utf-8"))
+
+    def test_install_replaces_a_different_skill_version(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            dest = Path(directory) / "skills"
+            stale = dest / "ag2c-governed-development"
+            stale.mkdir(parents=True)
+            (stale / "SKILL.md").write_text(
+                "---\nname: ag2c-governed-development\nversion: 0.0.1\n---\nstale copy\n",
+                encoding="utf-8",
+            )
+            installed = install_skills(dest)
+            text = (dest / "ag2c-governed-development" / "SKILL.md").read_text(encoding="utf-8")
+            self.assertEqual("custom", installed[0]["harness"])
+            self.assertEqual(__version__, installed[0]["version"])
+            self.assertEqual(__version__, skill_frontmatter_version(dest / "ag2c-governed-development" / "SKILL.md"))
+            self.assertNotIn("stale copy", text)
 
     def test_default_install_covers_codex_claude_cursor_and_generic_agents(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

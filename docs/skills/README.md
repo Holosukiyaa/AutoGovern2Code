@@ -5,6 +5,12 @@ These are **reading copies**. Compatible agents load Skills from their own homes
 Enrollment installs the AG2C pair there from `src/ag2c/skills/`. Do not edit
 Policy by pasting these files into a project.
 
+Each `SKILL.md` has `version:` matching this AG2C package. Pasting the AI-entry
+prompt (`ag2c skill prompt` or tray 复制提示词) tells the agent to refresh its
+home from this copy whenever the installed version or digest differs. Latest
+means this AutoGovern2Code, not a newer folder from the internet or another
+install. `ag2c skill version` prints the required identity.
+
 | Copy | What it binds |
 | --- | --- |
 | `ag2c-governed-development` | File-changing work: `guard status`, task worktree, verify, finish. |

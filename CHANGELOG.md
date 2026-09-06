@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Packaged Skills declare `version:` matching the AG2C package. The copy-prompt names that version and digest; each paste tells the agent to replace its installed copy if they differ. Latest means this AutoGovern2Code. `ag2c skill version` prints the required identity.
 - Adding a project no longer requires a clean working tree. The card stays in 需要处理 until the checkout is clean; task start still refuses dirty construction. Ignore checkout `portable.ini` and `.grok/` so launching the tray does not dirty a self-governed tree. Tray errors wrap instead of clipping.
 - Desktop host is only Hello ImGui (`start-tray.bat` → `packaging/windows/tray.py` → `ag2c.imgui_tray`). HTML/G6 viewer files, Qt/WinForms/WebView2 hosts, `ag2c viewer`, `qt_tray.py`, and duplicate launchers are gone. The local API is token-header JSON only; folder picking stays in the ImGui process.
 - Drop the heavy enroll/worktree/verify integration tests. Remaining tests are the tray host, CLI surface, and in-memory engine checks.

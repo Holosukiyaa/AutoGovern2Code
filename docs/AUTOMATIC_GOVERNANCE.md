@@ -4,7 +4,7 @@ Once a local Git clone is added to AG2C, governance becomes the default construc
 
 ## Entry
 
-The installed Skill checks `ag2c guard status` for file-changing work. AG2C discovers the external Manifest through local Git configuration; the agent does not search for governance files in the project. Missing activation is repaired before writing. An unknown or incompatible harness is reported honestly by the tray rather than treated as ready.
+The AI entry is a copyable Skill prompt. AG2C does not detect whether Codex, Claude, Cursor, or any other harness is installed. Paste the prompt into the current agent; that agent refreshes Skills into its own home. The installed Skill then checks `ag2c guard status` for file-changing work. AG2C discovers the external Manifest through local Git configuration; the agent does not search for governance files in the project. Missing Git activation is repaired before writing. `managed` means the Git guard is on, not that a Skill folder was found.
 
 ## Before the first write
 
@@ -31,7 +31,7 @@ Only policy-declared argv checkers run. Failed attempts remain in evidence; a la
 Yes: **Skill for entry, Git hook for delivery.** Neither is enough alone.
 
 1. **Skill (soft).** Enrollment copies `ag2c-governed-development` into Codex, Claude Code, Cursor, and `~/.agents/skills`. A compatible harness is supposed to run `ag2c guard status` before the first write, start a task, and edit only the returned worktree. A model can ignore that. Reading copies live in [docs/skills](skills/README.md). The AI-entry prompt names this AG2C's Skill version and digest; each paste tells the agent to replace its installed copy if they are not this AG2C's.
-2. **Git hijack (hard).** Activation sets `core.hooksPath` to an external hook that runs `ag2c guard pre-commit`. That hook refuses commits in the canonical worktree, refuses branches not named `ag2c/…`, and refuses a worktree that does not match an open task record. The tray can be closed. `git commit` on `main` still dies.
+2. **Git hijack (hard).** The project's `.git` stays put. Activation sets `core.hooksPath` to an external directory: AG2C `pre-commit` runs first, then every hook that was already there (husky, leftover, default `.git/hooks`) is forwarded by name. That guard refuses commits in the canonical worktree, refuses branches not named `ag2c/…`, and refuses a worktree that does not match an open task record. History and remotes are unchanged. The tray can be closed. `git commit` on `main` still dies.
 3. **Worktree isolation.** Construction is a second Git checkout. Even when the agent obeys the Skill, the product branch does not move until `task finish` fast-forwards verified bytes.
 
 Older in-repo `AGENTS.md` / `CLAUDE.md` blocks were a fourth reminder. They are gone: the Skill is installed outside the project. The hook is still the part an agent cannot talk its way around.

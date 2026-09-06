@@ -14,7 +14,7 @@ from . import __version__
 from .config import MANIFEST_SCHEMA, POLICY_SCHEMA, discover_manifest, load_manifest, load_policy
 from .errors import AG2CError, RELOCATED_PROJECT, STALE_EXTERNAL_STORE
 from .gitops import canonical_worktree, current_branch, git, repository_root, status_entries
-from .harnesses import SKILL_NAME, SUPPORTED_HARNESSES, install_skill, install_skills, skill_digest, skill_source
+from .harnesses import SKILL_NAME, SUPPORTED_HARNESSES, install_skills
 from .index import build_index
 from .lifecycle import LifecycleTransaction, lifecycle_pending, recover_lifecycle
 from .ledger import append_event
@@ -35,6 +35,31 @@ from .util import digest_file
 
 ENROLLMENT_SCHEMA = "ag2c.enrollment.v1"
 ACTIVATION_SCHEMA = "ag2c.activation.v1"
+GIT_HOOK_NAMES = (
+    "applypatch-msg",
+    "pre-applypatch",
+    "post-applypatch",
+    "pre-commit",
+    "pre-merge-commit",
+    "prepare-commit-msg",
+    "commit-msg",
+    "post-commit",
+    "pre-rebase",
+    "post-checkout",
+    "post-merge",
+    "pre-push",
+    "pre-receive",
+    "update",
+    "proc-receive",
+    "post-receive",
+    "post-update",
+    "push-to-checkout",
+    "pre-auto-gc",
+    "post-rewrite",
+    "sendemail-validate",
+    "fsmonitor-watchman",
+    "post-index-change",
+)
 AGENTS_BEGIN = "<!-- AG2C:BEGIN -->"
 AGENTS_END = "<!-- AG2C:END -->"
 IGNORE_BEGIN = "# AG2C:BEGIN"
@@ -295,6 +320,80 @@ def _runtime_command() -> list[str]:
     return [executable, "-m", "ag2c"]
 
 
+def _existing_git_hook(directory: Path, name: str) -> Path | None:
+    candidate = directory / name
+    if candidate.is_file():
+        return candidate.resolve()
+    return None
+
+
+def _chmod_hook(path: Path) -> None:
+    try:
+        path.chmod(0o755)
+    except OSError:
+        pass
+
+
+def _previous_hooks_directory(
+    canonical: Path,
+    expected: str,
+    old_activation: dict[str, Any],
+) -> tuple[str, Path | None]:
+    previous = str(git(canonical, "config", "--get", "core.hooksPath", check=False)).strip()
+    if previous == expected:
+        previous = str(old_activation.get("previous_hooks_path", ""))
+    elif not previous:
+        common_dir = Path(str(git(canonical, "rev-parse", "--path-format=absolute", "--git-common-dir")).strip())
+        default_hooks = (common_dir / "hooks").resolve()
+        if any(_existing_git_hook(default_hooks, name) for name in GIT_HOOK_NAMES):
+            previous = str(default_hooks)
+        else:
+            previous = ""
+    if not previous:
+        return "", None
+    root = Path(previous)
+    if not root.is_absolute():
+        root = (canonical / root).resolve()
+    if not root.is_dir():
+        return previous, None
+    return previous, root
+
+
+def _install_guard_hooks(
+    hooks: Path,
+    previous_dir: Path | None,
+    runtime_command: list[str],
+) -> tuple[Path, dict[str, str]]:
+    hooks.mkdir(parents=True, exist_ok=True)
+    rendered_runtime = " ".join(
+        _shell_quote(Path(item).as_posix() if index == 0 else item) for index, item in enumerate(runtime_command)
+    )
+    pre_commit = hooks / "pre-commit"
+    script = f"#!/bin/sh\n{rendered_runtime} guard pre-commit || exit $?\n"
+    delegated: dict[str, str] = {}
+    old_pre = _existing_git_hook(previous_dir, "pre-commit") if previous_dir is not None else None
+    if old_pre is not None and old_pre != pre_commit.resolve():
+        script += f"{_shell_quote(old_pre.as_posix())} \"$@\"\n"
+        delegated["pre-commit"] = str(old_pre)
+    _write_text(pre_commit, script)
+    _chmod_hook(pre_commit)
+    for name in GIT_HOOK_NAMES:
+        if name == "pre-commit":
+            continue
+        extra = hooks / name
+        if extra.is_symlink() or extra.is_file():
+            extra.unlink()
+        if previous_dir is None:
+            continue
+        old = _existing_git_hook(previous_dir, name)
+        if old is None or old == extra.resolve():
+            continue
+        _write_text(extra, f"#!/bin/sh\n{_shell_quote(old.as_posix())} \"$@\"\n")
+        _chmod_hook(extra)
+        delegated[name] = str(old)
+    return pre_commit, delegated
+
+
 def activate_project(
     start: Path,
     *,
@@ -310,40 +409,15 @@ def activate_project(
     enrollment_path = manifest_path.parent / "enrollment.json"
     if not enrollment_path.is_file():
         raise AG2CError("project is not enrolled in AG2C")
-    previous = str(git(canonical, "config", "--get", "core.hooksPath", check=False)).strip()
     hooks = (manifest.state_dir / "hooks").resolve()
-    hooks.mkdir(parents=True, exist_ok=True)
-    hook = hooks / "pre-commit"
     expected = str(hooks)
     activation_path = _activation_path(canonical)
     old_activation: dict[str, Any] = {}
     if activation_path.is_file():
         old_activation = json.loads(activation_path.read_text(encoding="utf-8"))
-    if previous == expected:
-        previous = str(old_activation.get("previous_hooks_path", ""))
-    elif not previous:
-        common_dir = Path(str(git(canonical, "rev-parse", "--path-format=absolute", "--git-common-dir")).strip())
-        default_hooks = (common_dir / "hooks").resolve()
-        if (default_hooks / "pre-commit").is_file():
-            previous = str(default_hooks)
-    delegate: Path | None = None
-    if previous:
-        delegate_root = Path(previous)
-        if not delegate_root.is_absolute():
-            delegate_root = (canonical / delegate_root).resolve()
-        candidate = delegate_root / "pre-commit"
-        if candidate.is_file() and candidate.resolve() != hook.resolve():
-            delegate = candidate.resolve()
+    previous, previous_dir = _previous_hooks_directory(canonical, expected, old_activation)
     runtime_command = _runtime_command()
-    rendered_runtime = " ".join(_shell_quote(Path(item).as_posix() if index == 0 else item) for index, item in enumerate(runtime_command))
-    script = f"#!/bin/sh\n{rendered_runtime} guard pre-commit || exit $?\n"
-    if delegate is not None:
-        script += f"{_shell_quote(delegate.as_posix())} \"$@\"\n"
-    _write_text(hook, script)
-    try:
-        hook.chmod(0o755)
-    except OSError:
-        pass
+    hook, delegated_hooks = _install_guard_hooks(hooks, previous_dir, runtime_command)
     skills = install_skills(skill_root, harnesses)
     primary_skill = skills[0]
     git(canonical, "config", "core.hooksPath", expected)
@@ -354,6 +428,7 @@ def activate_project(
         "python_path": str(Path(sys.executable).resolve()),
         "runtime_command": runtime_command,
         "previous_hooks_path": previous,
+        "delegated_hooks": delegated_hooks,
         "guard_digest": digest_file(hook),
         "skill_path": primary_skill["path"],
         "skill_digest": primary_skill["digest"],
@@ -1105,26 +1180,6 @@ def activation_status(start: Path) -> dict[str, Any]:
             or configured_runtime[1:] != expected_runtime[1:]
         ):
             issues.append("AG2C Git guard uses a missing or different runtime")
-        installed_skills = activation.get("skills")
-        if not isinstance(installed_skills, list) or not installed_skills:
-            installed_skills = [{
-                "harness": "legacy",
-                "path": activation.get("skill_path", ""),
-                "digest": activation.get("skill_digest", ""),
-            }]
-        packaged_digest = skill_digest(skill_source())
-        include_harness = len(installed_skills) > 1
-        for installed in installed_skills:
-            skill = Path(str(installed.get("path", ""))) if isinstance(installed, dict) else Path()
-            harness = str(installed.get("harness", "unknown")) if isinstance(installed, dict) else "unknown"
-            expected_digest = str(installed.get("digest", "")) if isinstance(installed, dict) else ""
-            suffix = f" for {harness}" if include_harness else ""
-            if not (skill / "SKILL.md").is_file():
-                issues.append(f"AG2C Skill is not installed{suffix}")
-            elif skill_digest(skill) != expected_digest:
-                issues.append(f"installed AG2C Skill changed after activation{suffix}")
-            elif skill_digest(skill) != packaged_digest:
-                issues.append(f"installed AG2C Skill is out of date{suffix}")
     else:
         issues.append("AG2C activation record is missing")
     guard = manifest.state_dir / "hooks" / "pre-commit" if manifest is not None else Path()

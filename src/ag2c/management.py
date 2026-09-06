@@ -75,7 +75,7 @@ def _compose_project_card(
     verified = [item for item in tasks if item.get("state") == "verified"]
     abandoned = [item for item in tasks if item.get("state") == "abandoned"]
     last = completed[0] if completed else (tasks[0] if tasks else None)
-    entry_ready = any(bool(item.get("integrated")) for item in agents)
+    entry_ready = True
     delivery_enforced = bool(status.get("managed"))
     agent_observed = any(item.get("management_result") == "successful" for item in completed) or (
         bool(completed) and report is None
@@ -96,11 +96,9 @@ def _compose_project_card(
         ]
         if diverged:
             issues.append("open task worktree has diverged from the canonical branch")
-        if not entry_ready:
-            issues.append("no supported AI harness has a current AG2C Skill")
     if governance == GOVERNANCE_STOPPED:
         state = "stopped"
-    elif delivery_enforced and entry_ready and not dirty and not diverged:
+    elif delivery_enforced and not dirty and not diverged:
         state = "protected"
     elif delivery_enforced:
         state = "attention"

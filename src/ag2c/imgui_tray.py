@@ -19,8 +19,6 @@ from .graph import (
 )
 from .tray_host import (
     FILTERS,
-    HARNESS_LABELS,
-    HARNESS_STATE_LABELS,
     PRODUCT_LABELS,
     WORKTREE_LIFE_LABELS,
     DesktopApi,
@@ -1888,9 +1886,7 @@ def _gui_inspect(state: AppState) -> None:
                 state.inspect["status"] = "提示词已复制，贴进当前 AI"
                 state.status = "提示词已复制，贴进当前 AI"
             audit(state, "复制提示词", "详情", "")
-        imgui.text_disabled("核对：Codex ~/.codex/skills · Claude ~/.claude/skills · Cursor ~/.cursor/skills")
-        if not fields.get("entry_ready"):
-            imgui.text_colored((0.92, 0.78, 0.35, 1.0), "观察：还没接到入口")
+        imgui.text_disabled("贴进当前 AI。典型目录：Codex ~/.codex/skills · Claude ~/.claude/skills · Cursor ~/.cursor/skills")
         prompt = str(fields.get("prompt") or "")
         if prompt:
             imgui.separator()

@@ -731,8 +731,8 @@ class TrayGateTests(unittest.TestCase):
         self.assertFalse(healthy["worktrees"]["warn"])
 
         empty = {row["id"]: row for row in project_gate_rows({"agents": [], "delivery_enforced": False, "completed_tasks": 0}, None)}
-        self.assertEqual("复制提示词 · 还没接到", empty["gate"]["value"])
-        self.assertTrue(empty["gate"]["warn"])
+        self.assertEqual("复制提示词", empty["gate"]["value"])
+        self.assertFalse(empty["gate"]["warn"])
         self.assertEqual("未生效", empty["delivery"]["value"])
         self.assertTrue(empty["delivery"]["warn"])
         self.assertEqual("尚未观察", empty["records"]["value"])

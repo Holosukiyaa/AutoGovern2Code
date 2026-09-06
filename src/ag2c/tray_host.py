@@ -41,7 +41,6 @@ STATE_LABELS = {
 ISSUE_LABELS = {
     "canonical worktree has uncommitted changes": "正式工作副本有未提交改动",
     "governance is stopped": "治理已关闭",
-    "no supported AI harness has a current AG2C Skill": "还没有接通 AI 入口",
     "open task worktree has diverged from the canonical branch": "施工副本已和正式分支分叉",
     "project is not enrolled": "还没有纳入治理",
     "AG2C Git guard is not active": "交付门禁未接通",
@@ -222,14 +221,8 @@ def project_gate_rows(project: dict[str, Any] | None, details: dict[str, Any] | 
     """Always-on operator strip: AI entry, delivery gate, deliveries, construction."""
     if not project:
         return []
-    agents = [item for item in (project.get("agents") or []) if isinstance(item, dict)]
-    ready = [HARNESS_LABELS.get(str(item.get("harness")), str(item.get("harness"))) for item in agents if item.get("integrated")]
-    if ready:
-        entry_value = "复制提示词"
-        entry_warn = False
-    else:
-        entry_value = "复制提示词 · 还没接到"
-        entry_warn = True
+    entry_value = "复制提示词"
+    entry_warn = False
     delivery_ok = bool(project.get("delivery_enforced"))
     completed = int(project.get("completed_tasks") or 0)
     last_line = _task_line(project.get("last_task") if isinstance(project.get("last_task"), dict) else None)

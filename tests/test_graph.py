@@ -223,6 +223,80 @@ class GovernanceGraphTests(unittest.TestCase):
         self.assertNotIn("combos", graph)
         self.assertNotIn("edges", graph)
 
+    def test_lineage_nests_file_span_cards_under_the_directory_household(self) -> None:
+        household = _card("knowledge.ag2c", "knowledge", "src/ag2c package", include=["src/ag2c/**"])
+        household["jurisdiction"] = {"span": "file", "meaning": "named", "status": "current", "capability": "ag2c", "implementation": "ag2c.main"}
+        household["scopes"][0]["exclude"] = ["src/ag2c/skills/**"]
+        cli = _card("knowledge.ag2c-cli", "knowledge", "cli", include=["src/ag2c/cli.py"], references=["src/ag2c/cli.py"])
+        tray = _card(
+            "knowledge.ag2c-imgui-tray",
+            "knowledge",
+            "Hello ImGui tray",
+            include=["src/ag2c/imgui_tray.py"],
+            references=["src/ag2c/imgui_tray.py"],
+        )
+        sibling = _card("knowledge.src", "knowledge", "src leftover", include=["src/**"])
+        sibling["jurisdiction"] = {"span": "folder", "meaning": "none", "status": "current"}
+        lineage = build_lineage(
+            {
+                "project": {"name": "AutoGovern2Code"},
+                "cards": [
+                    _card("constitution.project", "constitution", "宪章"),
+                    _card("floor.src", "floor", "src", include=["src/**"]),
+                    household,
+                    cli,
+                    tray,
+                    sibling,
+                ],
+                "relations": [
+                    {"source": "knowledge.ag2c", "type": "explains", "target": "floor.src"},
+                    {"source": "knowledge.ag2c-cli", "type": "explains", "target": "floor.src"},
+                    {"source": "knowledge.ag2c-imgui-tray", "type": "explains", "target": "floor.src"},
+                    {"source": "knowledge.src", "type": "explains", "target": "floor.src"},
+                ],
+                "graph": {"nodes": []},
+            }
+        )
+        cli_node = next(node for node in lineage["nodes"] if node["id"] == "knowledge.ag2c-cli")
+        tray_node = next(node for node in lineage["nodes"] if node["id"] == "knowledge.ag2c-imgui-tray")
+        household_node = next(node for node in lineage["nodes"] if node["id"] == "knowledge.ag2c")
+        leftover = next(node for node in lineage["nodes"] if node["id"] == "knowledge.src")
+        self.assertEqual("knowledge.ag2c@floor.src", cli_node["parent"])
+        self.assertEqual("knowledge.ag2c@floor.src", tray_node["parent"])
+        self.assertEqual(3, cli_node["layer"])
+        self.assertEqual("floor.src", household_node["parent"])
+        self.assertEqual(2, household_node["layer"])
+        self.assertEqual("floor.src", leftover["parent"])
+        self.assertTrue(household_node.get("nested"))
+        self.assertEqual(2, len(household_node.get("cards") or []))
+        src = next(node for node in lineage["nodes"] if node["visual_id"] == "floor.src")
+        self.assertEqual({"knowledge.ag2c", "knowledge.src"}, {item["id"] for item in src.get("cards") or []})
+        self.assertTrue(cli_node.get("hidden"))
+        nodes = [dict(item) for item in lineage["nodes"]]
+        layout_lineage_view(nodes, {LINEAGE_PROJECT_ID, "floor.src"})
+        hidden_cli = next(item for item in nodes if item["id"] == "knowledge.ag2c-cli")
+        self.assertTrue(hidden_cli.get("hidden"))
+        layout_lineage_view(nodes, {LINEAGE_PROJECT_ID, "floor.src", "knowledge.ag2c@floor.src"})
+        shown_cli = next(item for item in nodes if item["id"] == "knowledge.ag2c-cli")
+        shown_house = next(item for item in nodes if item["visual_id"] == "knowledge.ag2c@floor.src")
+        self.assertFalse(shown_cli.get("hidden"))
+        self.assertEqual("knowledge.ag2c@floor.src", shown_cli["parent"])
+        self.assertGreaterEqual(shown_cli["y"], shown_house["y"])
+        self.assertLessEqual(shown_cli["y"] + shown_cli["height"], shown_house["y"] + shown_house["height"])
+        graph = build_governance_graph(
+            {
+                "cards": [household, cli, tray],
+                "knowledge": [],
+                "relations": [],
+                "index": {"findings": []},
+                "pending": [],
+                "worktrees": [],
+                "checkers": [],
+            }
+        )
+        cli_graph = next(node for node in graph["nodes"] if node["id"] == "knowledge.ag2c-cli")
+        self.assertEqual("knowledge.ag2c", cli_graph.get("parentCard"))
+
     def test_lineage_is_project_modules_and_knowledge_cards(self) -> None:
         lineage = build_lineage(
             {

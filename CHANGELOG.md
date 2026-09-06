@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- File cards for a 一文件一张 directory hang under that directory in the tray (third level), not beside it as extra modules. Expand the directory card to see them.
 - Packaged a fourth Skill, `ag2c-knowledge-authoring`: after coverage tags exist, the agent reads the files and writes detailed 设计思路 cards (`整夹一张` one room card, `一文件一张` one card per code file). `ag2c-directory-census` now sets those tags in the same census pass. The copy-prompt installs all four Skills.
 - A vanished project folder no longer runs Git or becomes the selected tray project. Missing directories sort last, details stay empty, and a successful load clears the red Git banner. Tests keep TemporaryDirectory enrollments out of the operator registry.
 - Directory rooms carry a coverage tag the user can supervise: 未打标, 整夹一张, or 一文件一张. Untagged rooms do not paint 设计思路 onto files. Naming requires a tag; 一文件一张 naming requires one knowledge card per code file. `python.exe` and `pythonw.exe` count as the same Git-guard runtime.

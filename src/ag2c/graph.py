@@ -116,6 +116,61 @@ def _covers(paths: Iterable[str], candidate: str) -> bool:
     return False
 
 
+def _path_under(directory: str, candidate: str) -> bool:
+    root = _normalize_path(directory)
+    needle = _normalize_path(candidate)
+    if not root or not needle:
+        return False
+    return needle == root or needle.startswith(root + "/")
+
+
+def _scope_excludes(card: Mapping[str, Any]) -> list[str]:
+    paths: list[str] = []
+    for scope in _items(card.get("scopes")):
+        record = _mapping(scope)
+        for pattern in _items(record.get("exclude") or record.get("excludes")):
+            path = _normalize_path(str(pattern))
+            if path:
+                paths.append(path)
+    return list(dict.fromkeys(paths))
+
+
+def _jurisdiction_span(card: Mapping[str, Any]) -> str:
+    record = _mapping(card.get("jurisdiction"))
+    value = _text(record.get("span") or "none")
+    if value in {"file", "一文件一张"}:
+        return "file"
+    if value in {"folder", "整夹一张"}:
+        return "folder"
+    return "none"
+
+
+def _household_owns_path(household: Mapping[str, Any], candidate: str) -> bool:
+    includes = _scope_paths(household)
+    if not any(_path_under(path, candidate) for path in includes):
+        return False
+    return not any(_path_under(path, candidate) for path in _scope_excludes(household))
+
+
+def _file_span_parent(card: Mapping[str, Any], households: list[Mapping[str, Any]]) -> str:
+    paths = _scope_paths(card)
+    if len(paths) != 1:
+        return ""
+    needle = paths[0]
+    best_id = ""
+    best_len = -1
+    for household in households:
+        if _jurisdiction_span(household) != "file":
+            continue
+        if not _household_owns_path(household, needle):
+            continue
+        length = max((len(_normalize_path(path)) for path in _scope_paths(household)), default=0)
+        if length > best_len:
+            best_len = length
+            best_id = _text(household.get("id"))
+    return best_id
+
+
 def _basename(path: str) -> str:
     text = _normalize_path(path)
     if not text or text == ".":
@@ -384,6 +439,14 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
         )
 
     knowledge_cards = [card for card in cards if _text(card.get("type")) == "knowledge"]
+    file_span_households = [card for card in knowledge_cards if _jurisdiction_span(card) == "file"]
+    for card in knowledge_cards:
+        card_id = _text(card.get("id"))
+        if not card_id or card_id not in nodes or not is_document_knowledge(card):
+            continue
+        parent_id = _file_span_parent(card, file_span_households)
+        if parent_id:
+            nodes[card_id]["parentCard"] = parent_id
     knowledge_paths = [path for card in knowledge_cards for path in _scope_paths(card)]
     floor_dirs = _floor_directories(cards)
     finding_dirs = _artifact_directories(findings)
@@ -846,6 +909,23 @@ def build_lineage(details: Mapping[str, Any] | None, *, project_name: str = "") 
                 },
             )
             edges.append({"source": floor_id, "target": visual_id, "type": "card"})
+    file_span_households = [card for card in knowledge_cards.values() if _jurisdiction_span(card) == "file"]
+    for node in list(nodes.values()):
+        if node.get("kind") != "knowledge":
+            continue
+        card = knowledge_cards.get(_text(node.get("id")))
+        if card is None or not is_document_knowledge(card):
+            continue
+        parent_id = _file_span_parent(card, file_span_households)
+        if not parent_id:
+            continue
+        parent_visual = f"{parent_id}@{node.get('parent')}"
+        if parent_visual not in nodes:
+            continue
+        node["parent"] = parent_visual
+        node["layer"] = 3
+        node["path"] = (_scope_paths(card) or [""])[0]
+        nodes[parent_visual]["nested"] = True
     orphans = [card_id for card_id in knowledge_cards if card_id not in hung]
     if orphans:
         add_node(
@@ -891,23 +971,28 @@ def build_lineage(details: Mapping[str, Any] | None, *, project_name: str = "") 
     for _floor_id, node in list(nodes.items()):
         if node.get("kind") == "module" and node.get("empty") and not node.get("status"):
             node["status"] = "还没有知识卡"
-        if node.get("kind") == "module":
+        if node.get("kind") in {"module", "knowledge"}:
             kids = [
                 {"id": child["id"], "title": child["title"], "visual_id": child["visual_id"]}
                 for child in nodes.values()
                 if child.get("parent") == node.get("visual_id") and child.get("kind") == "knowledge"
             ]
-            node["cards"] = kids
+            if node.get("kind") == "module" or kids:
+                node["cards"] = kids
             if kids:
                 node["empty"] = False
+                if node.get("kind") == "knowledge":
+                    node["nested"] = True
+                    node["status"] = f"{len(kids)} 张文件卡"
                 child_tags = [
                     _text(child.get("statusTag"))
                     for child in nodes.values()
                     if child.get("parent") == node.get("visual_id") and child.get("kind") == "knowledge"
                 ]
                 tag = worst_status_tag(child_tags)
-                node["statusTag"] = tag
-                node["status"] = STATUS_TAG_LABELS.get(tag, "") or f"{len(kids)} 张知识卡"
+                if node.get("kind") == "module":
+                    node["statusTag"] = tag
+                    node["status"] = STATUS_TAG_LABELS.get(tag, "") or f"{len(kids)} 张知识卡"
     expanded = {LINEAGE_PROJECT_ID}
     for node in nodes.values():
         if node.get("kind") == "module" and not node.get("empty"):
@@ -927,6 +1012,56 @@ def lineage_boxes_overlap(left: Mapping[str, Any], right: Mapping[str, Any], *, 
     aw, ah = float(left.get("width") or 0), float(left.get("height") or 0)
     bw, bh = float(right.get("width") or 0), float(right.get("height") or 0)
     return not (ax + aw + gap <= bx or bx + bw + gap <= ax or ay + ah + gap <= by or by + bh + gap <= ay)
+
+
+def _hide_lineage_branch(node: dict[str, Any], kids_of: dict[str, list[dict[str, Any]]]) -> None:
+    node["hidden"] = True
+    visual_id = str(node.get("visual_id") or node.get("id") or "")
+    for child in kids_of.get(visual_id, []):
+        _hide_lineage_branch(child, kids_of)
+
+
+def _pack_lineage_children(
+    children: list[dict[str, Any]],
+    *,
+    x: float,
+    y: float,
+    width: float,
+    expanded: set[str],
+    kids_of: dict[str, list[dict[str, Any]]],
+) -> float:
+    cursor = y
+    for child in children:
+        visual_id = str(child.get("visual_id") or child.get("id") or "")
+        nested = kids_of.get(visual_id, [])
+        opened = bool(nested) and visual_id in expanded
+        child["hidden"] = False
+        child["x"] = x
+        child["width"] = width
+        if opened:
+            inner = len(nested) * LINEAGE_CARD_H + max(0, len(nested) - 1) * LINEAGE_CARD_GAP_Y
+            height = LINEAGE_MODULE_HEADER + inner + LINEAGE_MODULE_PAD
+            child["y"] = cursor
+            child["height"] = height
+            child["group"] = True
+            nested_x = x + LINEAGE_MODULE_PAD
+            nested_w = max(LINEAGE_CARD_MIN_W, width - LINEAGE_MODULE_PAD * 2)
+            for index, grand in enumerate(nested):
+                grand["hidden"] = False
+                grand["group"] = False
+                grand["x"] = nested_x
+                grand["y"] = cursor + LINEAGE_MODULE_HEADER + index * (LINEAGE_CARD_H + LINEAGE_CARD_GAP_Y)
+                grand["width"] = nested_w
+                grand["height"] = LINEAGE_CARD_H
+            cursor += height + LINEAGE_CARD_GAP_Y
+            continue
+        child["y"] = cursor
+        child["height"] = LINEAGE_CARD_H
+        child["group"] = bool(nested)
+        for grand in nested:
+            _hide_lineage_branch(grand, kids_of)
+        cursor += LINEAGE_CARD_H + LINEAGE_CARD_GAP_Y
+    return max(0.0, cursor - y - LINEAGE_CARD_GAP_Y)
 
 
 def layout_lineage_view(nodes: list[dict[str, Any]], expanded: set[str]) -> None:
@@ -974,34 +1109,39 @@ def layout_lineage_view(nodes: list[dict[str, Any]], expanded: set[str]) -> None
             module["width"] = LINEAGE_COLLAPSED_W
             module["height"] = LINEAGE_COLLAPSED_H
             for child in children:
-                child["hidden"] = True
                 child["x"] = module_x
                 child["y"] = cursor_y
                 child["width"] = LINEAGE_CARD_W
                 child["height"] = LINEAGE_CARD_H
+                _hide_lineage_branch(child, kids_of)
             cursor_y += LINEAGE_COLLAPSED_H + LINEAGE_MODULE_GAP
             continue
-        count = len(children)
-        inner_h = (
-            count * LINEAGE_CARD_H + max(0, count - 1) * LINEAGE_CARD_GAP_Y if count else LINEAGE_EMPTY_INNER_H
-        )
         card_w = LINEAGE_CARD_MIN_W
         for child in children:
             card_w = max(card_w, lineage_card_width(child))
+            for grand in kids_of.get(str(child.get("visual_id") or child.get("id") or ""), []):
+                card_w = max(card_w, lineage_card_width(grand))
         card_w = min(LINEAGE_CARD_MAX_W, card_w)
-        width = max(LINEAGE_MODULE_MIN_W, card_w + LINEAGE_MODULE_PAD * 2)
+        nested_pad = LINEAGE_MODULE_PAD * 2
+        width = max(LINEAGE_MODULE_MIN_W, card_w + nested_pad + LINEAGE_MODULE_PAD * 2)
+        inner_x = module_x + LINEAGE_MODULE_PAD
+        inner_w = width - LINEAGE_MODULE_PAD * 2
+        inner_y = cursor_y + LINEAGE_MODULE_HEADER
+        inner_h = _pack_lineage_children(
+            children,
+            x=inner_x,
+            y=inner_y,
+            width=inner_w,
+            expanded=expanded,
+            kids_of=kids_of,
+        )
+        if not inner_h:
+            inner_h = LINEAGE_EMPTY_INNER_H
         height = LINEAGE_MODULE_HEADER + inner_h + LINEAGE_MODULE_PAD
         module["x"] = module_x
         module["y"] = cursor_y
         module["width"] = width
         module["height"] = height
-        card_x = module_x + LINEAGE_MODULE_PAD
-        for index, child in enumerate(children):
-            child["hidden"] = False
-            child["x"] = card_x
-            child["y"] = cursor_y + LINEAGE_MODULE_HEADER + index * (LINEAGE_CARD_H + LINEAGE_CARD_GAP_Y)
-            child["width"] = card_w
-            child["height"] = LINEAGE_CARD_H
         cursor_y += height + LINEAGE_MODULE_GAP
     total_h = max(cursor_y - LINEAGE_MODULE_GAP - LINEAGE_ORIGIN_Y, LINEAGE_PROJECT_H)
     if project is not None:
@@ -1019,15 +1159,28 @@ def lineage_visible_boxes(nodes: list[dict[str, Any]], expanded: set[str]) -> li
 def lineage_step_overlaps(nodes: list[dict[str, Any]], expanded: set[str], *, gap: float = 8.0) -> list[tuple[str, str]]:
     """Pairs of visible items that collide, ignoring a card vs its parent combo hull."""
     boxes = lineage_visible_boxes(nodes, expanded)
+    by_visual = {
+        str(item.get("visual_id") or item.get("id") or ""): item
+        for item in nodes
+        if str(item.get("visual_id") or item.get("id") or "")
+    }
+
+    def ancestor_ids(node: Mapping[str, Any]) -> set[str]:
+        found: set[str] = set()
+        current = str(node.get("parent") or "")
+        while current and current not in found:
+            found.add(current)
+            parent = by_visual.get(current)
+            current = str((parent or {}).get("parent") or "")
+        return found
+
     hits: list[tuple[str, str]] = []
     for index, left in enumerate(boxes):
         for right in boxes[index + 1 :]:
-            kinds = {left.get("kind"), right.get("kind")}
-            if kinds == {"knowledge", "module"}:
-                card = left if left.get("kind") == "knowledge" else right
-                combo = right if card is left else left
-                if str(card.get("parent") or "") == str(combo.get("visual_id") or combo.get("id") or ""):
-                    continue
+            left_id = str(left.get("visual_id") or left.get("id") or "")
+            right_id = str(right.get("visual_id") or right.get("id") or "")
+            if left_id in ancestor_ids(right) or right_id in ancestor_ids(left):
+                continue
             if lineage_boxes_overlap(left, right, gap=gap):
                 hits.append(
                     (
@@ -1054,7 +1207,16 @@ def lineage_related_ids(lineage: Mapping[str, Any] | None, node_id: str) -> list
             seen.add(visual_id)
             related.append(visual_id)
         parent = _text(record.get("parent"))
-        if parent and parent not in seen:
+        while parent and parent not in seen:
             seen.add(parent)
             related.append(parent)
+            parent_node = next(
+                (
+                    _mapping(item)
+                    for item in _items(_mapping(lineage).get("nodes"))
+                    if _text(item.get("visual_id") or item.get("id")) == parent
+                ),
+                {},
+            )
+            parent = _text(parent_node.get("parent"))
     return related

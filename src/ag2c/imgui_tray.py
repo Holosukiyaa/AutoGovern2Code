@@ -1387,22 +1387,40 @@ def _gui_cards(state: AppState) -> None:
         return
     imgui.push_style_var(imgui.StyleVar_.item_spacing, imgui.ImVec2(4.0, 1.0))
     imgui.push_text_wrap_pos(-1.0)
+    children_of: dict[str, list[dict[str, Any]]] = {}
+    roots: list[dict[str, Any]] = []
     for node in cards:
+        parent_id = text(node, "parentCard")
+        if parent_id:
+            children_of.setdefault(parent_id, []).append(node)
+        else:
+            roots.append(node)
+
+    def _draw_card_row(node: dict[str, Any], *, indent: bool) -> None:
         title = text(node, "title") or text(node, "id")
         status = first_flag_label(node) or text(node, "status")
         key = node_key(node, title)
         count = state.card_file_counts.get(key)
         if count is None:
             count = len(files_for_card(all_files, node))
-        short = _lineage_label(title, 220.0)
+        short = _lineage_label(title, 200.0 if indent else 220.0)
         label = f"{short}  ·  {status} · {count} 个文件" if status else f"{short}  ·  {count} 个文件"
         marked = selected_card == key or key in highlight_cards
+        if indent:
+            imgui.indent(16.0)
         if _selectable(widget_id(label, key), marked):
             _focus_card(state, node)
+        if indent:
+            imgui.unindent(16.0)
         if scroll_card and key == scroll_card:
             imgui.set_scroll_here_y(0.25)
             with state.lock:
                 state.scroll_card_key = ""
+
+    for node in roots:
+        _draw_card_row(node, indent=False)
+        for child in children_of.get(text(node, "id"), []):
+            _draw_card_row(child, indent=True)
     imgui.pop_text_wrap_pos()
     imgui.pop_style_var()
 
@@ -1580,7 +1598,7 @@ def _gui_lineage(state: AppState) -> None:
     if not lineage["nodes"]:
         imgui.text_disabled("还没有可画的知识卡谱系")
         return
-    imgui.text_disabled("点 + / − 展开或收起。默认展开到模块；点模块才看到知识卡。")
+    imgui.text_disabled("点 + / − 展开或收起。默认展开到模块；一文件一张的目录卡再点开才看到文件卡。")
     avail = imgui.get_content_region_avail()
     if float(getattr(avail, "x", 0) or 0) < 40.0 or float(getattr(avail, "y", 0) or 0) < 40.0:
         return
@@ -1600,6 +1618,11 @@ def _gui_lineage(state: AppState) -> None:
     project = next((node for node in visible if node.get("kind") == "project"), None)
     modules = [node for node in visible if node.get("kind") == "module"]
     cards = [node for node in visible if node.get("kind") == "knowledge"]
+    nested_hulls = [
+        node
+        for node in cards
+        if node.get("nested") and str(node.get("visual_id") or node.get("id") or "") in expanded
+    ]
     has_modules = any(node.get("kind") == "module" for node in lineage["nodes"])
     toggles: list[str] = []
     pending_click = 0
@@ -1626,7 +1649,7 @@ def _gui_lineage(state: AppState) -> None:
         title_col = imgui.get_color_u32(imgui.ImVec4(0.90, 0.93, 0.97, 1.00))
         link_color = imgui.get_color_u32(imgui.ImVec4(0.46, 0.62, 0.88, 0.90))
         marker_hits: list[tuple[str, float, float, float, float]] = []
-        for node in modules:
+        for node in [*modules, *nested_hulls]:
             visual_id = str(node.get("visual_id") or node["id"])
             if visual_id not in expanded:
                 continue
@@ -1676,7 +1699,7 @@ def _gui_lineage(state: AppState) -> None:
                     _cubic_arrow(dl, imgui, x0, y0, mx, my, link_color)
         imgui.push_style_var(imgui.StyleVar_.item_spacing, imgui.ImVec2(4.0, 1.0))
         try:
-            for node in modules:
+            for node in [*modules, *nested_hulls]:
                 visual_id = str(node.get("visual_id") or node["id"])
                 opened = visual_id in expanded
                 can_expand = bool(node.get("cards")) and not node.get("empty")
@@ -1707,15 +1730,19 @@ def _gui_lineage(state: AppState) -> None:
                 ed.end_node()
                 ed.pop_style_color(2)
             for node in cards:
-                _place(node)
                 visual_id = str(node.get("visual_id") or node["id"])
+                if node.get("nested") and visual_id in expanded:
+                    continue
+                _place(node)
                 card_w = max(80.0, float(node.get("width") or LINEAGE_CARD_W) - 12.0)
                 bg, border = _lineage_card_colors(_lineage_is_marked(node, selected, highlight, inspect_key))
                 ed.push_style_color(ed.StyleColor.node_bg, imgui.ImVec4(*bg))
                 ed.push_style_color(ed.StyleColor.node_border, imgui.ImVec4(*border))
                 ed.begin_node(ed.NodeId(_cached_uid(node)))
                 imgui.dummy((card_w, 1.0))
-                imgui.text(_lineage_label(str(node.get("title") or visual_id), card_w - 8.0))
+                if node.get("nested") and node.get("cards"):
+                    _toggle(visual_id, False)
+                imgui.text(_lineage_label(str(node.get("title") or visual_id), card_w - (28.0 if node.get("nested") else 8.0)))
                 extra = str(node.get("replaced_by") or node.get("status") or "")
                 if extra:
                     line = extra if not node.get("replaced_by") else "已被 " + extra + " 替换"

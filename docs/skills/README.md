@@ -2,7 +2,7 @@
 
 These are **reading copies**. Compatible agents load Skills from their own homes
 (`~/.codex/skills`, `~/.claude/skills`, `~/.cursor/skills`, `~/.agents/skills`).
-Enrollment installs the AG2C pair there from `src/ag2c/skills/`. Do not edit
+Enrollment installs the AG2C Skills there from `src/ag2c/skills/`. Do not edit
 Policy by pasting these files into a project.
 
 Each `SKILL.md` has `version:` matching this AG2C package. Pasting the AI-entry
@@ -14,8 +14,9 @@ install. `ag2c skill version` prints the required identity.
 | Copy | What it binds |
 | --- | --- |
 | `ag2c-governed-development` | File-changing work: `guard status`, task worktree, verify, finish. |
-| `ag2c-governance-update` | Document and interface cards: `ag2c govern` only, never hand-edited Policy. |
-| `ag2c-directory-census` | Tree investigation: observe census, name proper-subset rooms, record only inspected rooms. |
+| `ag2c-governance-update` | Named document and interface cards: `ag2c govern` only, never hand-edited Policy. |
+| `ag2c-directory-census` | Tree investigation and coverage tags: 未打标 / 整夹一张 / 一文件一张. |
+| `ag2c-knowledge-authoring` | Write detailed 设计思路 knowledge cards from those tags. |
 | `result-lock` | Lock a checkable finished state before implementation (Grok 结果门). |
 
 The strong constraint on Codex CLI is not the Skill text alone. The Skill is

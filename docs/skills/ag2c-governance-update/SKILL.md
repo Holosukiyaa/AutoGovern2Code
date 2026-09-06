@@ -6,13 +6,13 @@ description: Update AutoGovern2Code project knowledge, floors, and public-interf
 
 # AutoGovern2Code Governance Update
 
-This Skill is the only path for changing stored project knowledge. The user describes what changed in the product; do not ask them to operate Policy, cards, or the viewer.
+This Skill updates **named document and interface** cards through `ag2c govern`. Directory tags are `ag2c-directory-census`. 设计思路 from those tags is `ag2c-knowledge-authoring`. Do not ask the user to operate Policy, cards, or the viewer.
 
 ## When to use
 
-- First enrollment already ingested top-level areas, key documents, detected interfaces, and exploring households for top-level directories. Use this Skill when those *document or interface* records must change. Exploring is not named. To 彻查 or split directory rooms, use `ag2c-directory-census`.
+- First enrollment already ingested top-level areas, key documents, detected interfaces, and exploring households for top-level directories. Use this Skill when those *document or interface* records must change. Exploring is not named. To 彻查, split rooms, or 打标, use `ag2c-directory-census`. To write 设计思路 from tags, use `ag2c-knowledge-authoring`.
 - After `ag2c task finish`, if `governance_pending` lists items. Prefer `ag2c govern settle` first. `undeclared-product` stays until the project has a real product check; settle does not invent one.
-- When the user says a directory, README, API, or contract is new, moved, or gone.
+- When the user says a README, API, or contract is new, moved, or gone.
 
 ## Workflow
 
@@ -73,12 +73,13 @@ This Skill is the only path for changing stored project knowledge. The user desc
    ```
 
    `ag2c task start` already includes the same guidance. Prefer that payload over searching the whole tree.
-   Directory households, census, and 占位/黑盒 investigation use `ag2c-directory-census`.
+   Directory households, tags, and 占位/黑盒 use `ag2c-directory-census`. 设计思路 from tags uses `ag2c-knowledge-authoring`.
    `settle` does not mark a household named or delete leftover code.
 
 ## Fail closed
 
-- Directory households, census, and 占位/黑盒: `ag2c-directory-census`, not document-card apply.
+- Directory households, census, 打标, and 占位/黑盒: `ag2c-directory-census`.
+- 设计思路 from coverage tags: `ag2c-knowledge-authoring`, not this Skill.
 - Do not edit `policy.json`, Manifest, ledger, or evidence files.
 - Do not apply a change without `--reason`.
 - Do not remove the constitution card or the last floor.

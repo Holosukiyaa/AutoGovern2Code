@@ -24,8 +24,9 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
 
 4. Inspect the canonical checkout read-only and run `ag2c coverage --format json`. Identify narrow expected paths and exact public contract keys. Baseline coverage is intentionally conservative: use exact paths when known and broaden uncertain or new areas. Do not edit, generate, build, install dependencies, or start a service in the canonical checkout.
 
-   Tree investigation (彻查, 普查, unexplained files under a claimed parent) uses
-   the `ag2c-directory-census` Skill. Do not start a feature task to name a
+   Tree investigation and coverage tags (彻查, 普查, 打标) use
+   `ag2c-directory-census`. Writing 设计思路 from those tags uses
+   `ag2c-knowledge-authoring`. Do not start a feature task to name a
    catch-all parent.
 
 5. Start the task from the canonical checkout:
@@ -48,8 +49,8 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
 7. After the final change, run from the task worktree:
 
    If directory-household enforcement is enabled, record census only for rooms
-   actually inspected in this diff, through `ag2c-directory-census`. Never bulk
-   `--record` unread files.
+   actually inspected in this diff, through `ag2c-directory-census` (tags) and
+   `ag2c-knowledge-authoring` (设计思路). Never bulk `--record` unread files.
 
    ```text
    ag2c task verify
@@ -75,7 +76,7 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
 
 8b. Use the JSON `guidance` from `ag2c task start` as the retrieved project knowledge and contracts for this change. Do not grep the whole repository for ownership or public interfaces when that guidance already names them.
 
-9. Run `ag2c evidence --task <task-id>` and report its plain-language facts: files changed, checks passed, whether a failed attempt was corrected, process evidence completeness, merged commit, and the Product line. Process evidence complete only means the task was delivered through AG2C. If Product is `undeclared`, `blocked`, or `incomplete`, say the work was checked in, not that the product is done. Do not teach the user cards, floors, slices, policies, or checker selection unless they explicitly request diagnostics. Do not edit Policy by hand; use `ag2c govern` through the governance-update Skill when rules must change.
+9. Run `ag2c evidence --task <task-id>` and report its plain-language facts: files changed, checks passed, whether a failed attempt was corrected, process evidence completeness, merged commit, and the Product line. Process evidence complete only means the task was delivered through AG2C. If Product is `undeclared`, `blocked`, or `incomplete`, say the work was checked in, not that the product is done. Do not teach the user cards, floors, slices, policies, or checker selection unless they explicitly request diagnostics. Do not edit Policy by hand; use `ag2c govern` through census, knowledge-authoring, or governance-update when stored knowledge must change.
 
 ## Fail Closed
 

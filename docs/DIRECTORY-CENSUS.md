@@ -1,6 +1,6 @@
 # Directory households and versioned census
 
-The agent entry for this work is [ag2c-directory-census](skills/ag2c-directory-census/SKILL.md).
+The agent entry for looking at the tree and setting coverage tags is [ag2c-directory-census](skills/ag2c-directory-census/SKILL.md). Writing 设计思路 from those tags is [ag2c-knowledge-authoring](skills/ag2c-knowledge-authoring/SKILL.md).
 
 A floor owns a directory for routing. A document explains a rule. Neither proves
 that a directory belongs to the current product. A **directory household** is a
@@ -11,6 +11,9 @@ floor links and its own checks.
 Hanging a card is not the same as explaining the tree. Each directory room has a
 **coverage tag** the operator supervises: 未打标 (routing only), 整夹一张 (one
 card covers the room), or 一文件一张 (each code file needs its own card).
+A tag is not 设计思路. After the tag is set, `ag2c-knowledge-authoring` reads
+the files and writes the card text: one detailed room summary for 整夹一张, one
+detailed card per code file for 一文件一张.
 `meaning=none` is **exploring** (legal and loose). `meaning=named` requires a
 coverage tag other than 未打标, and every code-bearing
 direct child directory to be a proper-subset household. Registering or tightening

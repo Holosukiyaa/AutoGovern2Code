@@ -12,7 +12,8 @@ from .errors import AG2CError
 SKILL_NAME = "ag2c-governed-development"
 GOVERNANCE_SKILL_NAME = "ag2c-governance-update"
 CENSUS_SKILL_NAME = "ag2c-directory-census"
-PACKAGED_SKILLS = (SKILL_NAME, GOVERNANCE_SKILL_NAME, CENSUS_SKILL_NAME)
+AUTHORING_SKILL_NAME = "ag2c-knowledge-authoring"
+PACKAGED_SKILLS = (SKILL_NAME, GOVERNANCE_SKILL_NAME, CENSUS_SKILL_NAME, AUTHORING_SKILL_NAME)
 SUPPORTED_HARNESSES = ("codex", "claude", "cursor", "agents")
 
 SKILL_ENTRY_PROMPT = """This Git repository is managed by AutoGovern2Code (AG2C) {package_version}.
@@ -32,7 +33,7 @@ Required Skill versions (replace the installed copy if missing or different):
    Typical skills homes: Codex ~/.codex/skills ; Claude Code ~/.claude/skills ; Cursor ~/.cursor/skills ; other Agent Skills hosts ~/.agents/skills. If your product uses another folder, use that.
 4. Confirm required versions with: ag2c skill version
 5. Then in this repository run: ag2c guard status
-6. File-changing work follows ag2c-governed-development. Tree investigation (彻查/普查) follows ag2c-directory-census. Knowledge-card edits follow ag2c-governance-update. Do not git commit on the canonical checkout.
+6. File-changing work follows ag2c-governed-development. Tree investigation and coverage tags (彻查/普查/打标) follow ag2c-directory-census. Writing 设计思路 from those tags follows ag2c-knowledge-authoring. Named document or interface cards follow ag2c-governance-update. Do not git commit on the canonical checkout.
 
 Git delivery stays blocked until work goes through an AG2C task worktree. Installing the Skill is only the entry.
 """

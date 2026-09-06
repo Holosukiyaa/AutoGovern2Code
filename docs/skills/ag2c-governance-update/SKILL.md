@@ -10,7 +10,7 @@ This Skill is the only path for changing stored project knowledge. The user desc
 
 ## When to use
 
-- First enrollment already ingested top-level areas, key documents, detected interfaces, and exploring households for top-level directories. Use this Skill only when those records must change. Exploring is not named; do not treat enrollment households as an explanation of the tree.
+- First enrollment already ingested top-level areas, key documents, detected interfaces, and exploring households for top-level directories. Use this Skill when those *document or interface* records must change. Exploring is not named. To 彻查 or split directory rooms, use `ag2c-directory-census`.
 - After `ag2c task finish`, if `governance_pending` lists items. Prefer `ag2c govern settle` first. `undeclared-product` stays until the project has a real product check; settle does not invent one.
 - When the user says a directory, README, API, or contract is new, moved, or gone.
 
@@ -73,22 +73,12 @@ This Skill is the only path for changing stored project knowledge. The user desc
    ```
 
    `ag2c task start` already includes the same guidance. Prefer that payload over searching the whole tree.
-   Directory households use `ag2c govern tighten`, `renew-exploring`, `retire`,
-   and `retire-confirm`. `settle` does not mark a household named or delete leftover code.
+   Directory households, census, and 占位/黑盒 investigation use `ag2c-directory-census`.
+   `settle` does not mark a household named or delete leftover code.
 
 ## Fail closed
 
-- Directory jurisdictions use `ag2c govern household`, not document-card apply.
-  Register directory scopes, exclusions, floor links, capability, implementation,
-  lifecycle, grain/meaning/contract/decider, and implementation-specific checks.
-  Tighten only; never widen. Retain old cards with an explicit `--replaced-by`
-  link until a retirement task removes leftover bytes.
-- `ag2c govern census` only observes. Record a reviewed scope with `--record
-  --card <id> --actor <harness> --reason "<review facts>"`; never infer review from
-  a refresh, a timestamp, or successful unrelated tests.
-- `ag2c govern household-gate --mode enforce` enables hard checks; observation
-  mode must never be described as enforced. Both commands require actor/reason.
-
+- Directory households, census, and 占位/黑盒: `ag2c-directory-census`, not document-card apply.
 - Do not edit `policy.json`, Manifest, ledger, or evidence files.
 - Do not apply a change without `--reason`.
 - Do not remove the constitution card or the last floor.

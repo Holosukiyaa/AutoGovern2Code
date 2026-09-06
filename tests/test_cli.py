@@ -36,6 +36,7 @@ class CLITests(unittest.TestCase):
         self.assertIn("ag2c skill version", text)
         self.assertIn("ag2c guard status", text)
         self.assertIn("docs/skills/ag2c-governed-development", text)
+        self.assertIn("ag2c-directory-census", text)
         self.assertIn(f"version {__version__}", text)
         self.assertIn("replace the installed copy if missing or different", text)
 
@@ -46,7 +47,7 @@ class CLITests(unittest.TestCase):
         payload = json.loads(output.getvalue())
         self.assertEqual(__version__, payload["package"])
         self.assertEqual(
-            ["ag2c-governed-development", "ag2c-governance-update"],
+            ["ag2c-governed-development", "ag2c-governance-update", "ag2c-directory-census"],
             [item["name"] for item in payload["skills"]],
         )
         for item in payload["skills"]:

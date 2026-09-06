@@ -14,7 +14,8 @@ install. `ag2c skill version` prints the required identity.
 | Copy | What it binds |
 | --- | --- |
 | `ag2c-governed-development` | File-changing work: `guard status`, task worktree, verify, finish. |
-| `ag2c-governance-update` | Knowledge and households: `ag2c govern` only, never hand-edited Policy. |
+| `ag2c-governance-update` | Document and interface cards: `ag2c govern` only, never hand-edited Policy. |
+| `ag2c-directory-census` | Tree investigation: observe census, name proper-subset rooms, record only inspected rooms. |
 | `result-lock` | Lock a checkable finished state before implementation (Grok 结果门). |
 
 The strong constraint on Codex CLI is not the Skill text alone. The Skill is

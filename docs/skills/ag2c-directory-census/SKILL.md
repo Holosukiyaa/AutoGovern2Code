@@ -1,0 +1,64 @@
+---
+name: ag2c-directory-census
+version: 0.8.4
+description: Investigate AutoGovern2Code directory households without treating enrollment placeholders as an explanation of the tree. Use when the user asks to 彻查, 普查, census, 说清目录, split 占位/黑盒, inspect ownership, or find unexplained files under a claimed parent. Observe with `ag2c govern census`, register only proper-subset rooms, record a review only after inspecting that room, and never name a catch-all parent. Do not change product files; hand leftover deletion to ag2c-governed-development after `govern retire`.
+---
+
+# AutoGovern2Code Directory Census
+
+This Skill is the entry for looking at the tree. The user wants rooms explained. Do not fix product behavior here, and do not edit Policy JSON by hand.
+
+## When to use
+
+- 彻查 / 普查 / census / 说清这一层 / 占位 / 黑盒 / unexplained files under a claimed directory.
+- Not for a product bug or feature (use `ag2c-governed-development`).
+- Not for a README or public-interface card the user named (use `ag2c-governance-update`).
+
+Enrollment already hangs each top-level directory as exploring (`meaning=none`). That owns routing. It does not explain children.
+
+## Workflow
+
+1. Confirm the repository is managed:
+
+   ```text
+   ag2c guard status
+   ```
+
+   Repair with `ag2c doctor --repair` if needed. Stop if still unmanaged.
+
+2. Observe only:
+
+   ```text
+   ag2c govern census
+   ```
+
+   Read `identity` / `explained` / `child_directories`. Exploring is a door sign, not a finished census. Opaque is a failed named claim, not success.
+
+3. Explain one room at a time. Register a **proper-subset** glob (example: `src/frontend/**`), not the whole parent (`src/**`) as named:
+
+   ```text
+   ag2c govern household --id knowledge.<slug> --title "<room>" --summary "<one line>" --include <dir>/** --floor <floor.id> --capability <slug> --implementation <slug>.main --actor <harness> --reason "<what was traced>"
+   ```
+
+   Optional `--meaning named` only when every code-bearing direct child directory already has its own household. AG2C refuses `cannot-name-undecomposed-household` and does not save a 黑盒. Files inside a room (including many CSS files) stay on that one card.
+
+4. After inspecting that room's files and checks, record only that card:
+
+   ```text
+   ag2c govern census --record --card knowledge.<slug> --actor <harness> --reason "<what was inspected and why>"
+   ```
+
+   Never `--all` or a bulk record to hide unread files. `govern settle` does not count as a census.
+
+5. Report in plain language: which rooms are still exploring, which you named, which record succeeded. Do not tell the user cards or policy unless they ask.
+
+6. Deleting leftover bytes is a separate `ag2c-governed-development` task after `ag2c govern retire`. Do not delete exploring or current directories here.
+
+## Fail closed
+
+- Do not change product source, tests, or docs in this Skill.
+- Do not create a catch-all card to hide unowned or unexplained code.
+- Do not treat exploring as named.
+- Do not `census --record` a card you did not inspect.
+- Do not enable `household-gate --mode enforce` unless the user asked to block delivery on census gaps.
+- Do not edit `policy.json`, Manifest, ledger, or evidence files.

@@ -11,7 +11,8 @@ from .errors import AG2CError
 
 SKILL_NAME = "ag2c-governed-development"
 GOVERNANCE_SKILL_NAME = "ag2c-governance-update"
-PACKAGED_SKILLS = (SKILL_NAME, GOVERNANCE_SKILL_NAME)
+CENSUS_SKILL_NAME = "ag2c-directory-census"
+PACKAGED_SKILLS = (SKILL_NAME, GOVERNANCE_SKILL_NAME, CENSUS_SKILL_NAME)
 SUPPORTED_HARNESSES = ("codex", "claude", "cursor", "agents")
 
 SKILL_ENTRY_PROMPT = """This Git repository is managed by AutoGovern2Code (AG2C) {package_version}.
@@ -26,12 +27,12 @@ Required Skill versions (replace the installed copy if missing or different):
 1. Read `version:` from each installed SKILL.md frontmatter. A missing version is stale.
 2. If the installed version or digest is not exactly a Required line above, replace the whole skill folder. Do not keep a folder because one already exists, and do not keep a higher version from elsewhere.
 3. Source, in order:
-   - this repo's docs/skills/ag2c-governed-development and docs/skills/ag2c-governance-update, if present
+   - this repo's {skill_docs}, if present
    - otherwise run: ag2c skill install
    Typical skills homes: Codex ~/.codex/skills ; Claude Code ~/.claude/skills ; Cursor ~/.cursor/skills ; other Agent Skills hosts ~/.agents/skills. If your product uses another folder, use that.
 4. Confirm required versions with: ag2c skill version
 5. Then in this repository run: ag2c guard status
-6. File-changing work in this repo must follow ag2c-governed-development. Do not git commit on the canonical checkout.
+6. File-changing work follows ag2c-governed-development. Tree investigation (彻查/普查) follows ag2c-directory-census. Knowledge-card edits follow ag2c-governance-update. Do not git commit on the canonical checkout.
 
 Git delivery stays blocked until work goes through an AG2C task worktree. Installing the Skill is only the entry.
 """
@@ -80,7 +81,12 @@ def skill_entry_prompt(*, project: Path | None = None) -> str:
         f"   - {item['name']} version {item['version']} digest {item['digest'][:12]}"
         for item in identities
     )
-    text = SKILL_ENTRY_PROMPT.format(package_version=__version__, required=required).strip() + "\n"
+    skill_docs = " and ".join(f"docs/skills/{name}" for name in PACKAGED_SKILLS)
+    text = SKILL_ENTRY_PROMPT.format(
+        package_version=__version__,
+        required=required,
+        skill_docs=skill_docs,
+    ).strip() + "\n"
     local = root / "docs" / "skills" / "ag2c-governed-development" / "SKILL.md"
     if local.is_file():
         text += f"\nLocal skill copy in this repo:\n{local}\n"
@@ -164,7 +170,10 @@ def install_skills(
             continue
         seen.add(resolved)
         path = _install_at(resolved, SKILL_NAME)
-        _install_at(resolved, GOVERNANCE_SKILL_NAME)
+        for name in PACKAGED_SKILLS:
+            if name == SKILL_NAME:
+                continue
+            _install_at(resolved, name)
         identity = packaged_skill_identity(SKILL_NAME)
         installed.append(
             {
@@ -208,9 +217,12 @@ def remove_skills(
                 status = "removed"
             else:
                 status = "preserved-modified"
-        companion = root.resolve() / GOVERNANCE_SKILL_NAME
-        if companion.is_dir() and skill_digest(companion) == skill_digest(skill_source(GOVERNANCE_SKILL_NAME)):
-            shutil.rmtree(companion)
+        for name in PACKAGED_SKILLS:
+            if name == SKILL_NAME:
+                continue
+            companion = root.resolve() / name
+            if companion.is_dir() and skill_digest(companion) == skill_digest(skill_source(name)):
+                shutil.rmtree(companion)
         removed.append({"harness": harness, "path": str(destination), "status": status})
     return removed
 

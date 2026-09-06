@@ -1,5 +1,7 @@
 # Directory households and versioned census
 
+The agent entry for this work is [ag2c-directory-census](skills/ag2c-directory-census/SKILL.md).
+
 A floor owns a directory for routing. A document explains a rule. Neither proves
 that a directory belongs to the current product. A **directory household** is a
 knowledge card with a `jurisdiction`: capability, implementation identity,

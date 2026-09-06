@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Packaged a third Skill, `ag2c-directory-census`, as the tree-investigation entry. The copy-prompt installs it with the development and governance-update pair.
 - Registering or tightening a named directory household that still has unexplained child directories is refused. AG2C no longer saves that catch-all as a 黑盒.
 - ADOPTION, ARCHITECTURE, and the GitHub README now describe copy-prompt AI entry and wrapping every previous Git hook. They no longer say AG2C detects which harness has the Skill.
 - AI 入口 is only 复制提示词. The tray no longer reports 还没接到 from harness detection. `ag2c guard status` is managed when the Git guard is on; a stale Skill home does not unmanage the project.

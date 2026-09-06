@@ -1215,8 +1215,13 @@ def _reveal_lineage_owners(state: AppState) -> None:
         kind = text(node, "kind")
         if kind == "knowledge":
             parent = text(node, "parent")
-            if parent:
+            while parent:
                 state.lineage_expanded.add(parent)
+                parent_node = next(
+                    (item for item in snapshot["nodes"] if isinstance(item, dict) and (text(item, "visual_id") or text(item, "id")) == parent),
+                    None,
+                )
+                parent = text(parent_node, "parent") if parent_node else ""
             if vid:
                 visual.append(vid)
         elif kind == "module" and vid:
@@ -1598,7 +1603,7 @@ def _gui_lineage(state: AppState) -> None:
     if not lineage["nodes"]:
         imgui.text_disabled("还没有可画的知识卡谱系")
         return
-    imgui.text_disabled("点 + / − 展开或收起。默认展开到模块；一文件一张的目录卡再点开才看到文件卡。")
+    imgui.text_disabled("点 + / − 展开或收起。每一层向右一列；点文件树哪一层就映射哪一层。")
     avail = imgui.get_content_region_avail()
     if float(getattr(avail, "x", 0) or 0) < 40.0 or float(getattr(avail, "y", 0) or 0) < 40.0:
         return
@@ -1618,11 +1623,6 @@ def _gui_lineage(state: AppState) -> None:
     project = next((node for node in visible if node.get("kind") == "project"), None)
     modules = [node for node in visible if node.get("kind") == "module"]
     cards = [node for node in visible if node.get("kind") == "knowledge"]
-    nested_hulls = [
-        node
-        for node in cards
-        if node.get("nested") and str(node.get("visual_id") or node.get("id") or "") in expanded
-    ]
     has_modules = any(node.get("kind") == "module" for node in lineage["nodes"])
     toggles: list[str] = []
     pending_click = 0
@@ -1649,7 +1649,7 @@ def _gui_lineage(state: AppState) -> None:
         title_col = imgui.get_color_u32(imgui.ImVec4(0.90, 0.93, 0.97, 1.00))
         link_color = imgui.get_color_u32(imgui.ImVec4(0.46, 0.62, 0.88, 0.90))
         marker_hits: list[tuple[str, float, float, float, float]] = []
-        for node in [*modules, *nested_hulls]:
+        for node in modules:
             visual_id = str(node.get("visual_id") or node["id"])
             if visual_id not in expanded:
                 continue
@@ -1697,9 +1697,19 @@ def _gui_lineage(state: AppState) -> None:
                     mx = float(node.get("x") or 0)
                     my = float(node.get("y") or 0) + float(node.get("height") or 48) * 0.5
                     _cubic_arrow(dl, imgui, x0, y0, mx, my, link_color)
+            by_visual = {str(item.get("visual_id") or item.get("id") or ""): item for item in visible}
+            for child in cards:
+                parent = by_visual.get(str(child.get("parent") or ""))
+                if parent is None or parent.get("kind") != "knowledge":
+                    continue
+                px1 = float(parent.get("x") or 0) + float(parent.get("width") or 0)
+                py1 = float(parent.get("y") or 0) + float(parent.get("height") or 40) * 0.5
+                cx = float(child.get("x") or 0)
+                cy = float(child.get("y") or 0) + float(child.get("height") or 40) * 0.5
+                _cubic_arrow(dl, imgui, px1, py1, cx, cy, link_color)
         imgui.push_style_var(imgui.StyleVar_.item_spacing, imgui.ImVec2(4.0, 1.0))
         try:
-            for node in [*modules, *nested_hulls]:
+            for node in modules:
                 visual_id = str(node.get("visual_id") or node["id"])
                 opened = visual_id in expanded
                 can_expand = bool(node.get("cards")) and not node.get("empty")
@@ -1731,8 +1741,6 @@ def _gui_lineage(state: AppState) -> None:
                 ed.pop_style_color(2)
             for node in cards:
                 visual_id = str(node.get("visual_id") or node["id"])
-                if node.get("nested") and visual_id in expanded:
-                    continue
                 _place(node)
                 card_w = max(80.0, float(node.get("width") or LINEAGE_CARD_W) - 12.0)
                 bg, border = _lineage_card_colors(_lineage_is_marked(node, selected, highlight, inspect_key))
@@ -1741,7 +1749,7 @@ def _gui_lineage(state: AppState) -> None:
                 ed.begin_node(ed.NodeId(_cached_uid(node)))
                 imgui.dummy((card_w, 1.0))
                 if node.get("nested") and node.get("cards"):
-                    _toggle(visual_id, False)
+                    _toggle(visual_id, visual_id in expanded)
                 imgui.text(_lineage_label(str(node.get("title") or visual_id), card_w - (28.0 if node.get("nested") else 8.0)))
                 extra = str(node.get("replaced_by") or node.get("status") or "")
                 if extra:

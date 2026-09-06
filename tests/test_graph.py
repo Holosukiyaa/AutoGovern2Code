@@ -279,10 +279,13 @@ class GovernanceGraphTests(unittest.TestCase):
         layout_lineage_view(nodes, {LINEAGE_PROJECT_ID, "floor.src", "knowledge.ag2c@floor.src"})
         shown_cli = next(item for item in nodes if item["id"] == "knowledge.ag2c-cli")
         shown_house = next(item for item in nodes if item["visual_id"] == "knowledge.ag2c@floor.src")
+        src_box = next(item for item in nodes if item["visual_id"] == "floor.src")
         self.assertFalse(shown_cli.get("hidden"))
         self.assertEqual("knowledge.ag2c@floor.src", shown_cli["parent"])
-        self.assertGreaterEqual(shown_cli["y"], shown_house["y"])
-        self.assertLessEqual(shown_cli["y"] + shown_cli["height"], shown_house["y"] + shown_house["height"])
+        self.assertGreater(shown_cli["x"], shown_house["x"] + shown_house["width"])
+        self.assertGreater(shown_cli["x"], src_box["x"] + src_box["width"])
+        leftover_node = next(item for item in nodes if item["id"] == "knowledge.src")
+        self.assertLess(leftover_node["x"] + leftover_node["width"], shown_cli["x"])
         graph = build_governance_graph(
             {
                 "cards": [household, cli, tray],

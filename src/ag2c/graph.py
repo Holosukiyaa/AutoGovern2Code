@@ -632,6 +632,25 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
                     extra=extra,
                 )
 
+    file_card_by_path: dict[str, Mapping[str, Any]] = {}
+    for card in knowledge_cards:
+        if not is_document_knowledge(card):
+            continue
+        paths = _scope_paths(card)
+        if len(paths) == 1:
+            file_card_by_path[paths[0]] = card
+    for node in nodes.values():
+        if node.get("kind") != "file":
+            continue
+        rel = _normalize_path(_text(node.get("summary")))
+        file_card = file_card_by_path.get(rel)
+        if file_card is None:
+            continue
+        title = _text(file_card.get("title")) or _text(file_card.get("id"))
+        node["coveredBy"] = [title]
+        node["coverageLabel"] = title
+        node["parentCard"] = _text(file_card.get("id"))
+
     knowledge_by_title = {
         _text(node.get("title")) or node["id"]: node
         for node in nodes.values()
@@ -1034,34 +1053,46 @@ def _pack_lineage_children(
     for child in children:
         visual_id = str(child.get("visual_id") or child.get("id") or "")
         nested = kids_of.get(visual_id, [])
-        opened = bool(nested) and visual_id in expanded
         child["hidden"] = False
         child["x"] = x
-        child["width"] = width
-        if opened:
-            inner = len(nested) * LINEAGE_CARD_H + max(0, len(nested) - 1) * LINEAGE_CARD_GAP_Y
-            height = LINEAGE_MODULE_HEADER + inner + LINEAGE_MODULE_PAD
-            child["y"] = cursor
-            child["height"] = height
-            child["group"] = True
-            nested_x = x + LINEAGE_MODULE_PAD
-            nested_w = max(LINEAGE_CARD_MIN_W, width - LINEAGE_MODULE_PAD * 2)
-            for index, grand in enumerate(nested):
-                grand["hidden"] = False
-                grand["group"] = False
-                grand["x"] = nested_x
-                grand["y"] = cursor + LINEAGE_MODULE_HEADER + index * (LINEAGE_CARD_H + LINEAGE_CARD_GAP_Y)
-                grand["width"] = nested_w
-                grand["height"] = LINEAGE_CARD_H
-            cursor += height + LINEAGE_CARD_GAP_Y
-            continue
         child["y"] = cursor
+        child["width"] = width
         child["height"] = LINEAGE_CARD_H
         child["group"] = bool(nested)
-        for grand in nested:
-            _hide_lineage_branch(grand, kids_of)
         cursor += LINEAGE_CARD_H + LINEAGE_CARD_GAP_Y
+        if not (nested and visual_id in expanded):
+            for grand in nested:
+                _hide_lineage_branch(grand, kids_of)
     return max(0.0, cursor - y - LINEAGE_CARD_GAP_Y)
+
+
+def _place_outward_column(
+    parent: dict[str, Any],
+    kids_of: dict[str, list[dict[str, Any]]],
+    expanded: set[str],
+) -> None:
+    visual_id = str(parent.get("visual_id") or parent.get("id") or "")
+    nested = kids_of.get(visual_id, [])
+    if not nested:
+        return
+    if visual_id not in expanded or parent.get("hidden"):
+        for child in nested:
+            _hide_lineage_branch(child, kids_of)
+        return
+    column_x = float(parent.get("x") or 0) + float(parent.get("width") or LINEAGE_CARD_W) + LINEAGE_RANK_SEP
+    card_w = LINEAGE_CARD_MIN_W
+    for child in nested:
+        card_w = max(card_w, lineage_card_width(child))
+    card_w = min(LINEAGE_CARD_MAX_W, card_w)
+    start_y = float(parent.get("y") or 0)
+    for index, child in enumerate(nested):
+        child["hidden"] = False
+        child["group"] = bool(kids_of.get(str(child.get("visual_id") or child.get("id") or ""), []))
+        child["x"] = column_x
+        child["y"] = start_y + index * (LINEAGE_CARD_H + LINEAGE_CARD_GAP_Y)
+        child["width"] = card_w
+        child["height"] = LINEAGE_CARD_H
+        _place_outward_column(child, kids_of, expanded)
 
 
 def layout_lineage_view(nodes: list[dict[str, Any]], expanded: set[str]) -> None:
@@ -1119,11 +1150,8 @@ def layout_lineage_view(nodes: list[dict[str, Any]], expanded: set[str]) -> None
         card_w = LINEAGE_CARD_MIN_W
         for child in children:
             card_w = max(card_w, lineage_card_width(child))
-            for grand in kids_of.get(str(child.get("visual_id") or child.get("id") or ""), []):
-                card_w = max(card_w, lineage_card_width(grand))
         card_w = min(LINEAGE_CARD_MAX_W, card_w)
-        nested_pad = LINEAGE_MODULE_PAD * 2
-        width = max(LINEAGE_MODULE_MIN_W, card_w + nested_pad + LINEAGE_MODULE_PAD * 2)
+        width = max(LINEAGE_MODULE_MIN_W, card_w + LINEAGE_MODULE_PAD * 2)
         inner_x = module_x + LINEAGE_MODULE_PAD
         inner_w = width - LINEAGE_MODULE_PAD * 2
         inner_y = cursor_y + LINEAGE_MODULE_HEADER
@@ -1142,6 +1170,9 @@ def layout_lineage_view(nodes: list[dict[str, Any]], expanded: set[str]) -> None
         module["y"] = cursor_y
         module["width"] = width
         module["height"] = height
+        if visual_id in expanded:
+            for child in children:
+                _place_outward_column(child, kids_of, expanded)
         cursor_y += height + LINEAGE_MODULE_GAP
     total_h = max(cursor_y - LINEAGE_MODULE_GAP - LINEAGE_ORIGIN_Y, LINEAGE_PROJECT_H)
     if project is not None:

@@ -412,6 +412,27 @@ def _card_path_prefixes(card: dict[str, Any]) -> list[str]:
     return prefixes
 
 
+def _clean_scope_path(value: str) -> str:
+    path = value.replace("\\", "/").split(":", 1)[-1].lstrip("/").rstrip("*").rstrip("/")
+    return path
+
+
+def _rel_under_card(rel: str, card: dict[str, Any]) -> bool:
+    includes: list[str] = []
+    excludes: list[str] = []
+    for scope in card.get("scopes") or []:
+        if not isinstance(scope, dict):
+            continue
+        includes.extend(_clean_scope_path(str(item)) for item in (scope.get("include") or scope.get("includes") or []) if item)
+        excludes.extend(_clean_scope_path(str(item)) for item in (scope.get("exclude") or scope.get("excludes") or []) if item)
+    if not includes:
+        includes.extend(_clean_scope_path(chunk) for chunk in text(card, "path").replace("、", ",").split(",") if chunk.strip())
+    needle = rel.replace("\\", "/").lstrip("/")
+    if not any(path and (needle == path or needle.startswith(path + "/")) for path in includes):
+        return False
+    return not any(path and (needle == path or needle.startswith(path + "/")) for path in excludes)
+
+
 def file_owned_by_card(node: dict[str, Any], card: dict[str, Any]) -> bool:
     rel = file_relpath(node)
     owners = claim_owners(node)
@@ -419,7 +440,13 @@ def file_owned_by_card(node: dict[str, Any], card: dict[str, Any]) -> bool:
     card_id = text(card, "id")
     title = text(card, "title") or card_id
     if kind == "knowledge":
-        return title in owners or card_id in owners
+        if title in owners or card_id in owners:
+            return True
+        if text(node, "parentCard") == card_id:
+            return True
+        if card.get("jurisdiction") or card.get("household") or card.get("span"):
+            return _rel_under_card(rel, card)
+        return False
     if kind == "gap":
         if owners:
             return False
@@ -551,6 +578,23 @@ def inspect_card(card: dict[str, Any], files: list[tuple[str, dict[str, Any]]]) 
     }
 
 
+def _exact_file_card(cards: list[dict[str, Any]], rel: str) -> dict[str, Any] | None:
+    needle = rel.replace("\\", "/").lstrip("/")
+    for card in cards:
+        if text(card, "kind") not in {"", "knowledge"} and text(card, "type") not in {"", "knowledge"}:
+            continue
+        if card.get("jurisdiction") or card.get("household"):
+            continue
+        includes: list[str] = []
+        for scope in card.get("scopes") or []:
+            if not isinstance(scope, dict):
+                continue
+            includes.extend(_clean_scope_path(str(item)) for item in (scope.get("include") or scope.get("includes") or []) if item)
+        if includes == [needle]:
+            return card
+    return None
+
+
 def focus_file(
     files: list[tuple[str, dict[str, Any]]],
     cards: list[dict[str, Any]],
@@ -560,28 +604,34 @@ def focus_file(
     if node is None:
         return None
     owners = claim_owners(node)
-    peers = peer_rels(files, node)
     matched = cards_for_owners(cards, owners)
-    primary = matched[0] if matched else None
-    card_keys = {row_key(card, text(card, "title")) for card in matched}
-    card_ids = [text(card, "id") or row_key(card, text(card, "title")) for card in matched]
-    highlight = set(peers)
-    open_paths = {rel, *peers} if highlight else {rel}
-    prefixes: set[str] = set()
-    for path in open_paths:
-        prefixes.update(ancestor_prefixes(path))
+    file_card = _exact_file_card(cards, rel)
+    primary = file_card or (matched[0] if matched else None)
+    card_keys = {row_key(primary, text(primary, "title"))} if primary else set()
+    card_ids = []
+    if primary is not None:
+        card_ids.append(text(primary, "id") or row_key(primary, text(primary, "title")))
+    parent_id = text(node, "parentCard")
+    if parent_id and parent_id not in card_ids:
+        card_ids.append(parent_id)
+    for card in matched:
+        ident = text(card, "id") or row_key(card, text(card, "title"))
+        if ident and ident not in card_ids:
+            card_ids.append(ident)
+    prefixes: set[str] = set(ancestor_prefixes(rel))
     primary_key = row_key(primary, text(primary, "title")) if primary else ""
-    pins = highlight if highlight else {rel}
+    inspect = inspect_file(node, files, cards)
+    inspect["peers"] = []
     return {
         "selected_file": rel,
         "selected_card_key": primary_key,
         "highlight_card_keys": card_keys,
         "inspect_key": row_key(node, rel),
-        "inspect": inspect_file(node, files, cards),
-        "highlight_paths": highlight,
+        "inspect": inspect,
+        "highlight_paths": {rel} if owners else set(),
         "force_open": prefixes,
         "scroll_card_key": primary_key,
-        "scroll_file_key": coverage_scroll_key(files, pins),
+        "scroll_file_key": coverage_scroll_key(files, {rel}),
         "lineage_nav_id": card_ids[0] if card_ids else "",
         "lineage_nav_ids": card_ids,
     }

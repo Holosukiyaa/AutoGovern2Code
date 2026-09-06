@@ -639,7 +639,7 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertEqual("knowledge.src", picked["selected_card_key"])
         self.assertEqual({"knowledge.src"}, picked["highlight_card_keys"])
         self.assertEqual(["knowledge.src"], picked["lineage_nav_ids"])
-        self.assertEqual({"src/ag2c/gitops.py", "src/ag2c/imgui_tray.py"}, picked["highlight_paths"])
+        self.assertEqual({"src/ag2c/imgui_tray.py"}, picked["highlight_paths"])
         self.assertIn("src", picked["force_open"])
         self.assertIn("src/ag2c", picked["force_open"])
         inspect = picked["inspect"]
@@ -647,7 +647,7 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertEqual("源码治理", inspect["claim"])
         self.assertIn("不嵌 3D", inspect["summary"])
         self.assertEqual([{"id": "knowledge.src", "title": "源码治理"}], inspect["cards"])
-        self.assertEqual(["src/ag2c/gitops.py", "src/ag2c/imgui_tray.py"], inspect["peers"])
+        self.assertEqual([], inspect["peers"])
         both_focus = focus_file(files, cards, "src/shared.py")
         assert both_focus is not None
         self.assertIn("knowledge.src", both_focus["highlight_card_keys"])
@@ -686,6 +686,56 @@ class TrayHostHelperTests(unittest.TestCase):
                 },
             ),
         )
+
+    def test_file_tree_click_uses_file_card_not_the_parent_room(self) -> None:
+        from ag2c.tray_host import focus_card, focus_file
+
+        household = {
+            "kind": "knowledge",
+            "id": "knowledge.ag2c",
+            "title": "src/ag2c package",
+            "summary": "本卡不是设计思路。",
+            "jurisdiction": {"span": "file"},
+            "scopes": [{"include": ["src/ag2c/**"], "exclude": ["src/ag2c/skills/**"]}],
+        }
+        file_card = {
+            "kind": "knowledge",
+            "id": "knowledge.ag2c-cli",
+            "title": "ag2c command surface",
+            "summary": "argparse 命令面。",
+            "scopes": [{"include": ["src/ag2c/cli.py"]}],
+            "references": ["src/ag2c/cli.py"],
+        }
+        cli = {
+            "kind": "file",
+            "id": "file:app:src/ag2c/cli.py",
+            "title": "cli.py",
+            "path": "app:src/ag2c/cli.py",
+            "coveredBy": ["ag2c command surface"],
+            "parentCard": "knowledge.ag2c-cli",
+            "summary": "src/ag2c/cli.py",
+        }
+        tasks = {
+            "kind": "file",
+            "id": "file:app:src/ag2c/tasks.py",
+            "title": "tasks.py",
+            "path": "app:src/ag2c/tasks.py",
+            "coveredBy": ["task worktree lifecycle"],
+            "parentCard": "knowledge.ag2c-tasks",
+            "summary": "src/ag2c/tasks.py",
+        }
+        files = [("src/ag2c/cli.py", cli), ("src/ag2c/tasks.py", tasks)]
+        cards = [household, file_card]
+        picked = focus_file(files, cards, "src/ag2c/cli.py")
+        assert picked is not None
+        self.assertEqual("knowledge.ag2c-cli", picked["selected_card_key"])
+        self.assertEqual({"src/ag2c/cli.py"}, picked["highlight_paths"])
+        self.assertNotIn("src/ag2c/tasks.py", picked["highlight_paths"])
+        self.assertIn("argparse 命令面", picked["inspect"]["summary"])
+        self.assertNotIn("本卡不是设计思路", picked["inspect"]["summary"])
+        room = focus_card(files, household)
+        self.assertEqual({"src/ag2c/cli.py", "src/ag2c/tasks.py"}, room["highlight_paths"])
+        self.assertEqual("knowledge.ag2c", room["selected_card_key"])
 
     def test_project_details_cache_skips_rebuild_until_refresh(self) -> None:
         from ag2c.management import project_details

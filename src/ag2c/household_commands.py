@@ -93,6 +93,19 @@ def _carve_exploring_placeholders(raw: dict, card_id: str, includes: list[str]) 
         ]
 
 
+def _refuse_undecomposed(card_id: str, heading: str):
+    def refuse(loaded_manifest, loaded_policy) -> None:
+        report = census_report(loaded_manifest, loaded_policy)
+        record = next((item for item in report["households"] if item["id"] == card_id), None)
+        if record is None:
+            raise AG2CError(f"unknown directory household: {card_id}")
+        blocked = sorted({str(issue.get("code")) for issue in record.get("issues") or []} & RECORD_BLOCK_ISSUES)
+        if blocked:
+            raise AG2CError(heading + ":\n- " + "\n- ".join(f"{card_id}:{code}" for code in blocked))
+
+    return refuse
+
+
 def _save_policy(manifest, raw: dict, actor: str, reason: str, event_type: str, payload: dict, after_load=None) -> dict:
     temporary = manifest.policy_path.with_name(f".households-{uuid.uuid4().hex}.json")
     try:
@@ -142,7 +155,15 @@ def register_household(start: Path, *, card_id: str, title: str, summary: str, i
     raw["relations"].extend({"source": card_id, "type": "explains", "target": floor} for floor in floors)
     if replaced_by:
         raw["relations"].append({"source": card_id, "type": "replaced_by", "target": replaced_by})
-    return _save_policy(manifest, raw, actor, reason, "household-registered", {"id": card_id, "summary": summary, "jurisdiction": card["jurisdiction"], "scopes": card["scopes"]})
+    return _save_policy(
+        manifest,
+        raw,
+        actor,
+        reason,
+        "household-registered",
+        {"id": card_id, "summary": summary, "jurisdiction": card["jurisdiction"], "scopes": card["scopes"]},
+        after_load=_refuse_undecomposed(card_id, "cannot-name-undecomposed-household"),
+    )
 
 
 def review_census(start: Path, *, card_ids: list[str], all_cards: bool, actor: str, reason: str) -> dict:
@@ -226,15 +247,6 @@ def tighten_household(
     if not found:
         raise AG2CError(f"unknown directory household: {card_id}")
 
-    def refuse_opaque(loaded_manifest, loaded_policy) -> None:
-        report = census_report(loaded_manifest, loaded_policy)
-        record = next((item for item in report["households"] if item["id"] == card_id), None)
-        if record is None:
-            raise AG2CError(f"unknown directory household: {card_id}")
-        blocked = sorted({str(issue.get("code")) for issue in record.get("issues") or []} & RECORD_BLOCK_ISSUES)
-        if blocked:
-            raise AG2CError("tighten-blocked:\n- " + "\n- ".join(f"{card_id}:{code}" for code in blocked))
-
     result = _save_policy(
         manifest,
         raw,
@@ -242,7 +254,7 @@ def tighten_household(
         reason,
         "household-tightened",
         {"id": card_id, "previous": old, "jurisdiction": new},
-        after_load=refuse_opaque,
+        after_load=_refuse_undecomposed(card_id, "tighten-blocked"),
     )
     from .govern import pending_updates
 

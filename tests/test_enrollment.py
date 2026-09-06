@@ -10,8 +10,12 @@ from unittest.mock import patch
 import bootstrap
 from support import git_project
 
+from ag2c.config import discover_manifest, load_manifest, load_policy
 from ag2c.enrollment import activation_status, enroll_project
+from ag2c.errors import AG2CError
 from ag2c.gitops import git, status_entries
+from ag2c.household_commands import register_household, tighten_household
+from ag2c.households import census_report
 
 
 class EnrollmentTests(unittest.TestCase):
@@ -92,3 +96,60 @@ class EnrollmentTests(unittest.TestCase):
                 status = activation_status(root)
             self.assertTrue(status["managed"])
             self.assertFalse(any("Skill" in item for item in status["issues"]))
+
+    def test_naming_src_without_child_households_is_refused_not_stored_as_opaque(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = git_project(base / "demo")
+            (root / "src" / "frontend").mkdir()
+            (root / "src" / "frontend" / "app.ts").write_text("export {}\n", encoding="utf-8")
+            (root / "src" / "backend").mkdir()
+            (root / "src" / "backend" / "api.py").write_text("VALUE = 1\n", encoding="utf-8")
+            data = base / "ag2c-data"
+            with patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False):
+                enroll_project(root, skill_root=base / "skills", harnesses=("agents",))
+                with self.assertRaises(AG2CError) as raised:
+                    register_household(
+                        root,
+                        card_id="knowledge.src",
+                        title="src",
+                        summary="the whole tree",
+                        includes=["src/**"],
+                        excludes=[],
+                        floors=["floor.src"],
+                        capability="src",
+                        implementation="src.main",
+                        status="current",
+                        meaning="named",
+                        actor="codex",
+                        reason="claim every file under src",
+                    )
+                self.assertIn("cannot-name-undecomposed-household", str(raised.exception))
+                with self.assertRaises(AG2CError) as tightened:
+                    tighten_household(
+                        root,
+                        card_id="knowledge.src",
+                        meaning="named",
+                        actor="codex",
+                        reason="name the enrollment placeholder",
+                    )
+                self.assertIn("tighten-blocked", str(tightened.exception))
+                manifest = load_manifest(discover_manifest(root), project_root=root)
+                src = next(item for item in census_report(manifest, load_policy(manifest))["households"] if item["id"] == "knowledge.src")
+                self.assertEqual("exploring", src["identity"])
+                frontend = register_household(
+                    root,
+                    card_id="knowledge.frontend",
+                    title="frontend",
+                    summary="shipped UI",
+                    includes=["src/frontend/**"],
+                    excludes=[],
+                    floors=["floor.src"],
+                    capability="frontend",
+                    implementation="frontend.main",
+                    status="current",
+                    meaning="named",
+                    actor="codex",
+                    reason="traced the UI subtree",
+                )
+            self.assertEqual("named", frontend["jurisdiction"]["meaning"])

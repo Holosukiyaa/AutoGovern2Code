@@ -8,8 +8,9 @@ floor links and its own checks.
 
 Hanging a card is not the same as explaining the tree. `meaning=none` is
 **exploring** (legal and loose). `meaning=named` requires every code-bearing
-direct child directory to be a proper-subset household. A named claim that
-cannot reconstruct those children is **opaque**; census `--record` cannot mark it
+direct child directory to be a proper-subset household. Registering or tightening
+a named claim that cannot reconstruct those children is **refused**; AG2C does
+not store it as a 黑盒. census `--record` also cannot mark an opaque card
 current. Tighten only; renew-exploring acknowledges the current child set without
 product acceptance. Delete leftover bytes only after `govern retire`, and only
 inside a dedicated task. Current and unabandoned exploring directories cannot be

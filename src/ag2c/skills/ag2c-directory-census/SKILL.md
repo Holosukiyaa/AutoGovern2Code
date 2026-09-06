@@ -40,7 +40,7 @@ Enrollment already hangs each top-level directory as exploring (`meaning=none`).
    ag2c govern household --id knowledge.<slug> --title "<room>" --summary "<one line>" --include <dir>/** --floor <floor.id> --capability <slug> --implementation <slug>.main --actor <harness> --reason "<what was traced>"
    ```
 
-   Optional `--meaning named` only when every code-bearing direct child directory already has its own household. AG2C refuses `cannot-name-undecomposed-household` and does not save a 黑盒. Files inside a room (including many CSS files) stay on that one card.
+   Optional `--meaning named` only when every code-bearing direct child directory already has its own household. AG2C refuses `cannot-name-undecomposed-household` and does not save a 黑盒. After a child room exists, the parent must `--exclude` that child's glob. Re-including the parent tree (`src/**`) without that exclude recaptures the child; AG2C refuses `cannot-overlap-household` and does not save dual owners. Files inside a room (including many CSS files) stay on that one card.
 
 4. After inspecting that room's files and checks, record only that card:
 
@@ -58,6 +58,7 @@ Enrollment already hangs each top-level directory as exploring (`meaning=none`).
 
 - Do not change product source, tests, or docs in this Skill.
 - Do not create a catch-all card to hide unowned or unexplained code.
+- Do not re-include a parent glob that covers an existing subset household unless that child glob is excluded.
 - Do not treat exploring as named.
 - Do not `census --record` a card you did not inspect.
 - Do not enable `household-gate --mode enforce` unless the user asked to block delivery on census gaps.

@@ -12,19 +12,22 @@ Hanging a card is not the same as explaining the tree. `meaning=none` is
 **exploring** (legal and loose). `meaning=named` requires every code-bearing
 direct child directory to be a proper-subset household. Registering or tightening
 a named claim that cannot reconstruct those children is **refused**; AG2C does
-not store it as a 黑盒. census `--record` also cannot mark an opaque card
-current. Tighten only; renew-exploring acknowledges the current child set without
-product acceptance. Delete leftover bytes only after `govern retire`, and only
-inside a dedicated task. Current and unabandoned exploring directories cannot be
-removed in a feature diff.
+not store it as a 黑盒. Re-including a parent glob that covers an existing child
+household, without excluding that child's glob, is also **refused**
+(`cannot-overlap-household`); AG2C does not save dual owners. census `--record`
+also cannot mark an opaque card current. Tighten only; renew-exploring
+acknowledges the current child set without product acceptance. Delete leftover
+bytes only after `govern retire`, and only inside a dedicated task. Current and
+unabandoned exploring directories cannot be removed in a feature diff.
 
 New enrollment hangs each top-level directory as an exploring household. That is
 ownership without a named explanation: files are not 无主, and they are not 说清.
 Enrollment also records the current child set so a nested tree does not start
 life as `tighten-or-renew` debt. Registering a household on the same glob
 absorbs that exploring placeholder. Registering a proper-subset glob carves it
-out of the exploring parent with an exclude. Ingest does not put the placeholder
-back over a household that already covers the directory.
+out of the exploring parent with an exclude. Re-hanging the parent glob without
+that exclude recaptures the child and is refused. Ingest does not put the
+placeholder back over a household that already covers the directory.
 
 The tray graph shows code directories separately from cards. A README cannot
 cover sibling source code. Unowned files, overlapping claims, competing current

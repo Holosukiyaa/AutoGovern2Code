@@ -106,6 +106,28 @@ def _refuse_undecomposed(card_id: str, heading: str):
     return refuse
 
 
+def _refuse_overlap(loaded_manifest, loaded_policy) -> None:
+    report = census_report(loaded_manifest, loaded_policy)
+    hits: list[str] = []
+    for item in report.get("gaps") or []:
+        if item.get("code") != "code-ambiguous":
+            continue
+        cards = ",".join(str(card) for card in (item.get("cards") or []))
+        hits.append(f'{item.get("target")}:{item.get("path")}:{cards}')
+    if hits:
+        raise AG2CError("cannot-overlap-household:\n- " + "\n- ".join(sorted(set(hits))[:40]))
+
+
+def _refuse_household_write(card_id: str, heading: str):
+    undecomposed = _refuse_undecomposed(card_id, heading)
+
+    def refuse(loaded_manifest, loaded_policy) -> None:
+        undecomposed(loaded_manifest, loaded_policy)
+        _refuse_overlap(loaded_manifest, loaded_policy)
+
+    return refuse
+
+
 def _save_policy(manifest, raw: dict, actor: str, reason: str, event_type: str, payload: dict, after_load=None) -> dict:
     temporary = manifest.policy_path.with_name(f".households-{uuid.uuid4().hex}.json")
     try:
@@ -162,7 +184,7 @@ def register_household(start: Path, *, card_id: str, title: str, summary: str, i
         reason,
         "household-registered",
         {"id": card_id, "summary": summary, "jurisdiction": card["jurisdiction"], "scopes": card["scopes"]},
-        after_load=_refuse_undecomposed(card_id, "cannot-name-undecomposed-household"),
+        after_load=_refuse_household_write(card_id, "cannot-name-undecomposed-household"),
     )
 
 
@@ -254,7 +276,7 @@ def tighten_household(
         reason,
         "household-tightened",
         {"id": card_id, "previous": old, "jurisdiction": new},
-        after_load=_refuse_undecomposed(card_id, "tighten-blocked"),
+        after_load=_refuse_household_write(card_id, "tighten-blocked"),
     )
     from .govern import pending_updates
 

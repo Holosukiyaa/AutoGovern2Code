@@ -153,3 +153,61 @@ class EnrollmentTests(unittest.TestCase):
                     reason="traced the UI subtree",
                 )
             self.assertEqual("named", frontend["jurisdiction"]["meaning"])
+
+    def test_parent_glob_cannot_recapture_child_household(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = git_project(base / "demo")
+            (root / "src" / "frontend").mkdir()
+            (root / "src" / "frontend" / "app.ts").write_text("export {}\n", encoding="utf-8")
+            data = base / "ag2c-data"
+            with patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False):
+                enroll_project(root, skill_root=base / "skills", harnesses=("agents",))
+                register_household(
+                    root,
+                    card_id="knowledge.frontend",
+                    title="frontend",
+                    summary="shipped UI",
+                    includes=["src/frontend/**"],
+                    excludes=[],
+                    floors=["floor.src"],
+                    capability="frontend",
+                    implementation="frontend.main",
+                    status="current",
+                    meaning="named",
+                    actor="codex",
+                    reason="traced the UI subtree",
+                )
+                with self.assertRaises(AG2CError) as raised:
+                    register_household(
+                        root,
+                        card_id="knowledge.src",
+                        title="src",
+                        summary="the whole tree",
+                        includes=["src/**"],
+                        excludes=[],
+                        floors=["floor.src"],
+                        capability="src",
+                        implementation="src.main",
+                        status="current",
+                        meaning="named",
+                        actor="codex",
+                        reason="reclaim src after carving frontend",
+                    )
+                self.assertIn("cannot-overlap-household", str(raised.exception))
+                self.assertNotIn("cannot-name-undecomposed-household", str(raised.exception))
+                manifest = load_manifest(discover_manifest(root), project_root=root)
+                report = census_report(manifest, load_policy(manifest))
+            src = next(item for item in report["households"] if item["id"] == "knowledge.src")
+            frontend = next(item for item in report["households"] if item["id"] == "knowledge.frontend")
+            frontend_dir = next(item for item in report["directories"] if item["path"] == "src/frontend")
+            src_excludes = [
+                pattern
+                for scope in src["scopes"]
+                for pattern in (scope.get("exclude") or scope.get("excludes") or [])
+            ]
+            self.assertEqual("exploring", src["identity"])
+            self.assertEqual("named", frontend["identity"])
+            self.assertEqual(["knowledge.frontend"], frontend_dir["owners"])
+            self.assertIn("src/frontend/**", src_excludes)
+            self.assertEqual(0, report["counts"]["ambiguous"])

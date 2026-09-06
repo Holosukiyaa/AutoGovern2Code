@@ -9,6 +9,28 @@ from typing import Any, Iterable, Mapping
 GRAPH_SCHEMA = "ag2c.governance_graph.v1"
 OPEN_TASK_STATES = frozenset({"active", "verified"})
 LAZINESS_FLAGS = ("opaque", "abandoned", "unowned", "ambiguous", "stale", "unreviewed", "multiple", "undeclared", "writing")
+STATUS_TAG_ORDER = (
+    "writing",
+    "opaque",
+    "placeholder",
+    "exploring",
+    "unreviewed",
+    "stale",
+    "abandoned",
+    "document",
+    "current",
+)
+STATUS_TAG_LABELS = {
+    "writing": "AI正在写",
+    "opaque": "黑盒",
+    "placeholder": "占位",
+    "exploring": "开工",
+    "unreviewed": "未普查",
+    "stale": "过期",
+    "abandoned": "废弃未清",
+    "document": "文档",
+    "current": "在册",
+}
 FLAG_LABELS = {
     "abandoned": "废弃未清",
     "unowned": "无主",
@@ -21,7 +43,10 @@ FLAG_LABELS = {
     "multiple": "多实现待核查",
     "exploring": "开工",
     "opaque": "黑盒",
+    "placeholder": "占位",
+    "document": "文档",
 }
+STATUS_FLAGS = (*LAZINESS_FLAGS, "exploring", "placeholder", "document")
 KIND_LABELS = {
     "constitution": "宪章",
     "floor": "目录认领",
@@ -103,6 +128,59 @@ def _primary_flag(flags: Iterable[str]) -> str:
     return ordered[0] if ordered else "current"
 
 
+def status_tag_key(flags: Iterable[str]) -> str:
+    flag_set = set(flags)
+    for key in STATUS_TAG_ORDER:
+        if key in flag_set:
+            return key
+    return "current"
+
+
+def status_tag_label(flags: Iterable[str]) -> str:
+    return STATUS_TAG_LABELS[status_tag_key(flags)]
+
+
+def worst_status_tag(tags: Iterable[str]) -> str:
+    rank = {key: index for index, key in enumerate(STATUS_TAG_ORDER)}
+    best = ""
+    best_rank = len(STATUS_TAG_ORDER)
+    for tag in tags:
+        key = str(tag or "")
+        if key not in rank:
+            continue
+        if rank[key] < best_rank:
+            best = key
+            best_rank = rank[key]
+    return best
+
+
+def is_enrollment_placeholder(declaration: Mapping[str, Any] | None) -> bool:
+    record = _mapping(declaration)
+    if not record:
+        return False
+    if _text(record.get("meaning") or "none") != "none":
+        return False
+    if _text(record.get("status") or "current") not in {"", "current"}:
+        return False
+    return _text(record.get("implementation")).endswith(".exploring")
+
+
+def is_document_knowledge(card: Mapping[str, Any]) -> bool:
+    if _text(card.get("type") or card.get("kind")) != "knowledge":
+        return False
+    if card.get("jurisdiction"):
+        return False
+    return bool(_items(card.get("references")))
+
+
+def placeholder_claim(title: str) -> str:
+    name = _text(title)
+    suffix = " exploring household"
+    if name.endswith(suffix):
+        name = name[: -len(suffix)].strip()
+    return f"占位 · {name}" if name else "占位"
+
+
 def _file_role(covered_by: list[str], flags: Iterable[str], owner_records: list[Mapping[str, Any]]) -> tuple[str, str]:
     flag_set = set(flags)
     statuses = [_text(_mapping(item.get("jurisdiction")).get("status")) for item in owner_records]
@@ -145,8 +223,15 @@ def _node(
     detection: str = "",
     extra: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    flag_list = [flag for flag in (*LAZINESS_FLAGS, "exploring") if flag in set(flags)]
-    primary = _primary_flag(flag_list) if any(flag in LAZINESS_FLAGS for flag in flag_list) else ("exploring" if "exploring" in flag_list else "current")
+    flag_list = [flag for flag in STATUS_FLAGS if flag in set(flags)]
+    tag = status_tag_key(flag_list)
+    primary = tag if tag != "document" else "current"
+    if primary == "placeholder":
+        primary = "placeholder"
+    elif any(flag in LAZINESS_FLAGS for flag in flag_list):
+        primary = _primary_flag(flag_list)
+    elif "exploring" in flag_list:
+        primary = "exploring"
     payload = {
         "id": node_id,
         "kind": kind,
@@ -158,7 +243,8 @@ def _node(
         "detection": detection,
         "flags": flag_list,
         "primary": primary,
-        "statusLabel": " · ".join(FLAG_LABELS[flag] for flag in flag_list) or FLAG_LABELS["current"],
+        "statusTag": tag,
+        "statusLabel": STATUS_TAG_LABELS[tag],
         "lazy": any(flag in LAZINESS_FLAGS for flag in flag_list),
     }
     if extra:
@@ -277,7 +363,11 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
         elif kind == "knowledge":
             protocol = "无对外协议"
             flags.extend(_knowledge_flags(knowledge_status.get(card_id, {})))
-            if not _items(card.get("references")) and "abandoned" not in flags:
+            if is_enrollment_placeholder(_mapping(card.get("jurisdiction"))):
+                flags.append("placeholder")
+            elif is_document_knowledge(card):
+                flags.append("document")
+            if not _items(card.get("references")) and not card.get("jurisdiction") and "abandoned" not in flags:
                 flags.append("abandoned")
         elif kind == "constitution":
             detection = detection if detection != "无检测" else "交付门禁"
@@ -392,7 +482,10 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
             flags = [flag for flag in nodes.get(card_id, {}).get("flags", []) if flag == "writing"]
             freshness = household.get("freshness")
             identity = _text(household.get("identity"))
-            if identity == "exploring":
+            placeholder = is_enrollment_placeholder(declaration)
+            if placeholder:
+                flags.append("placeholder")
+            elif identity == "exploring":
                 flags.append("exploring")
             if identity == "opaque" or {issue["code"] for issue in household.get("issues", [])} & {
                 "opaque-claimed",
@@ -401,8 +494,10 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
                 "grain-overflow",
             }:
                 flags.append("opaque")
-            if freshness in {"never", "stale"}:
-                flags.append("unreviewed" if freshness == "never" else "stale")
+            if freshness == "stale":
+                flags.append("stale")
+            elif freshness == "never" and not placeholder and identity not in {"exploring", ""}:
+                flags.append("unreviewed")
             if declaration.get("status") == "legacy" or (declaration.get("status") == "retired" and household.get("code_count")):
                 flags.append("abandoned")
             issue_codes = {issue["code"] for issue in household.get("issues", [])}
@@ -480,6 +575,24 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
         role, role_label = _file_role(list(node.get("coveredBy") or []), node.get("flags") or [], owners)
         node["role"] = role
         node["roleLabel"] = role_label
+        claim_labels: list[str] = []
+        extra_flags = list(node.get("flags") or [])
+        for owner in owners:
+            owner_flags = list(owner.get("flags") or [])
+            title = _text(owner.get("title")) or owner["id"]
+            if "placeholder" in owner_flags:
+                claim_labels.append(placeholder_claim(title))
+                if "placeholder" not in extra_flags:
+                    extra_flags.append("placeholder")
+            else:
+                claim_labels.append(title)
+            if "exploring" in owner_flags and "exploring" not in extra_flags and "placeholder" not in extra_flags:
+                extra_flags.append("exploring")
+        node["claimLabels"] = claim_labels
+        if extra_flags != list(node.get("flags") or []):
+            node["flags"] = extra_flags
+            node["statusTag"] = status_tag_key(extra_flags)
+            node["statusLabel"] = STATUS_TAG_LABELS[node["statusTag"]]
         replacements: list[str] = []
         for owner in owners:
             for item in _items(_mapping(owner.get("household")).get("replaced_by")):
@@ -493,7 +606,7 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
         if node.get("coversDirectories") and node.get("kind") != "file":
             node["coverageLabel"] = "覆盖 " + "、".join(list(node["coversDirectories"])[:8])
 
-    counts = {flag: 0 for flag in (*LAZINESS_FLAGS, "exploring", "current", "nodes", "leaves", "files")}
+    counts = {flag: 0 for flag in (*LAZINESS_FLAGS, "exploring", "placeholder", "document", "current", "nodes", "leaves", "files")}
     for node in nodes.values():
         counts["nodes"] += 1
         if node["kind"] == "file":
@@ -504,8 +617,12 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
             for flag in node["flags"]:
                 if flag in counts:
                     counts[flag] += 1
+        elif "placeholder" in node.get("flags", []):
+            counts["placeholder"] += 1
         elif "exploring" in node.get("flags", []):
             counts["exploring"] += 1
+        elif "document" in node.get("flags", []):
+            counts["document"] += 1
         else:
             counts["current"] += 1
     lazy_total = sum(counts[flag] for flag in LAZINESS_FLAGS)
@@ -586,6 +703,27 @@ def _card_module_path(card: Mapping[str, Any]) -> str:
 def _status_from_graph(graph_nodes: dict[str, Mapping[str, Any]], card_id: str, fallback: str) -> str:
     record = _mapping(graph_nodes.get(card_id))
     return _text(record.get("statusLabel")) or fallback
+
+
+def _knowledge_status_tag(card: Mapping[str, Any], graph_nodes: Mapping[str, Mapping[str, Any]], card_id: str) -> str:
+    record = _mapping(graph_nodes.get(card_id))
+    tag = _text(record.get("statusTag"))
+    if tag:
+        return tag
+    if is_enrollment_placeholder(_mapping(card.get("jurisdiction"))):
+        return "placeholder"
+    if is_document_knowledge(card):
+        return "document"
+    flags = _items(record.get("flags"))
+    return status_tag_key(str(item) for item in flags)
+
+
+def _knowledge_status_label(card: Mapping[str, Any], graph_nodes: Mapping[str, Mapping[str, Any]], card_id: str) -> str:
+    record = _mapping(graph_nodes.get(card_id))
+    label = _text(record.get("statusLabel"))
+    if label:
+        return label
+    return STATUS_TAG_LABELS.get(_knowledge_status_tag(card, graph_nodes, card_id), FLAG_LABELS["current"])
 
 
 def build_lineage(details: Mapping[str, Any] | None, *, project_name: str = "") -> dict[str, Any]:
@@ -691,7 +829,8 @@ def build_lineage(details: Mapping[str, Any] | None, *, project_name: str = "") 
                     "kindLabel": "知识卡",
                     "title": _text(card.get("title")) or knowledge_id,
                     "summary": _text(card.get("summary")),
-                    "status": _status_from_graph(graph_nodes, knowledge_id, FLAG_LABELS["current"]),
+                    "status": _knowledge_status_label(card, graph_nodes, knowledge_id),
+                    "statusTag": _knowledge_status_tag(card, graph_nodes, knowledge_id),
                     "path": _text(nodes[floor_id].get("path")),
                     "parent": floor_id,
                     "layer": 2,
@@ -732,7 +871,8 @@ def build_lineage(details: Mapping[str, Any] | None, *, project_name: str = "") 
                     "kindLabel": "知识卡",
                     "title": _text(card.get("title")) or knowledge_id,
                     "summary": _text(card.get("summary")),
-                    "status": _status_from_graph(graph_nodes, knowledge_id, FLAG_LABELS["current"]),
+                    "status": _knowledge_status_label(card, graph_nodes, knowledge_id),
+                    "statusTag": _knowledge_status_tag(card, graph_nodes, knowledge_id),
                     "path": "",
                     "parent": LINEAGE_UNGROUPED_ID,
                     "layer": 2,
@@ -754,7 +894,14 @@ def build_lineage(details: Mapping[str, Any] | None, *, project_name: str = "") 
             node["cards"] = kids
             if kids:
                 node["empty"] = False
-                node["status"] = f"{len(kids)} 张知识卡"
+                child_tags = [
+                    _text(child.get("statusTag"))
+                    for child in nodes.values()
+                    if child.get("parent") == node.get("visual_id") and child.get("kind") == "knowledge"
+                ]
+                tag = worst_status_tag(child_tags)
+                node["statusTag"] = tag
+                node["status"] = STATUS_TAG_LABELS.get(tag, "") or f"{len(kids)} 张知识卡"
     expanded = {LINEAGE_PROJECT_ID}
     for node in nodes.values():
         if node.get("kind") == "module" and not node.get("empty"):

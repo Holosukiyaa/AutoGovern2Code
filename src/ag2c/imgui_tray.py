@@ -1366,7 +1366,7 @@ def _gui_cards(state: AppState) -> None:
     imgui.push_text_wrap_pos(-1.0)
     for node in cards:
         title = text(node, "title") or text(node, "id")
-        status = first_flag_label(node)
+        status = first_flag_label(node) or text(node, "status")
         key = node_key(node, title)
         count = state.card_file_counts.get(key)
         if count is None:
@@ -1476,6 +1476,16 @@ def _cubic_arrow(dl: Any, imgui: Any, x0: float, y0: float, x1: float, y1: float
         imgui.ImVec2(x1 - 8.0, y1 + 4.5),
         color,
     )
+
+
+def _lineage_status_color(tag: str, imgui: Any) -> Any:
+    if tag == "placeholder":
+        return imgui.ImVec4(0.92, 0.78, 0.35, 1.0)
+    if tag == "opaque":
+        return imgui.ImVec4(0.90, 0.55, 0.38, 1.0)
+    if tag == "writing":
+        return imgui.ImVec4(0.45, 0.72, 0.98, 1.0)
+    return imgui.ImVec4(0.70, 0.74, 0.80, 1.0)
 
 
 def _combo_marker_hit(hx: float, hy: float) -> tuple[float, float, float, float]:
@@ -1613,8 +1623,13 @@ def _gui_lineage(state: AppState) -> None:
             if bool(node.get("cards")) and not node.get("empty"):
                 mx, my, mw, mh = _combo_marker_hit(hx, hy)
                 marker_hits.append((visual_id, mx, my, mw, mh))
-            label = _lineage_label(str(node.get("title") or visual_id), hw - 44.0)
+            tag = str(node.get("status") or "")
+            tag_w = float(imgui.calc_text_size(tag).x) if tag and tag != "还没有知识卡" else 0.0
+            label = _lineage_label(str(node.get("title") or visual_id), max(48.0, hw - 44.0 - tag_w))
             dl.add_text(imgui.ImVec2(hx + 28.0, hy + 10.0), title_col, label)
+            if tag_w:
+                tag_col = imgui.get_color_u32(_lineage_status_color(str(node.get("statusTag") or ""), imgui))
+                dl.add_text(imgui.ImVec2(hx + hw - tag_w - 10.0, hy + 10.0), tag_col, tag)
         if project is not None and str(project.get("visual_id") or project["id"]) in expanded:
             px = float(project.get("x") or 0)
             py = float(project.get("y") or 0)
@@ -1680,12 +1695,17 @@ def _gui_lineage(state: AppState) -> None:
                 imgui.text(_lineage_label(str(node.get("title") or visual_id), card_w - 8.0))
                 extra = str(node.get("replaced_by") or node.get("status") or "")
                 if extra:
-                    imgui.text_disabled(
-                        _lineage_label(
-                            extra if not node.get("replaced_by") else "已被 " + extra + " 替换",
-                            card_w - 8.0,
-                        )
-                    )
+                    line = extra if not node.get("replaced_by") else "已被 " + extra + " 替换"
+                    line = _lineage_label(line, card_w - 8.0)
+                    tag = str(node.get("statusTag") or "")
+                    if node.get("replaced_by"):
+                        imgui.text_disabled(line)
+                    elif tag == "placeholder":
+                        imgui.text_colored((0.92, 0.78, 0.35, 1.0), line)
+                    elif tag == "opaque":
+                        imgui.text_colored((0.90, 0.55, 0.38, 1.0), line)
+                    else:
+                        imgui.text_disabled(line)
                 ed.end_node()
                 ed.pop_style_color(2)
             if project is not None:
@@ -1829,7 +1849,11 @@ def _gui_inspect(state: AppState) -> None:
     if fields.get("path") and mode in {"file", "module"}:
         imgui.text_disabled(str(fields.get("path")))
     if fields.get("status"):
-        imgui.text_disabled(str(fields["status"]))
+        status = str(fields["status"])
+        if status == "占位":
+            imgui.text_colored((0.92, 0.78, 0.35, 1.0), status)
+        else:
+            imgui.text_disabled(status)
     if mode == "gate":
         agents = [item for item in (fields.get("agents") or []) if isinstance(item, dict)]
         imgui.separator()
@@ -1944,6 +1968,9 @@ def _gui_inspect(state: AppState) -> None:
             imgui.separator()
             imgui.text_disabled("设计思路")
             imgui.text_wrapped(str(fields.get("summary")))
+        if fields.get("message"):
+            imgui.separator()
+            imgui.text_wrapped(str(fields.get("message")))
         governed = [str(item) for item in fields.get("files") or [] if str(item)]
         imgui.separator()
         if governed:
@@ -1951,8 +1978,8 @@ def _gui_inspect(state: AppState) -> None:
             for rel in governed:
                 if _selectable(widget_id(rel, "gov:" + rel)):
                     _focus_path(state, rel, where="详情")
-        else:
-            imgui.text_wrapped(str(fields.get("message") or "这张卡还没有落到文件树上的代码文件"))
+        elif not fields.get("message"):
+            imgui.text_wrapped("这张卡还没有落到文件树上的代码文件")
         return
     if fields.get("summary"):
         imgui.text_wrapped(str(fields.get("summary")))

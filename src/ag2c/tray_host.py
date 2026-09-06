@@ -18,6 +18,7 @@ from .util import hidden_process_kwargs
 
 FILTERS = (
     ("", "全部"),
+    ("placeholder", "占位"),
     ("exploring", "开工"),
     ("opaque", "黑盒"),
     ("unowned", "无主"),
@@ -47,6 +48,8 @@ ISSUE_LABELS = {
 }
 
 FLAG_LABELS = {
+    "placeholder": "占位",
+    "document": "文档",
     "exploring": "开工",
     "opaque": "黑盒",
     "unowned": "无主",
@@ -172,11 +175,15 @@ def flag_label(flag: str) -> str:
 
 
 def first_flag_label(node: dict[str, Any]) -> str:
+    label = text(node, "statusLabel")
+    if label:
+        return label
     flags = node.get("flags")
     if isinstance(flags, list) and flags:
-        return flag_label(str(flags[0]))
-    label = text(node, "statusLabel")
-    return label or text(node, "role")
+        from ag2c.graph import STATUS_TAG_LABELS, status_tag_key
+
+        return STATUS_TAG_LABELS[status_tag_key(str(item) for item in flags)]
+    return text(node, "role")
 
 
 def state_label(state: str) -> str:
@@ -301,6 +308,8 @@ def inspect_fields(node: dict[str, Any]) -> dict[str, Any]:
     when = text(node, "lastCommit") or text(node, "changedAt")
     role = text(node, "roleLabel") or first_flag_label(node)
     title = text(node, "title") or text(node, "path") or "点文件树或知识卡"
+    flags = node.get("flags") if isinstance(node.get("flags"), list) else []
+    placeholder = text(node, "statusTag") == "placeholder" or "placeholder" in {str(item) for item in flags}
     return {
         "mode": text(node, "kind") or "folder",
         "title": title,
@@ -315,7 +324,7 @@ def inspect_fields(node: dict[str, Any]) -> dict[str, Any]:
         "peers": [],
         "files": [],
         "cards": [],
-        "message": "",
+        "message": "入学占位，还没有说清这个目录" if placeholder else "",
     }
 
 
@@ -343,6 +352,11 @@ def claim_owners(node: dict[str, Any]) -> list[str]:
 
 
 def claim_label(node: dict[str, Any]) -> str:
+    labels = string_list(node, "claimLabels")
+    if len(labels) > 1:
+        return "重复认领"
+    if len(labels) == 1:
+        return labels[0]
     owners = claim_owners(node)
     if len(owners) > 1:
         return "重复认领"
@@ -461,6 +475,14 @@ def inspect_file(
 
 def inspect_card(card: dict[str, Any], files: list[tuple[str, dict[str, Any]]]) -> dict[str, Any]:
     governed = files_for_card(files, card)
+    flags = card.get("flags") if isinstance(card.get("flags"), list) else []
+    placeholder = text(card, "statusTag") == "placeholder" or "placeholder" in {str(item) for item in flags}
+    if placeholder:
+        message = "入学占位，还没有说清这个目录"
+    elif governed:
+        message = ""
+    else:
+        message = "这张卡还没有落到文件树上的代码文件"
     return {
         "mode": "card",
         "title": text(card, "title") or text(card, "id"),
@@ -471,7 +493,7 @@ def inspect_card(card: dict[str, Any], files: list[tuple[str, dict[str, Any]]]) 
         "peers": [],
         "files": governed,
         "cards": [],
-        "message": "" if governed else "这张卡还没有落到文件树上的代码文件",
+        "message": message,
     }
 
 

@@ -339,6 +339,9 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("def issue_label(", host)
         self.assertIn("timeout=300", host)
         self.assertIn("imgui.text_wrapped(error)", ui)
+        self.assertIn('("placeholder", "占位")', host)
+        self.assertIn("入学占位，还没有说清这个目录", host)
+        self.assertIn("_lineage_status_color", ui)
         self.assertIn("ensure_portable_archive", (root / "src" / "ag2c" / "desktop.py").read_text(encoding="utf-8"))
         storage = (root / "src" / "ag2c" / "storage.py").read_text(encoding="utf-8")
         self.assertIn("rebind_portable_git_enrollment", storage)
@@ -457,6 +460,63 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertEqual(["k1"], [card["id"] for card in cards])
         self.assertTrue(node_matches(details["graph"]["nodes"][0], "front", "exploring"))
         self.assertFalse(node_matches(details["graph"]["nodes"][2], "", "exploring"))
+
+    def test_placeholder_filter_excludes_exploring_and_inspect_explains_enrollment(self) -> None:
+        from ag2c.tray_host import FILTERS, claim_label, coverage_rows, inspect_card, node_matches
+
+        self.assertIn(("placeholder", "占位"), FILTERS)
+        details = {
+            "graph": {
+                "headline": "对照",
+                "nodes": [
+                    {
+                        "kind": "knowledge",
+                        "id": "knowledge.src",
+                        "title": "src exploring household",
+                        "flags": ["placeholder"],
+                        "statusTag": "placeholder",
+                        "statusLabel": "占位",
+                        "path": "src/**",
+                    },
+                    {
+                        "kind": "knowledge",
+                        "id": "knowledge.shell",
+                        "title": "Shell",
+                        "flags": ["exploring"],
+                        "statusTag": "exploring",
+                        "statusLabel": "开工",
+                        "path": "src/shell/**",
+                    },
+                    {
+                        "kind": "file",
+                        "path": "app:src/ag2c/graph.py",
+                        "flags": ["placeholder"],
+                        "coveredBy": ["src exploring household"],
+                        "claimLabels": ["占位 · src"],
+                    },
+                    {
+                        "kind": "file",
+                        "path": "app:src/shell/app.py",
+                        "flags": ["exploring"],
+                        "coveredBy": ["Shell"],
+                    },
+                ],
+            }
+        }
+        files, cards, _headline = coverage_rows(details, "", "placeholder")
+        self.assertEqual(["knowledge.src"], [card["id"] for card in cards])
+        self.assertEqual(["src/ag2c/graph.py"], [path for path, _ in files])
+        exploring_files, exploring_cards, _ = coverage_rows(details, "", "exploring")
+        self.assertEqual(["knowledge.shell"], [card["id"] for card in exploring_cards])
+        self.assertEqual(["src/shell/app.py"], [path for path, _ in exploring_files])
+        self.assertTrue(node_matches(details["graph"]["nodes"][0], "", "placeholder"))
+        self.assertFalse(node_matches(details["graph"]["nodes"][1], "", "placeholder"))
+        self.assertEqual("占位 · src", claim_label(details["graph"]["nodes"][2]))
+        inspected = inspect_card(details["graph"]["nodes"][0], files)
+        self.assertEqual("占位", inspected["status"])
+        self.assertEqual("入学占位，还没有说清这个目录", inspected["message"])
+        self.assertNotIn("未普查", inspected["status"])
+        self.assertNotIn("未普查", inspected["message"])
 
     def test_lineage_view_pads_leave_more_space_on_the_left(self) -> None:
         from ag2c.imgui_tray import _lineage_view_pads

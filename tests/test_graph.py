@@ -252,7 +252,7 @@ class GovernanceGraphTests(unittest.TestCase):
         self.assertIn("宪章", project["status"])
         src = next(node for node in lineage["nodes"] if node["visual_id"] == "floor.src")
         self.assertEqual("src", src["title"])
-        self.assertEqual("1 张知识卡", src["status"])
+        self.assertEqual("在册", src["status"])
         front = next(node for node in lineage["nodes"] if node["visual_id"] == "floor.front")
         self.assertEqual("src/frontend", front["title"])
         self.assertTrue(front["empty"])
@@ -289,7 +289,7 @@ class GovernanceGraphTests(unittest.TestCase):
         project = next(node for node in lineage["nodes"] if node["kind"] == "project")
         self.assertGreaterEqual(len(modules), 3)
         src = next(node for node in modules if node["visual_id"] == "floor.src")
-        self.assertEqual("5 张知识卡", src["status"])
+        self.assertEqual("在册", src["status"])
         self.assertEqual(5, len(src["cards"]))
         for left_index, left in enumerate(modules):
             self.assertFalse(lineage_boxes_overlap(project, left, gap=8.0))
@@ -459,3 +459,142 @@ class GovernanceGraphTests(unittest.TestCase):
         self.assertGreaterEqual(proto["width"], width + LINEAGE_MODULE_PAD * 2)
         for child in kids:
             self.assertLessEqual(child["x"] + child["width"], proto["x"] + proto["width"])
+
+    def test_enrollment_placeholder_is_not_unreviewed_or_current(self) -> None:
+        graph = build_governance_graph(
+            {
+                "cards": [
+                    _card("floor.src", "floor", "src", include=["src/**"], checkers=["check.diff"]),
+                    {
+                        **_card("knowledge.src", "knowledge", "src exploring household", include=["src/**"]),
+                        "jurisdiction": {
+                            "capability": "src",
+                            "implementation": "src.exploring",
+                            "status": "current",
+                            "meaning": "none",
+                            "grain": "subtree",
+                            "contract": "none",
+                            "decider": "none",
+                            "entrypoints": [],
+                        },
+                    },
+                    _card("knowledge.readme-md", "knowledge", "README.md", references=["README.md"]),
+                ],
+                "knowledge": [
+                    {"id": "knowledge.src", "status": "unknown", "reasons": ["census-review-required"], "jurisdiction": True},
+                    {"id": "knowledge.readme-md", "status": "current", "source_status": "current", "reasons": []},
+                ],
+                "relations": [
+                    {"source": "knowledge.src", "type": "explains", "target": "floor.src"},
+                    {"source": "knowledge.readme-md", "type": "explains", "target": "floor.src"},
+                ],
+                "index": {"findings": []},
+                "pending": {"items": []},
+                "worktrees": [],
+                "checkers": [{"id": "check.diff"}],
+                "census": {
+                    "households": [
+                        {
+                            "id": "knowledge.src",
+                            "kind": "knowledge",
+                            "title": "src exploring household",
+                            "summary": "Declared exploring household",
+                            "identity": "exploring",
+                            "scopes": [{"includes": ["src/**"], "excludes": []}],
+                            "checkers": [],
+                            "issues": [],
+                            "jurisdiction": {
+                                "capability": "src",
+                                "implementation": "src.exploring",
+                                "status": "current",
+                                "meaning": "none",
+                            },
+                            "freshness": "never",
+                        }
+                    ],
+                    "directories": [
+                        {"target": "app", "path": "src", "files": ["src/ag2c/graph.py"], "owners": ["knowledge.src"], "unowned": False}
+                    ],
+                },
+            }
+        )
+        placeholder = next(node for node in graph["nodes"] if node["id"] == "knowledge.src")
+        document = next(node for node in graph["nodes"] if node["id"] == "knowledge.readme-md")
+        owned = next(node for node in graph["nodes"] if node["id"] == "file:app:src/ag2c/graph.py")
+        self.assertEqual("placeholder", placeholder["statusTag"])
+        self.assertEqual("占位", placeholder["statusLabel"])
+        self.assertNotIn("unreviewed", placeholder["flags"])
+        self.assertNotIn("exploring", placeholder["flags"])
+        self.assertEqual("document", document["statusTag"])
+        self.assertEqual("文档", document["statusLabel"])
+        self.assertEqual(["占位 · src"], owned.get("claimLabels"))
+        lineage = build_lineage(
+            {
+                "project": {"name": "AutoGovern2Code-main"},
+                "cards": [
+                    _card("floor.src", "floor", "src", include=["src/**"]),
+                    {
+                        **_card("knowledge.src", "knowledge", "src exploring household", include=["src/**"]),
+                        "jurisdiction": {
+                            "capability": "src",
+                            "implementation": "src.exploring",
+                            "meaning": "none",
+                            "status": "current",
+                        },
+                    },
+                    _card("knowledge.readme-md", "knowledge", "README.md", references=["README.md"]),
+                ],
+                "relations": [
+                    {"source": "knowledge.src", "type": "explains", "target": "floor.src"},
+                    {"source": "knowledge.readme-md", "type": "explains", "target": "floor.src"},
+                ],
+                "graph": {"nodes": graph["nodes"]},
+            }
+        )
+        module = next(node for node in lineage["nodes"] if node["visual_id"] == "floor.src")
+        self.assertEqual("placeholder", module["statusTag"])
+        self.assertEqual("占位", module["status"])
+        readme = next(node for node in lineage["nodes"] if node["id"] == "knowledge.readme-md")
+        self.assertEqual("文档", readme["status"])
+        house = next(node for node in lineage["nodes"] if node["id"] == "knowledge.src")
+        self.assertEqual("占位", house["status"])
+
+    def test_operator_exploring_is_not_enrollment_placeholder(self) -> None:
+        graph = build_governance_graph(
+            {
+                "cards": [_card("knowledge.shell", "knowledge", "Shell", include=["src/shell/**"])],
+                "knowledge": [],
+                "relations": [],
+                "index": {"findings": []},
+                "pending": {"items": []},
+                "worktrees": [],
+                "checkers": [],
+                "census": {
+                    "households": [
+                        {
+                            "id": "knowledge.shell",
+                            "kind": "knowledge",
+                            "title": "Shell",
+                            "summary": "kept exploring",
+                            "identity": "exploring",
+                            "scopes": [{"includes": ["src/shell/**"], "excludes": []}],
+                            "checkers": [],
+                            "issues": [],
+                            "jurisdiction": {
+                                "capability": "shell",
+                                "implementation": "shell.main",
+                                "status": "current",
+                                "meaning": "none",
+                            },
+                            "freshness": "never",
+                        }
+                    ],
+                    "directories": [],
+                },
+            }
+        )
+        node = next(item for item in graph["nodes"] if item["id"] == "knowledge.shell")
+        self.assertEqual("exploring", node["statusTag"])
+        self.assertEqual("开工", node["statusLabel"])
+        self.assertNotIn("placeholder", node["flags"])
+        self.assertNotIn("unreviewed", node["flags"])

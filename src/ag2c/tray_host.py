@@ -177,13 +177,14 @@ def file_relpath(node: dict[str, Any]) -> str:
     return path.strip("/")
 
 
-def inspect_fields(node: dict[str, Any]) -> dict[str, str]:
+def inspect_fields(node: dict[str, Any]) -> dict[str, Any]:
     who = text(node, "coverageLabel") or "、".join(string_list(node, "coveredBy"))
     floors = "、".join(string_list(node, "floors")) or text(node, "floorLabel")
     when = text(node, "lastCommit") or text(node, "changedAt")
     role = text(node, "roleLabel") or first_flag_label(node)
     title = text(node, "title") or text(node, "path") or "点文件树或知识卡"
     return {
+        "mode": text(node, "kind") or "folder",
         "title": title,
         "status": first_flag_label(node),
         "summary": text(node, "summary"),
@@ -192,6 +193,196 @@ def inspect_fields(node: dict[str, Any]) -> dict[str, str]:
         "when": when or "—",
         "role": role or "—",
         "path": text(node, "path") or "—",
+        "claim": "",
+        "peers": [],
+        "files": [],
+        "cards": [],
+        "message": "",
+    }
+
+
+def empty_inspect(headline: str = "") -> dict[str, Any]:
+    return {
+        "mode": "empty",
+        "title": "点文件树或知识卡",
+        "status": headline or "点文件树或知识卡查看归属。",
+        "summary": "",
+        "claim": "",
+        "path": "",
+        "peers": [],
+        "files": [],
+        "cards": [],
+        "message": "",
+    }
+
+
+def row_key(node: dict[str, Any], fallback: str = "") -> str:
+    return text(node, "id") or text(node, "path") or fallback
+
+
+def claim_owners(node: dict[str, Any]) -> list[str]:
+    return [item for item in string_list(node, "coveredBy") if item]
+
+
+def claim_label(node: dict[str, Any]) -> str:
+    owners = claim_owners(node)
+    if len(owners) > 1:
+        return "重复认领"
+    if len(owners) == 1:
+        return owners[0]
+    return "未认领"
+
+
+def ancestor_prefixes(rel: str) -> list[str]:
+    parts = [part for part in rel.replace("\\", "/").split("/") if part]
+    return ["/".join(parts[:index]) for index in range(1, len(parts))]
+
+
+def card_for_owner(cards: list[dict[str, Any]], owner: str) -> dict[str, Any] | None:
+    for card in cards:
+        if text(card, "kind") != "knowledge":
+            continue
+        if text(card, "title") == owner or text(card, "id") == owner:
+            return card
+    return None
+
+
+def _card_path_prefixes(card: dict[str, Any]) -> list[str]:
+    prefixes: list[str] = []
+    raw = text(card, "path")
+    for chunk in raw.replace("、", ",").split(","):
+        path = file_relpath({"path": chunk}) if ":" in chunk else chunk.replace("\\", "/").strip("/")
+        if path and path != ".":
+            prefixes.append(path)
+    return prefixes
+
+
+def file_owned_by_card(node: dict[str, Any], card: dict[str, Any]) -> bool:
+    rel = file_relpath(node)
+    owners = claim_owners(node)
+    kind = text(card, "kind")
+    card_id = text(card, "id")
+    title = text(card, "title") or card_id
+    if kind == "knowledge":
+        return title in owners or card_id in owners
+    if kind == "gap":
+        if owners:
+            return False
+        prefixes = _card_path_prefixes(card)
+        if not prefixes:
+            return True
+        return any(rel == prefix or rel.startswith(prefix + "/") for prefix in prefixes)
+    if kind == "work":
+        prefixes = _card_path_prefixes(card)
+        return any(rel == prefix or rel.startswith(prefix + "/") or prefix.startswith(rel + "/") for prefix in prefixes)
+    return False
+
+
+def files_for_card(files: list[tuple[str, dict[str, Any]]], card: dict[str, Any]) -> list[str]:
+    return [rel for rel, node in files if file_owned_by_card(node, card)]
+
+
+def peer_rels(files: list[tuple[str, dict[str, Any]]], node: dict[str, Any]) -> list[str]:
+    owners = claim_owners(node)
+    if len(owners) != 1:
+        return []
+    owner = owners[0]
+    return [rel for rel, other in files if claim_owners(other) == [owner]]
+
+
+def inspect_file(
+    node: dict[str, Any],
+    files: list[tuple[str, dict[str, Any]]],
+    cards: list[dict[str, Any]],
+) -> dict[str, Any]:
+    rel = file_relpath(node)
+    owners = claim_owners(node)
+    summary = ""
+    related: list[dict[str, str]] = []
+    if len(owners) == 1:
+        card = card_for_owner(cards, owners[0])
+        if card is not None:
+            summary = text(card, "summary")
+    elif len(owners) > 1:
+        for owner in owners:
+            card = card_for_owner(cards, owner)
+            related.append({"id": row_key(card, owner) if card else owner, "title": owner})
+    return {
+        "mode": "file",
+        "title": text(node, "title") or rel.rsplit("/", 1)[-1],
+        "status": first_flag_label(node),
+        "summary": summary,
+        "claim": claim_label(node),
+        "path": rel,
+        "peers": peer_rels(files, node),
+        "files": [],
+        "cards": related,
+        "message": "未认领" if not owners else "",
+    }
+
+
+def inspect_card(card: dict[str, Any], files: list[tuple[str, dict[str, Any]]]) -> dict[str, Any]:
+    governed = files_for_card(files, card)
+    return {
+        "mode": "card",
+        "title": text(card, "title") or text(card, "id"),
+        "status": first_flag_label(card),
+        "summary": text(card, "summary"),
+        "claim": "",
+        "path": "",
+        "peers": [],
+        "files": governed,
+        "cards": [],
+        "message": "" if governed else "这张卡还没有落到文件树上的代码文件",
+    }
+
+
+def focus_file(
+    files: list[tuple[str, dict[str, Any]]],
+    cards: list[dict[str, Any]],
+    rel: str,
+) -> dict[str, Any] | None:
+    node = next((item for path, item in files if path == rel), None)
+    if node is None:
+        return None
+    owners = claim_owners(node)
+    peers = peer_rels(files, node)
+    card = card_for_owner(cards, owners[0]) if len(owners) == 1 else None
+    highlight = set(peers)
+    open_paths = {rel, *peers} if highlight else {rel}
+    prefixes: set[str] = set()
+    for path in open_paths:
+        prefixes.update(ancestor_prefixes(path))
+    return {
+        "selected_file": rel,
+        "selected_card_key": row_key(card, text(card, "title")) if card else "",
+        "inspect_key": row_key(node, rel),
+        "inspect": inspect_file(node, files, cards),
+        "highlight_paths": highlight,
+        "force_open": prefixes,
+        "scroll_card_key": row_key(card, text(card, "title")) if card else "",
+        "scroll_file_key": rel,
+    }
+
+
+def focus_card(
+    files: list[tuple[str, dict[str, Any]]],
+    card: dict[str, Any],
+) -> dict[str, Any]:
+    governed = files_for_card(files, card)
+    prefixes: set[str] = set()
+    for path in governed:
+        prefixes.update(ancestor_prefixes(path))
+    title = text(card, "title") or text(card, "id")
+    return {
+        "selected_file": "",
+        "selected_card_key": row_key(card, title),
+        "inspect_key": row_key(card, title),
+        "inspect": inspect_card(card, files),
+        "highlight_paths": set(governed),
+        "force_open": prefixes,
+        "scroll_card_key": "",
+        "scroll_file_key": governed[0] if governed else "",
     }
 
 
@@ -220,6 +411,35 @@ def coverage_rows(details: dict[str, Any] | None, query: str, flag: str) -> tupl
         if rel:
             files.append((rel, raw))
     return files, cards, headline
+
+
+def file_tree_children(
+    files: list[tuple[str, dict[str, Any]]],
+) -> dict[str, list[tuple[str, str, str, dict[str, Any]]]]:
+    """Nest files under folder prefixes. Root parent is '' so src/ag2c/a.py can open src."""
+    buckets: dict[str, dict[str, tuple[str, str, dict[str, Any]]]] = {}
+    for rel, node in files:
+        parts = [part for part in rel.replace("\\", "/").split("/") if part]
+        if not parts:
+            continue
+        for index, name in enumerate(parts):
+            parent = "/".join(parts[:index])
+            prefix = "/".join(parts[: index + 1])
+            slot = buckets.setdefault(parent, {})
+            if index == len(parts) - 1:
+                slot[name] = ("file", prefix, node)
+            elif name not in slot or slot[name][0] != "file":
+                slot[name] = (
+                    "dir",
+                    prefix,
+                    {"kind": "folder", "title": name, "path": prefix, "summary": "文件夹"},
+                )
+    tree: dict[str, list[tuple[str, str, str, dict[str, Any]]]] = {}
+    for parent, slot in buckets.items():
+        items = [(name, kind, prefix, node) for name, (kind, prefix, node) in slot.items()]
+        items.sort(key=lambda item: (0 if item[1] == "dir" else 1, item[0].lower()))
+        tree[parent] = items
+    return tree
 
 
 class DesktopApi:

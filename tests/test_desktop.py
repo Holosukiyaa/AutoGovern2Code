@@ -294,6 +294,13 @@ class TraySelectionTests(unittest.TestCase):
         self.assertIn("widget_id(label, root)", ui)
         self.assertIn("widget_id(label, key)", ui)
         self.assertIn("inspect_key", ui)
+        self.assertIn("file_tree_children", ui)
+        self.assertNotIn("open_on_arrow", ui)
+        self.assertIn("set_next_item_open", ui)
+        self.assertIn("设计思路", ui)
+        self.assertIn("未认领", ui)
+        self.assertIn("同类", ui)
+        self.assertIn("治理文件", ui)
 
 
 class TrayHostHelperTests(unittest.TestCase):
@@ -316,6 +323,116 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertEqual(["k1"], [card["id"] for card in cards])
         self.assertTrue(node_matches(details["graph"]["nodes"][0], "front", "exploring"))
         self.assertFalse(node_matches(details["graph"]["nodes"][2], "", "exploring"))
+
+    def test_file_tree_lets_src_open_nested_children(self) -> None:
+        from ag2c.tray_host import file_tree_children
+
+        tree = file_tree_children(
+            [
+                ("README.md", {"kind": "file", "title": "README.md", "path": "app:README.md"}),
+                ("src/ag2c/gitops.py", {"kind": "file", "title": "gitops.py", "path": "app:src/ag2c/gitops.py"}),
+                ("src/ag2c/imgui_tray.py", {"kind": "file", "title": "imgui_tray.py", "path": "app:src/ag2c/imgui_tray.py"}),
+            ]
+        )
+        root_names = [name for name, kind, _prefix, _node in tree[""]]
+        self.assertEqual(["src", "README.md"], root_names)
+        self.assertEqual("dir", tree[""][0][1])
+        self.assertEqual(["ag2c"], [name for name, _kind, _prefix, _node in tree["src"]])
+        nested = [name for name, kind, _prefix, _node in tree["src/ag2c"]]
+        self.assertEqual(["gitops.py", "imgui_tray.py"], nested)
+        self.assertTrue(all(kind == "file" for _name, kind, _prefix, _node in tree["src/ag2c"]))
+
+    def test_file_and_card_focus_are_bidirectional(self) -> None:
+        from ag2c.tray_host import claim_label, files_for_card, focus_card, focus_file, peer_rels
+
+        gitops = {
+            "kind": "file",
+            "id": "file:app:src/ag2c/gitops.py",
+            "title": "gitops.py",
+            "path": "app:src/ag2c/gitops.py",
+            "coveredBy": ["源码治理"],
+            "summary": "src/ag2c/gitops.py",
+        }
+        tray = {
+            "kind": "file",
+            "id": "file:app:src/ag2c/imgui_tray.py",
+            "title": "imgui_tray.py",
+            "path": "app:src/ag2c/imgui_tray.py",
+            "coveredBy": ["源码治理"],
+            "summary": "src/ag2c/imgui_tray.py",
+        }
+        util = {
+            "kind": "file",
+            "id": "file:app:src/ag2c/util.py",
+            "title": "util.py",
+            "path": "app:src/ag2c/util.py",
+            "coveredBy": [],
+            "summary": "src/ag2c/util.py",
+        }
+        both = {
+            "kind": "file",
+            "id": "file:app:src/shared.py",
+            "title": "shared.py",
+            "path": "app:src/shared.py",
+            "coveredBy": ["源码治理", "前端画布"],
+        }
+        card = {
+            "kind": "knowledge",
+            "id": "knowledge.src",
+            "title": "源码治理",
+            "summary": "Hello ImGui 托盘只做文件与知识卡对照，不嵌 3D。",
+            "flags": [],
+            "statusLabel": "在册",
+        }
+        empty = {
+            "kind": "knowledge",
+            "id": "knowledge.docs",
+            "title": "文档站",
+            "summary": "文档站尚未落到代码文件。",
+            "flags": ["exploring"],
+            "statusLabel": "开工",
+        }
+        files = [
+            ("src/ag2c/gitops.py", gitops),
+            ("src/ag2c/imgui_tray.py", tray),
+            ("src/ag2c/util.py", util),
+            ("src/shared.py", both),
+        ]
+        cards = [card, empty]
+        self.assertEqual("源码治理", claim_label(gitops))
+        self.assertEqual("未认领", claim_label(util))
+        self.assertEqual("重复认领", claim_label(both))
+        self.assertEqual(
+            ["src/ag2c/gitops.py", "src/ag2c/imgui_tray.py", "src/shared.py"],
+            files_for_card(files, card),
+        )
+        self.assertEqual(["src/ag2c/gitops.py", "src/ag2c/imgui_tray.py"], peer_rels(files, gitops))
+        self.assertEqual([], peer_rels(files, util))
+        picked = focus_file(files, cards, "src/ag2c/imgui_tray.py")
+        assert picked is not None
+        self.assertEqual("src/ag2c/imgui_tray.py", picked["selected_file"])
+        self.assertEqual("knowledge.src", picked["selected_card_key"])
+        self.assertEqual({"src/ag2c/gitops.py", "src/ag2c/imgui_tray.py"}, picked["highlight_paths"])
+        self.assertIn("src", picked["force_open"])
+        self.assertIn("src/ag2c", picked["force_open"])
+        inspect = picked["inspect"]
+        self.assertEqual("file", inspect["mode"])
+        self.assertEqual("源码治理", inspect["claim"])
+        self.assertIn("不嵌 3D", inspect["summary"])
+        self.assertEqual(["src/ag2c/gitops.py", "src/ag2c/imgui_tray.py"], inspect["peers"])
+        unclaimed = focus_file(files, cards, "src/ag2c/util.py")
+        assert unclaimed is not None
+        self.assertEqual("", unclaimed["selected_card_key"])
+        self.assertEqual(set(), unclaimed["highlight_paths"])
+        self.assertEqual("未认领", unclaimed["inspect"]["claim"])
+        from_card = focus_card(files, card)
+        self.assertEqual("knowledge.src", from_card["selected_card_key"])
+        self.assertEqual("", from_card["selected_file"])
+        self.assertEqual({"src/ag2c/gitops.py", "src/ag2c/imgui_tray.py", "src/shared.py"}, from_card["highlight_paths"])
+        self.assertEqual("src/ag2c/gitops.py", from_card["scroll_file_key"])
+        empty_focus = focus_card(files, empty)
+        self.assertEqual(set(), empty_focus["highlight_paths"])
+        self.assertEqual("这张卡还没有落到文件树上的代码文件", empty_focus["inspect"]["message"])
 
 
 class HiddenConsoleTests(unittest.TestCase):

@@ -14,6 +14,8 @@
 - A portable folder (`portable.ini` next to `AutoGovern2Code.exe`, or `--portable`) keeps evidence in `data\` and MinGit in `git\`. It does not write Start Menu, PATH, or login startup.
 - Directory households now have exploring, named, and opaque identities. `census --record` refuses opaque claims. Feature tasks cannot delete active households; leftover deletion uses `govern retire`.
 - Show the tray coverage view as a scrollable project file tree on the left and knowledge cards on the right. Search `frontend` to isolate the frontend tree.
+- Nest the tray file tree so folders like `src` expand to their children instead of rendering as empty leaves. Clicking a folder opens it; the first level starts expanded.
+- File tree and knowledge cards are bidirectional: each file shows 未认领 / card title / 重复认领, clicking a file highlights 同类 and the card, clicking a card expands and lights its files in place, and the inspector shows 设计思路.
 - Prefer the user's Git when it is on PATH; otherwise download MinGit into the AG2C data directory.
 - Stop claiming macOS or Linux support in the public README. This release is Windows-only.
 - Rewrote the GitHub README around v0.8.4: current tray dashboard, process vs product, stop/resume/uninstall, and copied-store recovery.

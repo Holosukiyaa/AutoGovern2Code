@@ -14,8 +14,15 @@ from .tray_host import (
     acquire_mutex,
     app_directory,
     apply_startup,
+    card_for_owner,
+    claim_label,
     coverage_rows,
+    empty_inspect,
+    file_tree_children,
+    files_for_card,
     first_flag_label,
+    focus_card,
+    focus_file,
     inspect_fields,
     is_portable,
     portable_env,
@@ -51,8 +58,14 @@ class AppState:
         self.projects: list[dict[str, Any]] = []
         self.selected_root = ""
         self.details: dict[str, Any] | None = None
-        self.inspect: dict[str, str] = {}
+        self.inspect: dict[str, Any] = empty_inspect()
         self.inspect_key = ""
+        self.selected_file = ""
+        self.selected_card_key = ""
+        self.highlight_paths: set[str] = set()
+        self.force_open: set[str] = set()
+        self.scroll_card_key = ""
+        self.scroll_file_key = ""
         self.search = ""
         self.filter_index = 0
         self.busy = False
@@ -60,6 +73,26 @@ class AppState:
         self.really_exit = False
         self._dialog_lock = False
         self.stopping = False
+
+    def clear_focus(self) -> None:
+        self.inspect = empty_inspect()
+        self.inspect_key = ""
+        self.selected_file = ""
+        self.selected_card_key = ""
+        self.highlight_paths = set()
+        self.force_open = set()
+        self.scroll_card_key = ""
+        self.scroll_file_key = ""
+
+    def apply_focus(self, focused: dict[str, Any]) -> None:
+        self.inspect = focused["inspect"]
+        self.inspect_key = str(focused["inspect_key"])
+        self.selected_file = str(focused["selected_file"])
+        self.selected_card_key = str(focused["selected_card_key"])
+        self.highlight_paths = set(focused["highlight_paths"])
+        self.force_open = set(focused["force_open"])
+        self.scroll_card_key = str(focused["scroll_card_key"])
+        self.scroll_file_key = str(focused["scroll_file_key"])
 
     def run_job(self, fn: Callable[[], None]) -> None:
         with self.lock:
@@ -301,8 +334,35 @@ def _gui_projects(state: AppState) -> None:
         if clicked and root != selected:
             with state.lock:
                 state.selected_root = root
-                state.inspect_key = ""
+                state.clear_focus()
             state.run_job(lambda path=root: _load_details(state, path))
+
+
+def _all_rows(details: dict[str, Any] | None) -> tuple[list[tuple[str, dict[str, Any]]], list[dict[str, Any]]]:
+    files, cards, _headline = coverage_rows(details, "", "")
+    return files, cards
+
+
+def _focus_path(state: AppState, rel: str) -> None:
+    with state.lock:
+        files, cards = _all_rows(state.details)
+        focused = focus_file(files, cards, rel)
+        if focused is not None:
+            state.apply_focus(focused)
+
+
+def _focus_card(state: AppState, card: dict[str, Any]) -> None:
+    with state.lock:
+        files, _cards = _all_rows(state.details)
+        state.apply_focus(focus_card(files, card))
+
+
+def _activate_owner(state: AppState, owner: str) -> None:
+    with state.lock:
+        files, cards = _all_rows(state.details)
+        card = card_for_owner(cards, owner)
+        if card is not None:
+            state.apply_focus(focus_card(files, card))
 
 
 def _gui_tree(state: AppState) -> None:
@@ -317,37 +377,72 @@ def _gui_tree(state: AppState) -> None:
     with state.lock:
         details = state.details
         search = state.search
+        selected_file = state.selected_file
         inspect_key = state.inspect_key
+        highlight = set(state.highlight_paths)
+        force_open = set(state.force_open)
+        scroll_file = state.scroll_file_key
+        loading = state.loading
         flag = FILTERS[state.filter_index][0] if 0 <= state.filter_index < len(FILTERS) else ""
+    all_files, _all_cards = _all_rows(details)
     files, _cards, _headline = coverage_rows(details, search, flag)
-    folders: dict[str, list[tuple[str, dict[str, Any]]]] = {}
-    tops: dict[str, dict[str, Any]] = {}
-    for rel, node in files:
-        parts = rel.split("/")
-        tops.setdefault(parts[0], node if len(parts) == 1 else {"title": parts[0], "path": parts[0]})
-        if len(parts) > 1:
-            parent = "/".join(parts[:-1])
-            folders.setdefault(parent, []).append((rel, node))
+    if details is None:
+        imgui.text_disabled("选择一个项目后，这里显示谁管理文件、是不是开工或黑盒。")
+        return
+    if not all_files:
+        imgui.text_disabled("启动中 · 正在刷新" if loading else "这个项目还没有可对照的代码文件")
+        return
+    tree = file_tree_children(files)
 
-    def draw(prefix: str, node: dict[str, Any], name: str) -> None:
-        children = folders.get(prefix, [])
-        key = node_key(node, prefix)
-        flags = imgui.TreeNodeFlags_.span_avail_width
-        flags |= imgui.TreeNodeFlags_.leaf if not children else imgui.TreeNodeFlags_.open_on_arrow
-        if inspect_key == key:
-            flags |= imgui.TreeNodeFlags_.selected
-        opened = imgui.tree_node_ex(widget_id(name, prefix), flags)
-        if imgui.is_item_clicked():
-            with state.lock:
-                state.inspect = inspect_fields(node)
-                state.inspect_key = key
-        if opened:
-            for child_rel, child in children:
-                draw(child_rel, child, child_rel.rsplit("/", 1)[-1])
-            imgui.tree_pop()
+    def draw(parent: str, depth: int = 0) -> None:
+        for name, kind, prefix, node in tree.get(parent, []):
+            nested = tree.get(prefix, [])
+            key = node_key(node, prefix)
+            flags = imgui.TreeNodeFlags_.span_avail_width
+            if kind == "file" or not nested:
+                flags |= imgui.TreeNodeFlags_.leaf
+            kin = kind == "file" and prefix in highlight and prefix != selected_file
+            selected = (kind == "file" and prefix == selected_file) or (kind != "file" and inspect_key == key)
+            if selected or kin:
+                flags |= imgui.TreeNodeFlags_.selected
+            if kind == "dir" and nested and prefix in force_open:
+                imgui.set_next_item_open(True)
+            elif kind == "dir" and nested and depth == 0 and not force_open:
+                imgui.set_next_item_open(True, imgui.Cond_.once)
+            claim = claim_label(node) if kind == "file" else ""
+            visible = f"{name}  {claim}" if claim else name
+            pushed = 0
+            if kin:
+                imgui.push_style_color(imgui.Col_.header, (0.28, 0.50, 0.78, 0.32))
+                imgui.push_style_color(imgui.Col_.header_hovered, (0.28, 0.50, 0.78, 0.40))
+                pushed += 2
+            if claim == "未认领":
+                imgui.push_style_color(imgui.Col_.text, (0.90, 0.55, 0.38, 1.0))
+                pushed += 1
+            elif claim == "重复认领":
+                imgui.push_style_color(imgui.Col_.text, (0.92, 0.78, 0.35, 1.0))
+                pushed += 1
+            opened = imgui.tree_node_ex(widget_id(visible, prefix), flags)
+            if pushed:
+                imgui.pop_style_color(pushed)
+            if scroll_file and prefix == scroll_file:
+                imgui.set_scroll_here_y(0.25)
+                with state.lock:
+                    state.scroll_file_key = ""
+            if imgui.is_item_clicked():
+                if kind == "file":
+                    _focus_path(state, prefix)
+                else:
+                    with state.lock:
+                        state.clear_focus()
+                        state.inspect = inspect_fields(node)
+                        state.inspect_key = key
+            if opened:
+                if nested:
+                    draw(prefix, depth + 1)
+                imgui.tree_pop()
 
-    for name, node in tops.items():
-        draw(name, node, name)
+    draw("")
 
 
 def _gui_cards(state: AppState) -> None:
@@ -356,18 +451,26 @@ def _gui_cards(state: AppState) -> None:
     with state.lock:
         details = state.details
         search = state.search
-        inspect_key = state.inspect_key
+        selected_card = state.selected_card_key
+        scroll_card = state.scroll_card_key
         flag = FILTERS[state.filter_index][0] if 0 <= state.filter_index < len(FILTERS) else ""
+    all_files, all_cards = _all_rows(details)
     _files, cards, _headline = coverage_rows(details, search, flag)
+    if details is not None and not all_cards:
+        imgui.text_disabled("还没有知识卡")
+        return
     for node in cards:
         title = text(node, "title") or text(node, "id")
         status = first_flag_label(node)
-        label = title if not status else f"{title}  ·  {status}"
+        count = len(files_for_card(all_files, node))
+        label = f"{title}  ·  {status} · {count} 个文件" if status else f"{title}  ·  {count} 个文件"
         key = node_key(node, title)
-        if imgui.selectable(widget_id(label, key), inspect_key == key)[0]:
+        if imgui.selectable(widget_id(label, key), selected_card == key)[0]:
+            _focus_card(state, node)
+        if scroll_card and key == scroll_card:
+            imgui.set_scroll_here_y(0.25)
             with state.lock:
-                state.inspect = inspect_fields(node)
-                state.inspect_key = key
+                state.scroll_card_key = ""
 
 
 def _gui_inspect(state: AppState) -> None:
@@ -403,11 +506,59 @@ def _gui_inspect(state: AppState) -> None:
         if imgui.button("卸载项目"):
             state.run_job(lambda: _post(state, "api/projects/uninstall", text(project, "root")))
         imgui.separator()
-    imgui.text_wrapped(fields.get("title") or "点文件树或知识卡")
+    mode = str(fields.get("mode") or "empty")
+    imgui.text_wrapped(str(fields.get("title") or "点文件树或知识卡"))
+    if fields.get("path") and mode == "file":
+        imgui.text_disabled(str(fields.get("path")))
     if fields.get("status"):
-        imgui.text_disabled(fields["status"])
+        imgui.text_disabled(str(fields["status"]))
+    if mode == "file":
+        imgui.separator()
+        imgui.text_disabled("认领")
+        imgui.text_wrapped(str(fields.get("claim") or "未认领"))
+        if fields.get("summary"):
+            imgui.separator()
+            imgui.text_disabled("设计思路")
+            imgui.text_wrapped(str(fields.get("summary")))
+        related = fields.get("cards") if isinstance(fields.get("cards"), list) else []
+        if related:
+            imgui.separator()
+            imgui.text_disabled("重复认领")
+            for item in related:
+                if not isinstance(item, dict):
+                    continue
+                title = str(item.get("title") or item.get("id") or "")
+                if imgui.selectable(widget_id(title, str(item.get("id") or title)))[0]:
+                    _activate_owner(state, title)
+        peers = [str(item) for item in fields.get("peers") or [] if str(item)]
+        if peers:
+            imgui.separator()
+            imgui.text_disabled(f"同类 {len(peers)} 个文件")
+            for rel in peers:
+                if imgui.selectable(widget_id(rel, rel), rel == text(fields, "path"))[0]:
+                    _focus_path(state, rel)
+        elif str(fields.get("claim") or "") == "未认领":
+            imgui.separator()
+            imgui.text_disabled("同类")
+            imgui.text_wrapped("未认领")
+        return
+    if mode == "card":
+        if fields.get("summary"):
+            imgui.separator()
+            imgui.text_disabled("设计思路")
+            imgui.text_wrapped(str(fields.get("summary")))
+        governed = [str(item) for item in fields.get("files") or [] if str(item)]
+        imgui.separator()
+        if governed:
+            imgui.text_disabled(f"治理文件 {len(governed)} 个")
+            for rel in governed:
+                if imgui.selectable(widget_id(rel, "gov:" + rel))[0]:
+                    _focus_path(state, rel)
+        else:
+            imgui.text_wrapped(str(fields.get("message") or "这张卡还没有落到文件树上的代码文件"))
+        return
     if fields.get("summary"):
-        imgui.text_wrapped(fields["summary"])
+        imgui.text_wrapped(str(fields.get("summary")))
     for key, label in (
         ("who", "谁管理"),
         ("floors", "属于哪几个楼层"),
@@ -415,9 +566,11 @@ def _gui_inspect(state: AppState) -> None:
         ("role", "现在是不是多余的"),
         ("path", "路径"),
     ):
+        if not fields.get(key) or fields.get(key) == "—":
+            continue
         imgui.separator()
         imgui.text_disabled(label)
-        imgui.text_wrapped(fields.get(key) or "—")
+        imgui.text_wrapped(str(fields.get(key) or "—"))
 
 
 def _choose_project(state: AppState) -> None:
@@ -513,18 +666,10 @@ def _load_details(state: AppState, root: str) -> None:
     payload = state.api.request("POST", "api/project/details", {"path": root})
     with state.lock:
         state.details = payload
+        state.clear_focus()
         graph = payload.get("graph") if isinstance(payload.get("graph"), dict) else {}
         headline = graph.get("headline")
-        state.inspect = {
-            "title": "点文件树或知识卡",
-            "status": str(headline) if headline else "点文件树或知识卡查看归属。",
-            "summary": "",
-            "who": "—",
-            "floors": "—",
-            "when": "—",
-            "role": "—",
-            "path": "—",
-        }
+        state.inspect = empty_inspect(str(headline) if headline else "")
 
 
 def _add_project(state: AppState, path: str) -> None:

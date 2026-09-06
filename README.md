@@ -9,7 +9,7 @@
 
 Current release: **v0.8.4** (2026-09-01). Alpha. Windows only. Single-user and local.
 
-AutoGovern2Code is a local open-source governance layer for AI coding. Add a Git project once. A compatible agent discovers AG2C through an installed Skill, works in an external Git worktree, runs the project's own checks, and fast-forwards only verified bytes. Evidence stays on this machine.
+AutoGovern2Code is a local open-source governance layer for AI coding. Add a Git project once. Copy **复制提示词** (or `ag2c skill prompt`) into the current agent; that agent refreshes Skills into its own home. Work happens in an external Git worktree, the project's own checks run, and only verified bytes fast-forward. Evidence stays on this machine.
 
 The project never receives an `.ag2c` directory, AG2C-generated `AGENTS.md` or `CLAUDE.md`, or evidence files. Product build and runtime never depend on AG2C.
 
@@ -20,7 +20,7 @@ Requirements: Windows 10 or 11 x64. Python is not required. The tray is a Dear I
 1. Download `AutoGovern2Code-Setup-Windows-x64.exe` from the [latest GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest).
 2. Double-click the installer. It installs for the current user, puts AG2C in the Start Menu, and starts the tray app.
 3. Open AG2C from the tray or Start Menu, click **Add project**, and choose a non-empty Git repository.
-4. Keep using Codex, Claude Code, Cursor, or another Agent Skills-compatible tool in that repository as usual.
+4. In the tray click **复制提示词**, paste it into the current coding agent, then keep working in that repository as usual.
 
 The tray starts with Windows. Closing the window hides it; Git delivery guards on enrolled projects stay active.
 
@@ -30,7 +30,7 @@ The community installer is unsigned, so Windows SmartScreen may warn. Download i
 
 The desktop window is the normal interface. For each project it shows:
 
-- **Agent entry** — which supported tools have the current Skill (Codex, Claude Code, Cursor, generic Agent Skills).
+- **AI entry** — 复制提示词. Paste it into the agent you are using. AG2C does not detect Codex, Claude, Cursor, or any other harness.
 - **Delivery** — whether the external store and Git guard are connected.
 - **Observed records** — finished tasks, what they implemented or fixed, and whether the run was process-complete.
 - **Worktrees, journals, and recent evidence** — open construction copies, versioned logs, and local receipts.
@@ -42,7 +42,7 @@ A passing construction check is not the same as product acceptance. Until the pr
 
 ```text
 normal coding request
-  -> Skill sees that this Git repository is managed
+  -> paste 复制提示词; the Skill sees that this Git repository is managed
   -> AG2C routes responsibility before writing
   -> work happens in an external Git worktree
   -> the actual diff determines the final scope

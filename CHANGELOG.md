@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- ADOPTION, ARCHITECTURE, and the GitHub README now describe copy-prompt AI entry and wrapping every previous Git hook. They no longer say AG2C detects which harness has the Skill.
 - AI 入口 is only 复制提示词. The tray no longer reports 还没接到 from harness detection. `ag2c guard status` is managed when the Git guard is on; a stale Skill home does not unmanage the project.
 - Activating AG2C seizes the existing Git repo by wrapping every previous hook name under `core.hooksPath`. History and remotes stay in the project's `.git`.
 - Packaged Skills declare `version:` matching the AG2C package. The copy-prompt names that version and digest; each paste tells the agent to replace its installed copy if they differ. Latest means this AutoGovern2Code. `ag2c skill version` prints the required identity.

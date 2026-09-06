@@ -7,7 +7,7 @@ tray project selection
         |
 external registry + Git-local pointer       enrollment without project files
         |
-Agent Skill + guard status                  automatic agent entry
+copy-prompt + Skill + guard status          agent entry (not harness detection)
         |
 external task record + Git worktree         isolated construction
         |
@@ -32,7 +32,7 @@ The canonical repository stores only two local Git config values, `ag2c.manifest
 
 ## Enrollment and migration
 
-New enrollment detects tracked top-level areas and native tests, writes a conservative Manifest and Policy externally, builds the index, installs Skills, creates the guard, and records an enrollment event. Dirty state is allowed at registration time but blocks task start.
+New enrollment detects tracked top-level areas and native tests, writes a conservative Manifest and Policy externally, builds the index, may copy Skills into known homes, creates the Git guard (wrapping every previous hook name), and records an enrollment event. Dirty state is allowed at registration time but blocks task start.
 
 Legacy `.deg` and `.ag2c` projects are externalized transactionally. Existing evidence is archived in the project store, AG2C-managed instruction blocks are removed, and the tracked governance directories are deleted in one maintenance commit. Rollback restores files, staging, and hook configuration if the commit fails.
 
@@ -71,9 +71,9 @@ The UI can add, inspect, recheck, open, and stop managing projects. It cannot ed
 
 ## Git guard and limits
 
-The external pre-commit guard rejects commits from the canonical checkout and branches not created by AG2C, then delegates any previous hook. The Skill, task state, diff digest, trusted checks, fast-forward integration, and Ledger must all agree before success.
+The external hooks directory runs AG2C `pre-commit` first, then forwards every previous Git hook by name. That guard rejects commits from the canonical checkout and branches not created by AG2C. The project's `.git`, history, and remotes stay put. The Skill, task state, diff digest, trusted checks, fast-forward integration, and Ledger must all agree before success.
 
-This is a single-user local governance boundary, not an operating-system ACL. A hostile process with filesystem and Git-config access can bypass it. A harness without Agent Skills may be blocked at delivery without entering the full workflow before editing. Remote team coordination and portable evidence exchange are not implemented in this release.
+This is a single-user local governance boundary, not an operating-system ACL. A hostile process with filesystem and Git-config access can bypass it. An agent that never received the copy-prompt may still be blocked at `git commit`. Remote team coordination and portable evidence exchange are not implemented in this release.
 
 ## Detachability
 

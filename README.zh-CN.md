@@ -9,7 +9,7 @@
 
 当前版本：**v0.8.4**（2026-09-01）。Alpha。仅 Windows。单人、本机。
 
-AutoGovern2Code 是一层本地、开源的 AI 编程治理工具。把 Git 工程加入一次即可。兼容的编程 AI 会通过已安装的 Skill 发现 AG2C，在工程外的 Git worktree 施工，运行项目自己的检查，并只把验证过的提交 fast-forward 回原分支。完整证据留在这台电脑上。
+AutoGovern2Code 是一层本地、开源的 AI 编程治理工具。把 Git 工程加入一次即可。在托盘点 **复制提示词**（或 `ag2c skill prompt`）贴进当前 AI；那个 agent 把 Skill 刷新到自己家里。施工在工程外的 Git worktree，运行项目自己的检查，只把验证过的提交 fast-forward 回原分支。完整证据留在这台电脑上。
 
 用户工程里不会出现 `.ag2c` 目录，不会由 AG2C 生成 `AGENTS.md` 或 `CLAUDE.md`，也不会混入治理凭证。产品的构建和运行永远不依赖 AG2C。
 
@@ -20,7 +20,7 @@ AutoGovern2Code 是一层本地、开源的 AI 编程治理工具。把 Git 工�
 1. 从[最新 GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)下载 `AutoGovern2Code-Setup-Windows-x64.exe`。
 2. 双击安装。安装器只写入当前用户，会加入开始菜单，并启动托盘程序。
 3. 从托盘或开始菜单打开 AG2C，点击「添加项目」，选择一个非空的 Git 工程。
-4. 回到 Codex、Claude Code、Cursor 或其他兼容 Agent Skills 的工具里，继续像以前一样提开发需求。
+4. 在托盘点「复制提示词」，贴进当前编程 AI，然后继续像以前一样提开发需求。
 
 托盘程序会随 Windows 启动。关掉窗口只是缩回托盘；已经纳管工程的 Git 交付门禁仍然生效。
 
@@ -30,7 +30,7 @@ AutoGovern2Code 是一层本地、开源的 AI 编程治理工具。把 Git 工�
 
 桌面窗口是普通用户的主界面。每个工程会显示：
 
-- **AI 入口**：当前 Skill 装到了哪些支持的工具（Codex、Claude Code、Cursor、通用 Agent Skills）。
+- **AI 入口**：复制提示词。贴进你正在用的 agent。AG2C 不检测 Codex、Claude、Cursor 或任何一家。
 - **交付**：外部治理档案和 Git 门禁有没有接通。
 - **实际记录**：已经完成的任务、它们实现或修复了什么，以及这次是不是流程交付完成。
 - **施工副本、治理日志、最近证据**：进行中的 worktree、带版本的日志、本机凭证。
@@ -42,7 +42,7 @@ AutoGovern2Code 是一层本地、开源的 AI 编程治理工具。把 Git 工�
 
 ```text
 用户正常提出开发需求
-  -> Skill 识别当前 Git 工程已被纳管
+  -> 贴上复制提示词；Skill 识别当前 Git 工程已被纳管
   -> AG2C 在写入前确定责任范围
   -> AI 只在工程外的 Git worktree 施工
   -> 最终范围按实际 diff 重新计算

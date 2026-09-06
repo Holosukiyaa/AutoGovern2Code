@@ -48,12 +48,28 @@ def portable_home() -> Path | None:
         exe = Path(sys.executable).resolve()
         roots.append(exe.parent)
         roots.append(exe.parent.parent)
+    else:
+        checkout = Path(__file__).resolve().parents[2]
+        if (checkout / "src" / "ag2c" / "util.py").is_file():
+            roots.append(checkout)
     for root in roots:
         if (root / PORTABLE_MARKER).is_file():
             return root
     if configured.lower() in _TRUE and roots:
         return roots[0]
     return None
+
+
+def installed_data_root() -> Path:
+    """Per-user store used by the installed app. Never follows portable.ini."""
+    if os.name == "nt":
+        local = os.environ.get("LOCALAPPDATA")
+        if local:
+            return (Path(local) / "AutoGovern2Code").resolve()
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        return (Path(xdg) / "AutoGovern2Code").expanduser().resolve()
+    return (Path.home() / ".local" / "share" / "AutoGovern2Code").resolve()
 
 
 def default_data_root() -> Path:
@@ -63,14 +79,7 @@ def default_data_root() -> Path:
     home = portable_home()
     if home is not None:
         return (home / "data").resolve()
-    if os.name == "nt":
-        local = os.environ.get("LOCALAPPDATA")
-        if local:
-            return (Path(local) / "AutoGovern2Code").resolve()
-    xdg = os.environ.get("XDG_DATA_HOME")
-    if xdg:
-        return (Path(xdg) / "AutoGovern2Code").expanduser().resolve()
-    return (Path.home() / ".local" / "share" / "AutoGovern2Code").resolve()
+    return installed_data_root()
 
 
 def canonical_json(value: Any) -> str:

@@ -22,6 +22,14 @@ if not exist "%AG2C_APP%" (
   exit /b 1
 )
 
+if not exist "%CD%\portable.ini" (
+  echo home=.>"%CD%\portable.ini"
+)
+if not exist "%CD%\data" mkdir "%CD%\data"
+set "AG2C_PORTABLE=%CD%"
+set "AG2C_DATA_ROOT=%CD%\data"
+if exist "%CD%\git\cmd\git.exe" set "AG2C_PORTABLE_GIT=%CD%\git"
+
 set "AG2C_CHECK=%AG2C_PYTHON%"
 if defined AG2C_PYTHONW if exist "%AG2C_PYTHONW%" set "AG2C_CHECK=%AG2C_PYTHONW%"
 "%AG2C_CHECK%" -c "from imgui_bundle import hello_imgui" 1>nul 2>nul
@@ -36,9 +44,9 @@ if errorlevel 1 (
 )
 
 if defined AG2C_PYTHONW if exist "%AG2C_PYTHONW%" (
-  start "AutoGovern2Code" /B "%AG2C_PYTHONW%" "%AG2C_APP%"
+  start "AutoGovern2Code" /B "%AG2C_PYTHONW%" "%AG2C_APP%" --portable
   exit /b 0
 )
 
-start "AutoGovern2Code" /B "%AG2C_PYTHON%" "%AG2C_APP%"
+start "AutoGovern2Code" /B "%AG2C_PYTHON%" "%AG2C_APP%" --portable
 exit /b 0

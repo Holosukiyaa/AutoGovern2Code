@@ -4,7 +4,24 @@ import unittest
 
 import bootstrap  # noqa: F401
 
-from ag2c.graph import build_governance_graph
+from ag2c.graph import (
+    LINEAGE_CARD_H,
+    LINEAGE_CARD_MAX_W,
+    LINEAGE_CARD_MIN_W,
+    LINEAGE_COLLAPSED_H,
+    LINEAGE_COLLAPSED_W,
+    LINEAGE_MODULE_HEADER,
+    LINEAGE_MODULE_PAD,
+    LINEAGE_ORIGIN_X,
+    LINEAGE_PROJECT_ID,
+    build_governance_graph,
+    build_lineage,
+    layout_lineage_view,
+    lineage_boxes_overlap,
+    lineage_card_width,
+    lineage_related_ids,
+    lineage_step_overlaps,
+)
 
 
 def _card(card_id, kind, title, include=None, references=None, checkers=None, summary=""):
@@ -205,3 +222,240 @@ class GovernanceGraphTests(unittest.TestCase):
         self.assertEqual("unowned", hole_file["role"])
         self.assertNotIn("combos", graph)
         self.assertNotIn("edges", graph)
+
+    def test_lineage_is_project_modules_and_knowledge_cards(self) -> None:
+        lineage = build_lineage(
+            {
+                "project": {"name": "CartridgeFlow"},
+                "cards": [
+                    _card("constitution.project", "constitution", "宪章", summary="项目总则"),
+                    _card("floor.src", "floor", "src", include=["src/**"]),
+                    _card("floor.front", "floor", "frontend", include=["src/frontend/**"]),
+                    _card("knowledge.src", "knowledge", "源码", include=["src/**"]),
+                    _card("knowledge.old", "knowledge", "旧卡"),
+                ],
+                "relations": [
+                    {"source": "constitution.project", "type": "governs", "target": "floor.src"},
+                    {"source": "knowledge.src", "type": "explains", "target": "floor.src"},
+                    {"source": "knowledge.old", "type": "replaced_by", "target": "knowledge.src"},
+                ],
+                "graph": {"nodes": []},
+            },
+            project_name="CartridgeFlow",
+        )
+        kinds = {node["visual_id"]: node["kind"] for node in lineage["nodes"]}
+        self.assertEqual("project", kinds["project:root"])
+        self.assertEqual("module", kinds["floor.src"])
+        self.assertEqual("knowledge", kinds["knowledge.src@floor.src"])
+        project = next(node for node in lineage["nodes"] if node["kind"] == "project")
+        self.assertEqual("CartridgeFlow", project["title"])
+        self.assertIn("宪章", project["status"])
+        src = next(node for node in lineage["nodes"] if node["visual_id"] == "floor.src")
+        self.assertEqual("src", src["title"])
+        self.assertEqual("1 张知识卡", src["status"])
+        front = next(node for node in lineage["nodes"] if node["visual_id"] == "floor.front")
+        self.assertEqual("src/frontend", front["title"])
+        self.assertTrue(front["empty"])
+        old = next(node for node in lineage["nodes"] if node["id"] == "knowledge.old")
+        self.assertEqual("module:ungrouped", old["parent"])
+        self.assertEqual("源码", old["replaced_by"])
+        self.assertFalse(any(node["kind"] == "file" for node in lineage["nodes"]))
+        self.assertFalse(any(node["kind"] in {"constitution", "floor"} for node in lineage["nodes"]))
+        edges = {(item["source"], item["type"], item["target"]) for item in lineage["edges"]}
+        self.assertIn(("project:root", "module", "floor.src"), edges)
+        self.assertFalse(any(item.get("type") == "card" for item in lineage["edges"]))
+        self.assertTrue(src.get("group"))
+        self.assertEqual(1, len(src.get("cards") or []))
+        related = lineage_related_ids(lineage, "knowledge.src")
+        self.assertIn("knowledge.src@floor.src", related)
+        self.assertIn("floor.src", related)
+
+    def test_lineage_combo_boxes_do_not_overlap(self) -> None:
+        cards = [
+            _card("constitution.project", "constitution", "宪章"),
+            _card("floor.src", "floor", "src", include=["src/**"]),
+            _card("floor.front", "floor", "frontend", include=["src/frontend/**"]),
+            _card("floor.back", "floor", "backend", include=["src/backend/**"]),
+        ]
+        relations = []
+        for index in range(5):
+            card_id = f"knowledge.n{index}"
+            cards.append(_card(card_id, "knowledge", f"卡 {index}", include=[f"src/n{index}.py"]))
+            relations.append({"source": card_id, "type": "explains", "target": "floor.src"})
+        cards.append(_card("knowledge.front", "knowledge", "前端卡", include=["src/frontend/a.ts"]))
+        relations.append({"source": "knowledge.front", "type": "explains", "target": "floor.front"})
+        lineage = build_lineage({"project": {"name": "Demo"}, "cards": cards, "relations": relations, "graph": {"nodes": []}})
+        modules = [node for node in lineage["nodes"] if node["kind"] == "module"]
+        project = next(node for node in lineage["nodes"] if node["kind"] == "project")
+        self.assertGreaterEqual(len(modules), 3)
+        src = next(node for node in modules if node["visual_id"] == "floor.src")
+        self.assertEqual("5 张知识卡", src["status"])
+        self.assertEqual(5, len(src["cards"]))
+        for left_index, left in enumerate(modules):
+            self.assertFalse(lineage_boxes_overlap(project, left, gap=8.0))
+            for right in modules[left_index + 1 :]:
+                self.assertFalse(lineage_boxes_overlap(left, right, gap=8.0), (left["title"], right["title"]))
+        kids = [node for node in lineage["nodes"] if node.get("parent") == "floor.src"]
+        kids.sort(key=lambda item: float(item["y"]))
+        self.assertEqual(5, len(kids))
+        for child in kids:
+            self.assertGreaterEqual(child["x"], src["x"])
+            self.assertGreaterEqual(child["y"], src["y"])
+            self.assertLessEqual(child["x"] + child["width"], src["x"] + src["width"])
+            self.assertLessEqual(child["y"] + child["height"], src["y"] + src["height"])
+        card_xs = {float(child["x"]) for child in kids}
+        self.assertEqual(1, len(card_xs))
+        for index in range(1, len(kids)):
+            gap = float(kids[index]["y"]) - (float(kids[index - 1]["y"]) + float(kids[index - 1]["height"]))
+            self.assertAlmostEqual(10.0, gap, delta=0.5)
+        for left_index, left in enumerate(kids):
+            for right in kids[left_index + 1 :]:
+                self.assertFalse(lineage_boxes_overlap(left, right, gap=4.0))
+        module_xs = {float(node["x"]) for node in modules}
+        self.assertEqual(1, len(module_xs))
+        self.assertLessEqual(float(project["x"]) + float(project["width"]) + 8.0, min(module_xs))
+        stack_top = min(float(node["y"]) for node in modules)
+        stack_bot = max(float(node["y"]) + float(node["height"]) for node in modules)
+        self.assertAlmostEqual(
+            float(project["y"]) + float(project["height"]) / 2.0,
+            (stack_top + stack_bot) / 2.0,
+            delta=2.0,
+        )
+
+    def test_lineage_view_defaults_to_collapsed_project(self) -> None:
+        lineage = build_lineage(
+            {
+                "project": {"name": "Demo"},
+                "cards": [
+                    _card("constitution.project", "constitution", "宪章"),
+                    _card("floor.src", "floor", "src", include=["src/**"]),
+                    _card("knowledge.src", "knowledge", "源码", include=["src/**"]),
+                ],
+                "relations": [{"source": "knowledge.src", "type": "explains", "target": "floor.src"}],
+                "graph": {"nodes": []},
+            }
+        )
+        nodes = [dict(item) for item in lineage["nodes"]]
+        layout_lineage_view(nodes, set())
+        hidden = {item["kind"]: item.get("hidden") for item in nodes}
+        self.assertFalse(next(item for item in nodes if item["kind"] == "project").get("hidden"))
+        self.assertTrue(all(item.get("hidden") for item in nodes if item["kind"] != "project"))
+        layout_lineage_view(nodes, {LINEAGE_PROJECT_ID})
+        modules = [item for item in nodes if item["kind"] == "module"]
+        self.assertTrue(all(not item.get("hidden") for item in modules))
+        self.assertTrue(all(item.get("hidden") for item in nodes if item["kind"] == "knowledge"))
+        src = next(item for item in modules if item["visual_id"] == "floor.src")
+        layout_lineage_view(nodes, {LINEAGE_PROJECT_ID, "floor.src"})
+        cards = [item for item in nodes if item.get("parent") == "floor.src"]
+        self.assertTrue(all(not item.get("hidden") for item in cards))
+        self.assertEqual(1, len({float(item["x"]) for item in cards}))
+
+    def test_lineage_expand_steps_do_not_overlap(self) -> None:
+        cards = [
+            _card("constitution.project", "constitution", "宪章"),
+            _card("floor.src", "floor", "src", include=["src/**"]),
+            _card("floor.front", "floor", "frontend", include=["src/frontend/**"]),
+            _card("floor.back", "floor", "backend", include=["src/backend/**"]),
+        ]
+        relations = []
+        for index in range(5):
+            card_id = f"knowledge.n{index}"
+            cards.append(_card(card_id, "knowledge", f"卡 {index}", include=[f"src/n{index}.py"]))
+            relations.append({"source": card_id, "type": "explains", "target": "floor.src"})
+        cards.append(_card("knowledge.front", "knowledge", "前端卡", include=["src/frontend/a.ts"]))
+        relations.append({"source": "knowledge.front", "type": "explains", "target": "floor.front"})
+        lineage = build_lineage({"project": {"name": "Demo"}, "cards": cards, "relations": relations, "graph": {"nodes": []}})
+        steps = [
+            set(),
+            {LINEAGE_PROJECT_ID},
+            {LINEAGE_PROJECT_ID, "floor.src"},
+            {LINEAGE_PROJECT_ID, "floor.src", "floor.front"},
+            {LINEAGE_PROJECT_ID, "floor.src", "floor.front", "floor.back"},
+        ]
+        for expanded in steps:
+            nodes = [dict(item) for item in lineage["nodes"]]
+            hits = lineage_step_overlaps(nodes, expanded, gap=8.0)
+            self.assertEqual([], hits, expanded)
+
+    def test_expanded_combo_wraps_cards_not_a_title_strip(self) -> None:
+        cards = [
+            _card("constitution.project", "constitution", "宪章"),
+            _card("floor.src", "floor", "src", include=["src/**"]),
+            _card("floor.front", "floor", "frontend", include=["src/frontend/**"]),
+        ]
+        relations = []
+        for index in range(5):
+            card_id = f"knowledge.n{index}"
+            cards.append(_card(card_id, "knowledge", f"卡 {index}", include=[f"src/n{index}.py"]))
+            relations.append({"source": card_id, "type": "explains", "target": "floor.src"})
+        lineage = build_lineage({"project": {"name": "Demo"}, "cards": cards, "relations": relations, "graph": {"nodes": []}})
+        self.assertLessEqual(LINEAGE_MODULE_HEADER, 36.0)
+        nodes = [dict(item) for item in lineage["nodes"]]
+        layout_lineage_view(nodes, {LINEAGE_PROJECT_ID})
+        src = next(item for item in nodes if item["visual_id"] == "floor.src")
+        self.assertEqual(LINEAGE_COLLAPSED_W, src["width"])
+        self.assertEqual(LINEAGE_COLLAPSED_H, src["height"])
+        self.assertTrue(all(item.get("hidden") for item in nodes if item.get("parent") == "floor.src"))
+        layout_lineage_view(nodes, {LINEAGE_PROJECT_ID, "floor.src"})
+        src = next(item for item in nodes if item["visual_id"] == "floor.src")
+        kids = [item for item in nodes if item.get("parent") == "floor.src"]
+        self.assertGreater(src["height"], LINEAGE_MODULE_HEADER + LINEAGE_CARD_H)
+        self.assertGreater(src["height"], LINEAGE_COLLAPSED_H)
+        kids.sort(key=lambda item: float(item["y"]))
+        for child in kids:
+            self.assertFalse(child.get("hidden"))
+            self.assertGreaterEqual(child["x"], src["x"])
+            self.assertLessEqual(child["x"] + child["width"], src["x"] + src["width"])
+            self.assertLessEqual(child["y"] + child["height"], src["y"] + src["height"])
+            self.assertGreater(child["y"], src["y"] + 8.0)
+        self.assertAlmostEqual(float(kids[0]["y"]), src["y"] + LINEAGE_MODULE_HEADER, delta=0.5)
+        front = next(item for item in nodes if item["visual_id"] == "floor.front")
+        self.assertEqual(LINEAGE_COLLAPSED_H, front["height"])
+        self.assertEqual(LINEAGE_COLLAPSED_W, front["width"])
+        self.assertFalse(lineage_boxes_overlap(src, front, gap=8.0))
+
+    def test_lineage_card_width_is_elastic_and_clamped(self) -> None:
+        short = {"title": "短", "status": "在册", "replaced_by": ""}
+        long_title = {
+            "title": "旧原型：FlowGram 自由布局示例还要更长一些直到超过上限",
+            "status": "开工",
+            "replaced_by": "",
+        }
+        replaced = {
+            "title": "旧原型：FlowGram 自由布局示例",
+            "status": "开工",
+            "replaced_by": "正式工作台与遗留画布分支",
+        }
+        self.assertEqual(LINEAGE_CARD_MIN_W, lineage_card_width(short))
+        self.assertEqual(LINEAGE_CARD_MAX_W, lineage_card_width(long_title))
+        mid = lineage_card_width(replaced)
+        self.assertGreater(mid, LINEAGE_CARD_MIN_W)
+        self.assertLessEqual(mid, LINEAGE_CARD_MAX_W)
+
+    def test_expanded_combo_cards_share_one_elastic_width(self) -> None:
+        cards = [
+            _card("constitution.project", "constitution", "宪章"),
+            _card("floor.proto", "floor", "prototypes", include=["prototypes/**"]),
+            _card("knowledge.short", "knowledge", "短卡", include=["prototypes/a.py"]),
+            _card("knowledge.long", "knowledge", "旧原型：FlowGram 自由布局示例", include=["prototypes/b.py"]),
+        ]
+        relations = [
+            {"source": "knowledge.short", "type": "explains", "target": "floor.proto"},
+            {"source": "knowledge.long", "type": "explains", "target": "floor.proto"},
+        ]
+        lineage = build_lineage({"project": {"name": "Demo"}, "cards": cards, "relations": relations, "graph": {"nodes": []}})
+        nodes = [dict(item) for item in lineage["nodes"]]
+        layout_lineage_view(nodes, {LINEAGE_PROJECT_ID, "floor.proto"})
+        project = next(item for item in nodes if item["kind"] == "project")
+        self.assertEqual(LINEAGE_ORIGIN_X, project["x"])
+        kids = [item for item in nodes if item.get("parent") == "floor.proto"]
+        self.assertEqual(2, len(kids))
+        widths = {float(item["width"]) for item in kids}
+        self.assertEqual(1, len(widths))
+        width = next(iter(widths))
+        self.assertGreater(width, LINEAGE_CARD_MIN_W)
+        self.assertLessEqual(width, LINEAGE_CARD_MAX_W)
+        proto = next(item for item in nodes if item["visual_id"] == "floor.proto")
+        self.assertGreaterEqual(proto["width"], width + LINEAGE_MODULE_PAD * 2)
+        for child in kids:
+            self.assertLessEqual(child["x"] + child["width"], proto["x"] + proto["width"])

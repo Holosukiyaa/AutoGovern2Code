@@ -185,6 +185,9 @@ def serve_desktop(*, port: int, token: str, on_ready: Callable[[int], object] | 
         raise AG2CError("desktop port must be between 1 and 65535")
     if len(token) < 24:
         raise AG2CError("desktop session token is too short")
+    from .storage import ensure_portable_archive
+
+    ensure_portable_archive()
     server = DesktopServer(("127.0.0.1", port), token)
     try:
         if on_ready is not None:

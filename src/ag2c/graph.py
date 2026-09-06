@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any, Iterable, Mapping
 
 
@@ -523,3 +524,384 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
             else f"{counts['leaves']} 张知识叶，没有可藏的偷懒"
         ),
     }
+
+
+LINEAGE_SCHEMA = "ag2c.lineage.v1"
+LINEAGE_PROJECT_ID = "project:root"
+LINEAGE_UNGROUPED_ID = "module:ungrouped"
+# G6 antv-dagre-combo analogue: LR ranks, combos wrap card nodes.
+LINEAGE_CARD_W = 220.0
+LINEAGE_CARD_MIN_W = 220.0
+LINEAGE_CARD_MAX_W = 320.0
+LINEAGE_CARD_H = 40.0
+LINEAGE_CARD_GAP_X = 10.0
+LINEAGE_CARD_GAP_Y = 10.0
+LINEAGE_MODULE_PAD = 16.0
+LINEAGE_MODULE_HEADER = 36.0
+LINEAGE_MODULE_MIN_W = 220.0
+LINEAGE_MODULE_GAP = 20.0
+LINEAGE_RANK_SEP = 72.0
+LINEAGE_ORIGIN_X = 64.0
+LINEAGE_ORIGIN_Y = 32.0
+LINEAGE_PROJECT_W = 200.0
+LINEAGE_PROJECT_H = 48.0
+LINEAGE_EMPTY_INNER_H = 28.0
+LINEAGE_COLLAPSED_W = 200.0
+LINEAGE_COLLAPSED_H = 48.0
+
+
+def _lineage_text_width(value: str) -> float:
+    width = 0.0
+    for char in str(value or "").replace("\n", " "):
+        width += 16.0 if ord(char) > 127 else 8.5
+    return width
+
+
+def lineage_card_width(node: Mapping[str, Any]) -> float:
+    """Elastic card width from title/status, clamped for one combo row."""
+    title = str(node.get("title") or "")
+    extra = str(node.get("replaced_by") or node.get("status") or "")
+    if node.get("replaced_by"):
+        extra = "已被 " + extra + " 替换"
+    inner = max(_lineage_text_width(title), _lineage_text_width(extra)) + 28.0
+    return min(LINEAGE_CARD_MAX_W, max(LINEAGE_CARD_MIN_W, inner))
+
+
+def lineage_uid(kind: str, key: str) -> int:
+    digest = hashlib.md5(f"{kind}:{key}".encode("utf-8")).digest()
+    value = int.from_bytes(digest[:8], "big") & 0x7FFFFFFFFFFFFFFF
+    return value or 1
+
+
+def _card_module_path(card: Mapping[str, Any]) -> str:
+    for scope in _items(card.get("scopes")):
+        record = _mapping(scope)
+        for pattern in _items(record.get("include") or record.get("includes")):
+            path = _normalize_path(str(pattern))
+            if path:
+                return path
+    return _normalize_path(_text(card.get("title")))
+
+
+def _status_from_graph(graph_nodes: dict[str, Mapping[str, Any]], card_id: str, fallback: str) -> str:
+    record = _mapping(graph_nodes.get(card_id))
+    return _text(record.get("statusLabel")) or fallback
+
+
+def build_lineage(details: Mapping[str, Any] | None, *, project_name: str = "") -> dict[str, Any]:
+    """Project → module → knowledge cards. Constitution sits on the project node."""
+    source = _mapping(details)
+    cards = [_mapping(item) for item in _items(source.get("cards"))]
+    relations = [_mapping(item) for item in _items(source.get("relations"))]
+    graph_nodes = {
+        _text(item.get("id")): _mapping(item)
+        for item in _items(_mapping(source.get("graph")).get("nodes"))
+        if _text(item.get("id"))
+    }
+    project_info = _mapping(source.get("project"))
+    name = project_name or _text(project_info.get("name")) or "项目"
+    constitution = next((item for item in cards if _text(item.get("type") or item.get("kind")) == "constitution"), None)
+    nodes: dict[str, dict[str, Any]] = {}
+    edges: list[dict[str, str]] = []
+
+    def add_node(visual_id: str, payload: dict[str, Any]) -> None:
+        payload["visual_id"] = visual_id
+        nodes[visual_id] = payload
+
+    add_node(
+        LINEAGE_PROJECT_ID,
+        {
+            "id": _text((constitution or {}).get("id")) or LINEAGE_PROJECT_ID,
+            "kind": "project",
+            "kindLabel": "项目",
+            "title": name,
+            "summary": _text((constitution or {}).get("summary")),
+            "status": _text((constitution or {}).get("title")) or "宪章",
+            "path": "",
+            "parent": "",
+            "layer": 0,
+            "empty": False,
+            "replaced_by": "",
+        },
+    )
+    floors = [item for item in cards if _text(item.get("type") or item.get("kind")) == "floor"]
+    floor_ids = { _text(item.get("id")) for item in floors if _text(item.get("id")) }
+    for floor in floors:
+        floor_id = _text(floor.get("id"))
+        if not floor_id:
+            continue
+        path = _card_module_path(floor)
+        add_node(
+            floor_id,
+            {
+                "id": floor_id,
+                "kind": "module",
+                "kindLabel": "模块",
+                "title": path or _text(floor.get("title")) or floor_id,
+                "summary": _text(floor.get("summary")),
+                "status": "",
+                "path": path,
+                "parent": LINEAGE_PROJECT_ID,
+                "layer": 1,
+                "empty": True,
+                "replaced_by": "",
+            },
+        )
+        edges.append({"source": LINEAGE_PROJECT_ID, "target": floor_id, "type": "module"})
+    replacements = {
+        _text(item.get("source")): _text(item.get("target"))
+        for item in relations
+        if _text(item.get("type") or item.get("relation_type")) == "replaced_by"
+    }
+    replacement_titles = {
+        card_id: _text(item.get("title")) or card_id
+        for item in cards
+        for card_id in [_text(item.get("id"))]
+        if card_id
+    }
+    explained: dict[str, list[str]] = {}
+    hung: set[str] = set()
+    for item in relations:
+        if _text(item.get("type") or item.get("relation_type")) != "explains":
+            continue
+        knowledge_id = _text(item.get("source"))
+        floor_id = _text(item.get("target"))
+        if floor_id not in nodes:
+            continue
+        explained.setdefault(floor_id, []).append(knowledge_id)
+        hung.add(knowledge_id)
+    knowledge_cards = {
+        _text(item.get("id")): item
+        for item in cards
+        if _text(item.get("type") or item.get("kind")) == "knowledge" and _text(item.get("id"))
+    }
+    for floor_id, card_ids in explained.items():
+        unique_ids = list(dict.fromkeys(card_ids))
+        nodes[floor_id]["empty"] = not unique_ids
+        nodes[floor_id]["status"] = f"{len(unique_ids)} 张知识卡" if unique_ids else "还没有知识卡"
+        for index, knowledge_id in enumerate(unique_ids):
+            card = knowledge_cards.get(knowledge_id) or _mapping(graph_nodes.get(knowledge_id))
+            visual_id = f"{knowledge_id}@{floor_id}"
+            replaced = replacements.get(knowledge_id, "")
+            add_node(
+                visual_id,
+                {
+                    "id": knowledge_id,
+                    "kind": "knowledge",
+                    "kindLabel": "知识卡",
+                    "title": _text(card.get("title")) or knowledge_id,
+                    "summary": _text(card.get("summary")),
+                    "status": _status_from_graph(graph_nodes, knowledge_id, FLAG_LABELS["current"]),
+                    "path": _text(nodes[floor_id].get("path")),
+                    "parent": floor_id,
+                    "layer": 2,
+                    "empty": False,
+                    "replaced_by": replacement_titles.get(replaced, replaced),
+                    "index": index,
+                },
+            )
+            edges.append({"source": floor_id, "target": visual_id, "type": "card"})
+    orphans = [card_id for card_id in knowledge_cards if card_id not in hung]
+    if orphans:
+        add_node(
+            LINEAGE_UNGROUPED_ID,
+            {
+                "id": LINEAGE_UNGROUPED_ID,
+                "kind": "module",
+                "kindLabel": "模块",
+                "title": "未挂到模块",
+                "summary": "这些知识卡还没有认领到项目里的某一块。",
+                "status": f"{len(orphans)} 张知识卡",
+                "path": "",
+                "parent": LINEAGE_PROJECT_ID,
+                "layer": 1,
+                "empty": False,
+                "replaced_by": "",
+            },
+        )
+        edges.append({"source": LINEAGE_PROJECT_ID, "target": LINEAGE_UNGROUPED_ID, "type": "module"})
+        for index, knowledge_id in enumerate(orphans):
+            card = knowledge_cards[knowledge_id]
+            visual_id = f"{knowledge_id}@{LINEAGE_UNGROUPED_ID}"
+            replaced = replacements.get(knowledge_id, "")
+            add_node(
+                visual_id,
+                {
+                    "id": knowledge_id,
+                    "kind": "knowledge",
+                    "kindLabel": "知识卡",
+                    "title": _text(card.get("title")) or knowledge_id,
+                    "summary": _text(card.get("summary")),
+                    "status": _status_from_graph(graph_nodes, knowledge_id, FLAG_LABELS["current"]),
+                    "path": "",
+                    "parent": LINEAGE_UNGROUPED_ID,
+                    "layer": 2,
+                    "empty": False,
+                    "replaced_by": replacement_titles.get(replaced, replaced),
+                    "index": index,
+                },
+            )
+            edges.append({"source": LINEAGE_UNGROUPED_ID, "target": visual_id, "type": "card"})
+    for _floor_id, node in list(nodes.items()):
+        if node.get("kind") == "module" and node.get("empty") and not node.get("status"):
+            node["status"] = "还没有知识卡"
+        if node.get("kind") == "module":
+            kids = [
+                {"id": child["id"], "title": child["title"], "visual_id": child["visual_id"]}
+                for child in nodes.values()
+                if child.get("parent") == node.get("visual_id") and child.get("kind") == "knowledge"
+            ]
+            node["cards"] = kids
+            if kids:
+                node["empty"] = False
+                node["status"] = f"{len(kids)} 张知识卡"
+    expanded = {LINEAGE_PROJECT_ID}
+    for node in nodes.values():
+        if node.get("kind") == "module" and not node.get("empty"):
+            expanded.add(str(node.get("visual_id") or node["id"]))
+    layout_lineage_view(list(nodes.values()), expanded)
+    return {
+        "schema": LINEAGE_SCHEMA,
+        "nodes": list(nodes.values()),
+        "edges": [item for item in edges if item.get("type") == "module"],
+    }
+
+
+def lineage_boxes_overlap(left: Mapping[str, Any], right: Mapping[str, Any], *, gap: float = 1.0) -> bool:
+    """True when two laid-out nodes' rectangles collide (with a gap buffer)."""
+    ax, ay = float(left.get("x") or 0), float(left.get("y") or 0)
+    bx, by = float(right.get("x") or 0), float(right.get("y") or 0)
+    aw, ah = float(left.get("width") or 0), float(left.get("height") or 0)
+    bw, bh = float(right.get("width") or 0), float(right.get("height") or 0)
+    return not (ax + aw + gap <= bx or bx + bw + gap <= ax or ay + ah + gap <= by or by + bh + gap <= ay)
+
+
+def layout_lineage_view(nodes: list[dict[str, Any]], expanded: set[str]) -> None:
+    """Pack an LR dagre-combo view for the current expand set. Mutates x/y/width/height/hidden."""
+    project_open = LINEAGE_PROJECT_ID in expanded
+    modules = [node for node in nodes if node.get("kind") == "module"]
+    modules.sort(key=lambda item: str(item.get("title") or ""))
+    kids_of: dict[str, list[dict[str, Any]]] = {}
+    for node in nodes:
+        if node.get("kind") != "knowledge":
+            continue
+        kids_of.setdefault(str(node.get("parent") or ""), []).append(node)
+    for kids in kids_of.values():
+        kids.sort(key=lambda item: (int(item.get("index") or 0), str(item.get("title") or "")))
+    project = next((node for node in nodes if node.get("kind") == "project"), None)
+    if project is not None:
+        project["x"] = LINEAGE_ORIGIN_X
+        project["y"] = LINEAGE_ORIGIN_Y
+        project["width"] = LINEAGE_PROJECT_W
+        project["height"] = LINEAGE_PROJECT_H
+        project["hidden"] = False
+        project["group"] = False
+    if not project_open:
+        for module in modules:
+            module["hidden"] = True
+            module["x"] = LINEAGE_ORIGIN_X
+            module["y"] = LINEAGE_ORIGIN_Y
+            module["width"] = LINEAGE_COLLAPSED_W
+            module["height"] = LINEAGE_COLLAPSED_H
+        for node in nodes:
+            if node.get("kind") == "knowledge":
+                node["hidden"] = True
+        return
+    module_x = LINEAGE_ORIGIN_X + LINEAGE_PROJECT_W + LINEAGE_RANK_SEP
+    cursor_y = LINEAGE_ORIGIN_Y
+    for module in modules:
+        visual_id = str(module.get("visual_id") or module.get("id") or "")
+        children = kids_of.get(visual_id, [])
+        opened = bool(children) and visual_id in expanded
+        module["hidden"] = False
+        module["group"] = True
+        if not opened:
+            module["x"] = module_x
+            module["y"] = cursor_y
+            module["width"] = LINEAGE_COLLAPSED_W
+            module["height"] = LINEAGE_COLLAPSED_H
+            for child in children:
+                child["hidden"] = True
+                child["x"] = module_x
+                child["y"] = cursor_y
+                child["width"] = LINEAGE_CARD_W
+                child["height"] = LINEAGE_CARD_H
+            cursor_y += LINEAGE_COLLAPSED_H + LINEAGE_MODULE_GAP
+            continue
+        count = len(children)
+        inner_h = (
+            count * LINEAGE_CARD_H + max(0, count - 1) * LINEAGE_CARD_GAP_Y if count else LINEAGE_EMPTY_INNER_H
+        )
+        card_w = LINEAGE_CARD_MIN_W
+        for child in children:
+            card_w = max(card_w, lineage_card_width(child))
+        card_w = min(LINEAGE_CARD_MAX_W, card_w)
+        width = max(LINEAGE_MODULE_MIN_W, card_w + LINEAGE_MODULE_PAD * 2)
+        height = LINEAGE_MODULE_HEADER + inner_h + LINEAGE_MODULE_PAD
+        module["x"] = module_x
+        module["y"] = cursor_y
+        module["width"] = width
+        module["height"] = height
+        card_x = module_x + LINEAGE_MODULE_PAD
+        for index, child in enumerate(children):
+            child["hidden"] = False
+            child["x"] = card_x
+            child["y"] = cursor_y + LINEAGE_MODULE_HEADER + index * (LINEAGE_CARD_H + LINEAGE_CARD_GAP_Y)
+            child["width"] = card_w
+            child["height"] = LINEAGE_CARD_H
+        cursor_y += height + LINEAGE_MODULE_GAP
+    total_h = max(cursor_y - LINEAGE_MODULE_GAP - LINEAGE_ORIGIN_Y, LINEAGE_PROJECT_H)
+    if project is not None:
+        project["x"] = LINEAGE_ORIGIN_X
+        project["y"] = LINEAGE_ORIGIN_Y + max(0.0, (total_h - LINEAGE_PROJECT_H) / 2.0)
+
+
+def lineage_visible_boxes(nodes: list[dict[str, Any]], expanded: set[str]) -> list[dict[str, Any]]:
+    """Visible hulls/nodes for overlap checks. Cards inside their own combo are omitted vs that combo."""
+    layout_lineage_view(nodes, expanded)
+    boxes = [node for node in nodes if not node.get("hidden")]
+    return boxes
+
+
+def lineage_step_overlaps(nodes: list[dict[str, Any]], expanded: set[str], *, gap: float = 8.0) -> list[tuple[str, str]]:
+    """Pairs of visible items that collide, ignoring a card vs its parent combo hull."""
+    boxes = lineage_visible_boxes(nodes, expanded)
+    hits: list[tuple[str, str]] = []
+    for index, left in enumerate(boxes):
+        for right in boxes[index + 1 :]:
+            kinds = {left.get("kind"), right.get("kind")}
+            if kinds == {"knowledge", "module"}:
+                card = left if left.get("kind") == "knowledge" else right
+                combo = right if card is left else left
+                if str(card.get("parent") or "") == str(combo.get("visual_id") or combo.get("id") or ""):
+                    continue
+            if lineage_boxes_overlap(left, right, gap=gap):
+                hits.append(
+                    (
+                        str(left.get("visual_id") or left.get("id")),
+                        str(right.get("visual_id") or right.get("id")),
+                    )
+                )
+    return hits
+
+
+def lineage_related_ids(lineage: Mapping[str, Any] | None, node_id: str) -> list[str]:
+    """Visual ids for a card or module: itself, copies under other modules, and parents."""
+    if not node_id:
+        return []
+    related: list[str] = []
+    seen: set[str] = set()
+    for raw in _items(_mapping(lineage).get("nodes")):
+        record = _mapping(raw)
+        visual_id = _text(record.get("visual_id") or record.get("id"))
+        matches = node_id in {visual_id, _text(record.get("id"))}
+        if not matches:
+            continue
+        if visual_id not in seen:
+            seen.add(visual_id)
+            related.append(visual_id)
+        parent = _text(record.get("parent"))
+        if parent and parent not in seen:
+            seen.add(parent)
+            related.append(parent)
+    return related

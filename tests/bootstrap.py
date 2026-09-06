@@ -21,3 +21,5 @@ if "AG2C_DATA_ROOT" not in os.environ:
     _TEST_DATA_ROOT = tempfile.mkdtemp(prefix="ag2c-tests-")
     os.environ["AG2C_DATA_ROOT"] = _TEST_DATA_ROOT
     atexit.register(shutil.rmtree, _TEST_DATA_ROOT, ignore_errors=True)
+if "AG2C_PORTABLE" not in os.environ:
+    os.environ["AG2C_PORTABLE"] = "0"

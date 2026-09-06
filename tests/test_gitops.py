@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import bootstrap
+from support import git_project, _git
 
 from ag2c.errors import GIT_MISSING, AG2CError
 from ag2c.gitops import (
@@ -190,3 +191,166 @@ class PortableLayoutTests(unittest.TestCase):
                 records = _read_registry()["projects"]
                 self.assertEqual(r"C:\Work\Demo", records[0]["root"])
                 self.assertEqual(str(new_manifest.resolve()), str(Path(records[0]["manifest"]).resolve()))
+
+    def test_checkout_portable_ini_sends_archive_next_to_the_app(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        self.assertTrue((root / "portable.ini").is_file())
+        ignore = (root / ".gitignore").read_text(encoding="utf-8")
+        self.assertIn("/portable.ini", ignore)
+        self.assertIn(".grok/", ignore)
+        ignored = git(root, "check-ignore", "portable.ini", ".grok/session.md")
+        self.assertIn("portable.ini", ignored)
+        self.assertIn(".grok/session.md", ignored.replace("\\", "/"))
+        with patch.dict(os.environ, {"AG2C_PORTABLE": "", "AG2C_DATA_ROOT": ""}, clear=False):
+            from ag2c.util import default_data_root, portable_home
+
+            home = portable_home()
+            self.assertEqual(root.resolve(), home)
+            self.assertEqual((root / "data").resolve(), default_data_root())
+
+    def test_adopt_installed_archive_copies_projects_not_webview(self) -> None:
+        from ag2c.storage import adopt_installed_archive
+
+        with tempfile.TemporaryDirectory() as directory:
+            origin = Path(directory) / "installed"
+            portable = Path(directory) / "portable"
+            pack = portable / "data"
+            store = origin / "projects" / "demo-key"
+            store.mkdir(parents=True)
+            manifest = store / "manifest.json"
+            manifest.write_text("{}", encoding="utf-8")
+            (store / "ledger.jsonl").write_text("{}\n", encoding="utf-8")
+            bulky = store / "worktrees" / "task-1" / "src"
+            bulky.mkdir(parents=True)
+            (bulky / "blob.bin").write_bytes(b"x" * 1024)
+            (origin / "webview2").mkdir()
+            (origin / "webview2" / "junk.bin").write_text("no", encoding="utf-8")
+            (origin / "projects.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "ag2c.registry.v1",
+                        "projects": [
+                            {
+                                "key": "demo-key",
+                                "name": "Demo",
+                                "root": r"C:\Work\Demo",
+                                "manifest": str(manifest),
+                                "governance": "active",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {"AG2C_PORTABLE": str(portable), "AG2C_DATA_ROOT": str(pack)}, clear=False):
+                first = adopt_installed_archive(dest=pack, source=origin)
+                second = adopt_installed_archive(dest=pack, source=origin)
+            self.assertEqual("adopted", first["action"])
+            self.assertEqual(1, first["projects"])
+            self.assertEqual("keep", second["action"])
+            registry = json.loads((pack / "projects.json").read_text(encoding="utf-8"))
+            self.assertEqual(r"C:\Work\Demo", registry["projects"][0]["root"])
+            self.assertEqual(str((pack / "projects" / "demo-key" / "manifest.json").resolve()), str(Path(registry["projects"][0]["manifest"]).resolve()))
+            self.assertTrue((pack / "projects" / "demo-key" / "ledger.jsonl").is_file())
+            self.assertFalse((pack / "webview2").exists())
+            self.assertFalse((pack / "projects" / "demo-key" / "worktrees").exists())
+
+    def test_rebind_portable_git_points_at_pack_not_appdata(self) -> None:
+        from ag2c.storage import rebind_portable_git_enrollment, _write_registry
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            repo = git_project(base / "repo")
+            portable = base / "portable"
+            pack = portable / "data"
+            store = pack / "projects" / "demo-key"
+            hooks = store / "state" / "hooks"
+            hooks.mkdir(parents=True)
+            (hooks / "pre-commit").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            manifest = store / "manifest.json"
+            manifest.write_text("{}", encoding="utf-8")
+            _git(repo, "config", "ag2c.manifest", r"C:\Users\Holo\AppData\Local\AutoGovern2Code\projects\demo-key\manifest.json")
+            _git(repo, "config", "core.hooksPath", r"C:\Users\Holo\AppData\Local\AutoGovern2Code\projects\demo-key\state\hooks")
+            with patch.dict(os.environ, {"AG2C_PORTABLE": str(portable), "AG2C_DATA_ROOT": str(pack)}, clear=False):
+                (portable / "portable.ini").write_text("home=.\n", encoding="utf-8")
+                _write_registry(
+                    {
+                        "schema": "ag2c.registry.v1",
+                        "projects": [
+                            {
+                                "key": "demo-key",
+                                "root": str(repo),
+                                "manifest": str(manifest),
+                                "name": "Demo",
+                                "governance": "active",
+                            }
+                        ],
+                    }
+                )
+                bound = rebind_portable_git_enrollment()
+            self.assertEqual(1, len(bound))
+            pointed = _git(repo, "config", "--local", "--get", "ag2c.manifest")
+            self.assertEqual(str(manifest.resolve()), pointed)
+            self.assertEqual(str(hooks.resolve()), _git(repo, "config", "--local", "--get", "core.hooksPath"))
+            self.assertTrue(pointed.replace("\\", "/").endswith("/portable/data/projects/demo-key/manifest.json"))
+
+    def test_relocate_installed_worktree_into_portable_pack(self) -> None:
+        from ag2c.storage import _write_registry, relocate_installed_worktrees
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            repo = git_project(base / "repo")
+            portable = base / "portable"
+            pack = portable / "data"
+            local = base / "Local"
+            origin = local / "AutoGovern2Code"
+            old_wt = origin / "projects" / "demo-key" / "worktrees" / "task-1"
+            old_wt.parent.mkdir(parents=True)
+            _git(repo, "worktree", "add", "-b", "ag2c/task-1", str(old_wt), "HEAD")
+            store = pack / "projects" / "demo-key"
+            tasks = store / "state" / "tasks"
+            tasks.mkdir(parents=True)
+            (store / "manifest.json").write_text("{}", encoding="utf-8")
+            (tasks / "task-1.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "ag2c.task.v1",
+                        "id": "task-1",
+                        "worktree": {"path": str(old_wt), "branch": "ag2c/task-1"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ,
+                {
+                    "AG2C_PORTABLE": str(portable),
+                    "AG2C_DATA_ROOT": str(pack),
+                    "LOCALAPPDATA": str(local),
+                },
+                clear=False,
+            ):
+                (portable / "portable.ini").write_text("home=.\n", encoding="utf-8")
+                _write_registry(
+                    {
+                        "schema": "ag2c.registry.v1",
+                        "projects": [
+                            {
+                                "key": "demo-key",
+                                "root": str(repo),
+                                "manifest": str(store / "manifest.json"),
+                                "name": "Demo",
+                                "governance": "active",
+                            }
+                        ],
+                    }
+                )
+                moved = relocate_installed_worktrees()
+            dest = pack / "projects" / "demo-key" / "worktrees" / "task-1"
+            self.assertTrue(dest.is_dir())
+            self.assertFalse(old_wt.is_dir())
+            self.assertEqual(1, len(moved))
+            listing = _git(repo, "worktree", "list")
+            self.assertTrue(str(dest) in listing or str(dest).replace("\\", "/") in listing.replace("\\", "/"))
+            task = json.loads((tasks / "task-1.json").read_text(encoding="utf-8"))
+            self.assertEqual(str(dest.resolve()), str(Path(task["worktree"]["path"]).resolve()))

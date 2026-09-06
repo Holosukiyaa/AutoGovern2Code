@@ -438,11 +438,6 @@ def enroll_project(
         return recover_relocated_enrollment(root, binding, skill_root=skill_root, harnesses=harnesses)
     if (root / ".ag2c" / "enrollment.json").exists() or (root / ".deg" / "enrollment.json").exists():
         raise AG2CError("project contains a legacy enrollment; run `ag2c upgrade`")
-    dirty = status_entries(root)
-    if dirty:
-        raise AG2CError(
-            "canonical worktree is dirty; commit or stash before enrolling: " + ", ".join(dirty)
-        )
     if binding["state"] == BINDING_STALE:
         clear_stale_git_enrollment(root)
         recovery = {

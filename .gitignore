@@ -12,4 +12,7 @@ examples/minimal-governance/.state/
 htmlcov/
 build/
 dist/
+/data/
+/portable.ini
+.grok/
 *.egg-info/

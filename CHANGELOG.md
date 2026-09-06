@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Adding a project no longer requires a clean working tree. The card stays in 需要处理 until the checkout is clean; task start still refuses dirty construction. Ignore checkout `portable.ini` and `.grok/` so launching the tray does not dirty a self-governed tree. Tray errors wrap instead of clipping.
 - Desktop host is only Hello ImGui (`start-tray.bat` → `packaging/windows/tray.py` → `ag2c.imgui_tray`). HTML/G6 viewer files, Qt/WinForms/WebView2 hosts, `ag2c viewer`, `qt_tray.py`, and duplicate launchers are gone. The local API is token-header JSON only; folder picking stays in the ImGui process.
 - Drop the heavy enroll/worktree/verify integration tests. Remaining tests are the tray host, CLI surface, and in-memory engine checks.
 - Fix `ag2c project uninstall` crashing on a missing `--remove-data` flag. The coverage payload is files and knowledge cards only (no G6 combo/edges). The local project list no longer returns an empty HTML `migrations` field.
@@ -17,6 +18,9 @@
 - Nest the tray file tree so folders like `src` expand to their children instead of rendering as empty leaves. Clicking a folder opens it; the first level starts expanded.
 - File tree and knowledge cards are bidirectional: each file shows 未认领 / card title / 重复认领, clicking a file highlights 同类 and the card, clicking a card expands and lights its files in place, and the inspector shows 设计思路.
 - Stop the tray from exiting when a knowledge-card file list is drawn: Hello ImGui `selectable` always receives the required selected flag. Cache project details by Git HEAD and status so a second launch does not rebuild the census.
+- Stop the 项目 menu from crashing (shortcut must be a string). Refresh rebuilds the census and shows a scanning bar. Swap 详情 and 知识卡片 so details sit next to the file tree.
+- Darken the Windows title bar to match the tray. Clicking a knowledge card collapses folders outside its files so the jurisdiction is visible as a thin path.
+- Add a read-only 谱系 canvas with the bundled MIT imgui-node-editor, laid out like G6 antv-dagre-combo: the project and knowledge cards are nodes, modules are combo hulls, cubic-vertical arrows go from the project to cards (or to a collapsed combo). Nodes with children expand and collapse with +/− and start collapsed. Clicking a node highlights it and updates 详情 without panning. Five panes keep a default layout on every launch.
 - Prefer the user's Git when it is on PATH; otherwise download MinGit into the AG2C data directory.
 - Stop claiming macOS or Linux support in the public README. This release is Windows-only.
 - Rewrote the GitHub README around v0.8.4: current tray dashboard, process vs product, stop/resume/uninstall, and copied-store recovery.

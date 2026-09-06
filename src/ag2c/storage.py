@@ -11,7 +11,7 @@ from typing import Any
 
 from .errors import AG2CError, RELOCATED_PROJECT, STALE_EXTERNAL_STORE
 from .gitops import git, repository_root
-from .util import default_data_root, portable_home
+from .util import default_data_root, installed_data_root, portable_home
 
 REGISTRY_SCHEMA = "ag2c.registry.v1"
 MANIFEST_CONFIG_KEY = "ag2c.manifest"
@@ -33,6 +33,208 @@ def _now() -> str:
 
 def data_root() -> Path:
     return default_data_root()
+
+
+def portable_archive_root() -> Path | None:
+    home = portable_home()
+    if home is None:
+        return None
+    return (home / "data").resolve()
+
+
+def adopt_installed_archive(*, dest: Path | None = None, source: Path | None = None) -> dict[str, Any]:
+    """Copy the per-user store into the portable data pack once, like importing a save."""
+    pack = dest.resolve() if dest is not None else portable_archive_root()
+    origin = source.resolve() if source is not None else installed_data_root()
+    if pack is None:
+        return {"action": "installed", "root": str(origin)}
+    if pack == origin:
+        return {"action": "same", "root": str(pack)}
+    pack.mkdir(parents=True, exist_ok=True)
+    dest_registry = pack / "projects.json"
+    origin_registry = origin / "projects.json"
+    if dest_registry.is_file():
+        return {"action": "keep", "root": str(pack), "from": str(origin)}
+    if not origin_registry.is_file():
+        return {"action": "empty", "root": str(pack), "from": str(origin)}
+    shutil.copy2(origin_registry, dest_registry)
+    origin_projects = origin / "projects"
+    dest_projects = pack / "projects"
+    copied: list[str] = ["projects.json"]
+    if origin_projects.is_dir():
+        # Task JSON still points at the original worktree paths. Copying them
+        # duplicates gigabytes and stalls first launch without changing runtime.
+        shutil.copytree(
+            origin_projects,
+            dest_projects,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns("worktrees", "webview2", "__pycache__"),
+        )
+        copied.append("projects")
+    try:
+        payload = json.loads(dest_registry.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload = None
+    if isinstance(payload, dict):
+        payload["home"] = str(portable_home() or pack.parent)
+        _repoint_archive_manifests(payload, origin, pack)
+        _rebase_portable_paths(payload)
+        _write_registry_to(dest_registry, payload)
+    return {
+        "action": "adopted",
+        "root": str(pack),
+        "from": str(origin),
+        "copied": copied,
+        "projects": len((payload or {}).get("projects") or []) if isinstance(payload, dict) else 0,
+    }
+
+
+def ensure_portable_archive() -> dict[str, Any]:
+    if portable_home() is None:
+        return {"action": "installed", "root": str(installed_data_root())}
+    result = adopt_installed_archive()
+    result["git"] = rebind_portable_git_enrollment()
+    result["worktrees"] = relocate_installed_worktrees()
+    return result
+
+
+def rebind_portable_git_enrollment() -> list[dict[str, Any]]:
+    """Point each registered clone at the portable store so new worktrees land in data\\."""
+    bound: list[dict[str, Any]] = []
+    for item in _read_registry().get("projects") or []:
+        if not isinstance(item, dict):
+            continue
+        root = Path(str(item.get("root") or ""))
+        manifest = Path(str(item.get("manifest") or ""))
+        key = str(item.get("key") or "")
+        if not root.is_dir() or not manifest.is_file():
+            continue
+        hooks = manifest.parent / "state" / "hooks"
+        apply_git_enrollment(
+            root,
+            manifest=manifest,
+            key=key or None,
+            hooks_path=str(hooks) if hooks.is_dir() else None,
+        )
+        bound.append({"root": str(root.resolve()), "manifest": str(manifest.resolve()), "key": key})
+    return bound
+
+
+def relocate_installed_worktrees() -> list[dict[str, str]]:
+    """Move Git worktrees that still live under the per-user store into the portable pack."""
+    pack = portable_archive_root()
+    if pack is None:
+        return []
+    origin = installed_data_root()
+    moved: list[dict[str, str]] = []
+    for item in _read_registry().get("projects") or []:
+        if not isinstance(item, dict):
+            continue
+        root = Path(str(item.get("root") or ""))
+        if not root.is_dir():
+            continue
+        try:
+            listing = str(git(root, "worktree", "list", "--porcelain", check=False))
+        except AG2CError:
+            continue
+        for old in _porcelain_worktrees(listing):
+            if old.resolve() == root.resolve():
+                continue
+            relative = _archive_worktree_relative(old, origin)
+            if relative is None:
+                continue
+            dest = (pack / relative).resolve()
+            if dest == old.resolve():
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if old.is_dir():
+                if dest.exists():
+                    shutil.rmtree(dest, ignore_errors=True)
+                try:
+                    git(root, "worktree", "move", str(old), str(dest))
+                except AG2CError:
+                    shutil.move(str(old), str(dest))
+                    try:
+                        git(root, "worktree", "repair")
+                    except AG2CError:
+                        pass
+            elif dest.is_dir():
+                try:
+                    git(root, "worktree", "repair")
+                except AG2CError:
+                    pass
+            else:
+                continue
+            store_key = relative.parts[1] if len(relative.parts) > 1 else str(item.get("key") or "")
+            _rewrite_task_worktree_paths(pack / "projects" / store_key, old, dest)
+            _rewrite_task_worktree_paths(origin / "projects" / store_key, old, dest)
+            moved.append({"from": str(old), "to": str(dest)})
+    return moved
+
+
+def _porcelain_worktrees(listing: str) -> list[Path]:
+    paths: list[Path] = []
+    for line in listing.splitlines():
+        if line.startswith("worktree "):
+            paths.append(Path(line[9:].strip()))
+    return paths
+
+
+def _archive_worktree_relative(path: Path, origin: Path) -> Path | None:
+    try:
+        relative = path.resolve().relative_to(origin.resolve())
+        if relative.parts and relative.parts[0] == "projects":
+            return relative
+    except ValueError:
+        pass
+    text = str(path).replace("\\", "/")
+    marker = "/autogovern2code/projects/"
+    index = text.lower().find(marker)
+    if index < 0:
+        return None
+    return Path("projects") / Path(text[index + len(marker) :])
+
+
+def _rewrite_task_worktree_paths(store: Path, old: Path, new: Path) -> int:
+    directory = store / "state" / "tasks"
+    if not directory.is_dir():
+        return 0
+    changed = 0
+    try:
+        old_key = old.resolve()
+    except OSError:
+        old_key = old
+    for path in directory.glob("*.json"):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeError):
+            continue
+        worktree = payload.get("worktree") if isinstance(payload, dict) else None
+        if not isinstance(worktree, dict):
+            continue
+        recorded = str(worktree.get("path") or "")
+        if not recorded:
+            continue
+        try:
+            same = Path(recorded).resolve() == old_key
+        except OSError:
+            same = recorded.replace("\\", "/").lower() == str(old).replace("\\", "/").lower()
+        if not same:
+            continue
+        worktree["path"] = str(new)
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        changed += 1
+    return changed
+
+
+def _write_registry_to(path: Path, value: dict[str, Any]) -> None:
+    home = portable_home()
+    if home is not None:
+        value["home"] = str(home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
 
 
 def registry_path() -> Path:
@@ -159,6 +361,25 @@ def apply_git_enrollment(
 
 def clear_stale_git_enrollment(root: Path) -> None:
     apply_git_enrollment(root, manifest=None, key=None, hooks_path=None)
+
+
+def _repoint_archive_manifests(value: dict[str, Any], origin: Path, pack: Path) -> None:
+    pack = pack.resolve()
+    bases = [origin.resolve(), installed_data_root()]
+    for item in value.get("projects") or []:
+        if not isinstance(item, dict):
+            continue
+        manifest = str(item.get("manifest") or "")
+        if not manifest:
+            continue
+        path = Path(manifest)
+        for base in bases:
+            try:
+                relative = path.resolve().relative_to(base)
+            except ValueError:
+                continue
+            item["manifest"] = str((pack / relative).resolve())
+            break
 
 
 def _rebase_portable_paths(value: dict[str, Any]) -> bool:

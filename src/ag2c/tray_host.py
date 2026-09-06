@@ -37,6 +37,15 @@ STATE_LABELS = {
     "inactive": "未生效",
 }
 
+ISSUE_LABELS = {
+    "canonical worktree has uncommitted changes": "正式工作副本有未提交改动",
+    "governance is stopped": "治理已关闭",
+    "no supported AI harness has a current AG2C Skill": "还没有接通 AI 入口",
+    "open task worktree has diverged from the canonical branch": "施工副本已和正式分支分叉",
+    "project is not enrolled": "还没有纳入治理",
+    "AG2C Git guard is not active": "交付门禁未接通",
+}
+
 FLAG_LABELS = {
     "exploring": "开工",
     "opaque": "黑盒",
@@ -47,6 +56,36 @@ FLAG_LABELS = {
     "ambiguous": "重复认领",
     "undeclared": "未验收",
     "writing": "AI正在写",
+}
+
+HARNESS_LABELS = {
+    "codex": "Codex",
+    "claude": "Claude Code",
+    "cursor": "Cursor",
+    "agents": "通用 Agent Skills",
+}
+
+HARNESS_STATE_LABELS = {
+    "ready": "入口已就绪",
+    "skill-missing": "缺少 Skill",
+    "not-detected": "未检测",
+}
+
+PRODUCT_LABELS = {
+    "checked": "产品验收已通过",
+    "blocked": "规则过期，不能当产品通过",
+    "incomplete": "产品验收还没跑完",
+    "undeclared": "产品验收未登记",
+}
+
+WORKTREE_LIFE_LABELS = {
+    "in-progress": "正在改",
+    "verified-unmerged": "改完了没合并",
+    "verified-stale": "验证后有新改动",
+    "diverged": "已分叉",
+    "missing": "副本丢失",
+    "completed": "已合并",
+    "abandoned": "已经废弃",
 }
 
 MUTEX_NAME = r"Local\AutoGovern2Code.Desktop"
@@ -142,6 +181,85 @@ def first_flag_label(node: dict[str, Any]) -> str:
 
 def state_label(state: str) -> str:
     return STATE_LABELS.get(state, "未生效")
+
+
+def issue_label(issue: str) -> str:
+    text = str(issue or "").strip()
+    if text in ISSUE_LABELS:
+        return ISSUE_LABELS[text]
+    if text.startswith("canonical worktree is dirty"):
+        files = text.split(":", 1)[-1].strip() if ":" in text else text
+        return "正式工作副本有未提交改动，请先提交或暂存：\n" + files
+    return text
+
+
+def _task_line(task: dict[str, Any] | None) -> str:
+    if not isinstance(task, dict):
+        return ""
+    delivery = task.get("delivery") if isinstance(task.get("delivery"), dict) else {}
+    return str(delivery.get("outcome") or delivery.get("request") or task.get("goal") or "").strip()
+
+
+def _open_worktrees(details: dict[str, Any] | None) -> list[dict[str, Any]]:
+    rows = details.get("worktrees") if isinstance(details, dict) and isinstance(details.get("worktrees"), list) else []
+    return [row for row in rows if isinstance(row, dict) and str(row.get("state") or "") in {"active", "verified"}]
+
+
+def project_gate_rows(project: dict[str, Any] | None, details: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Always-on operator strip: AI entry, delivery gate, deliveries, construction."""
+    if not project:
+        return []
+    agents = [item for item in (project.get("agents") or []) if isinstance(item, dict)]
+    ready = [HARNESS_LABELS.get(str(item.get("harness")), str(item.get("harness"))) for item in agents if item.get("integrated")]
+    missing = [item for item in agents if item.get("detected") and not item.get("integrated")]
+    if ready:
+        entry_value = "已就绪 · " + " ".join(ready)
+        entry_warn = False
+    elif missing:
+        entry_value = "缺少 Skill"
+        entry_warn = True
+    else:
+        entry_value = "未就绪"
+        entry_warn = True
+    delivery_ok = bool(project.get("delivery_enforced"))
+    completed = int(project.get("completed_tasks") or 0)
+    last_line = _task_line(project.get("last_task") if isinstance(project.get("last_task"), dict) else None)
+    if completed:
+        records_value = f"{completed} 次入库"
+        if last_line:
+            records_value += " · " + last_line
+    else:
+        records_value = "尚未观察"
+    open_rows = _open_worktrees(details)
+    flags: list[str] = []
+    for row in open_rows:
+        life = str((row.get("worktree") or {}).get("lifecycle") or "")
+        state = str(row.get("state") or "")
+        if life == "diverged":
+            flags.append("已分叉")
+        elif life == "missing":
+            flags.append("副本丢失")
+        elif state == "verified" or life in {"verified-unmerged", "verified-stale"}:
+            flags.append("改完了没合并")
+    unique = list(dict.fromkeys(flags))
+    if unique:
+        construction_value = f"{len(unique)} 个异常 · " + "、".join(unique)
+        construction_warn = True
+    elif open_rows:
+        construction_value = f"{len(open_rows)} 个进行中"
+        construction_warn = False
+    elif int(project.get("open_tasks") or 0) > 0:
+        construction_value = f"{int(project['open_tasks'])} 个进行中"
+        construction_warn = False
+    else:
+        construction_value = "没有进行中的施工"
+        construction_warn = False
+    return [
+        {"id": "gate", "label": "AI 入口", "value": entry_value, "warn": entry_warn},
+        {"id": "delivery", "label": "交付", "value": "已控制" if delivery_ok else "未生效", "warn": not delivery_ok},
+        {"id": "records", "label": "实际记录", "value": records_value, "warn": False},
+        {"id": "worktrees", "label": "施工", "value": construction_value, "warn": construction_warn},
+    ]
 
 
 def has_flag(node: dict[str, Any], flag: str) -> bool:
@@ -247,6 +365,21 @@ def card_for_owner(cards: list[dict[str, Any]], owner: str) -> dict[str, Any] | 
     return None
 
 
+def cards_for_owners(cards: list[dict[str, Any]], owners: list[str]) -> list[dict[str, Any]]:
+    matched: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for owner in owners:
+        card = card_for_owner(cards, owner)
+        if card is None:
+            continue
+        key = row_key(card, text(card, "title"))
+        if key in seen:
+            continue
+        seen.add(key)
+        matched.append(card)
+    return matched
+
+
 def _card_path_prefixes(card: dict[str, Any]) -> list[str]:
     prefixes: list[str] = []
     raw = text(card, "path")
@@ -297,16 +430,21 @@ def inspect_file(
 ) -> dict[str, Any]:
     rel = file_relpath(node)
     owners = claim_owners(node)
-    summary = ""
+    matched = cards_for_owners(cards, owners)
     related: list[dict[str, str]] = []
-    if len(owners) == 1:
-        card = card_for_owner(cards, owners[0])
-        if card is not None:
-            summary = text(card, "summary")
-    elif len(owners) > 1:
-        for owner in owners:
-            card = card_for_owner(cards, owner)
-            related.append({"id": row_key(card, owner) if card else owner, "title": owner})
+    seen: set[str] = set()
+    for card in matched:
+        title = text(card, "title") or text(card, "id")
+        key = row_key(card, title)
+        if key in seen:
+            continue
+        seen.add(key)
+        related.append({"id": key, "title": title})
+    for owner in owners:
+        if owner in seen or any(item["title"] == owner for item in related):
+            continue
+        related.append({"id": owner, "title": owner})
+    summary = text(matched[0], "summary") if len(matched) == 1 else ""
     return {
         "mode": "file",
         "title": text(node, "title") or rel.rsplit("/", 1)[-1],
@@ -347,22 +485,39 @@ def focus_file(
         return None
     owners = claim_owners(node)
     peers = peer_rels(files, node)
-    card = card_for_owner(cards, owners[0]) if len(owners) == 1 else None
+    matched = cards_for_owners(cards, owners)
+    primary = matched[0] if matched else None
+    card_keys = {row_key(card, text(card, "title")) for card in matched}
+    card_ids = [text(card, "id") or row_key(card, text(card, "title")) for card in matched]
     highlight = set(peers)
     open_paths = {rel, *peers} if highlight else {rel}
     prefixes: set[str] = set()
     for path in open_paths:
         prefixes.update(ancestor_prefixes(path))
+    primary_key = row_key(primary, text(primary, "title")) if primary else ""
+    pins = highlight if highlight else {rel}
     return {
         "selected_file": rel,
-        "selected_card_key": row_key(card, text(card, "title")) if card else "",
+        "selected_card_key": primary_key,
+        "highlight_card_keys": card_keys,
         "inspect_key": row_key(node, rel),
         "inspect": inspect_file(node, files, cards),
         "highlight_paths": highlight,
         "force_open": prefixes,
-        "scroll_card_key": row_key(card, text(card, "title")) if card else "",
-        "scroll_file_key": rel,
+        "scroll_card_key": primary_key,
+        "scroll_file_key": coverage_scroll_key(files, pins),
+        "lineage_nav_id": card_ids[0] if card_ids else "",
+        "lineage_nav_ids": card_ids,
     }
+
+
+def card_matching_lineage(cards: list[dict[str, Any]], node: dict[str, Any]) -> dict[str, Any] | None:
+    node_id = text(node, "id")
+    title = text(node, "title")
+    for item in cards:
+        if text(item, "id") == node_id or (title and text(item, "title") == title):
+            return item
+    return None
 
 
 def focus_card(
@@ -374,15 +529,21 @@ def focus_card(
     for path in governed:
         prefixes.update(ancestor_prefixes(path))
     title = text(card, "title") or text(card, "id")
+    key = row_key(card, title)
+    card_id = text(card, "id") or key
+    highlight = set(governed)
     return {
         "selected_file": "",
-        "selected_card_key": row_key(card, title),
-        "inspect_key": row_key(card, title),
+        "selected_card_key": key,
+        "highlight_card_keys": {key},
+        "inspect_key": key,
         "inspect": inspect_card(card, files),
-        "highlight_paths": set(governed),
+        "highlight_paths": highlight,
         "force_open": prefixes,
-        "scroll_card_key": "",
-        "scroll_file_key": governed[0] if governed else "",
+        "scroll_card_key": key,
+        "scroll_file_key": coverage_scroll_key(files, highlight),
+        "lineage_nav_id": card_id,
+        "lineage_nav_ids": [card_id],
     }
 
 
@@ -442,6 +603,38 @@ def file_tree_children(
     return tree
 
 
+def coverage_scroll_key(files: list[tuple[str, dict[str, Any]]], highlight: set[str]) -> str:
+    """Tree prefix pinned at the top of the file-tree body for a highlighted coverage."""
+    hits = [rel for rel, _node in files if rel in highlight]
+    if not hits:
+        return ""
+    if len(hits) == 1:
+        rel = hits[0]
+        return rel.rsplit("/", 1)[0] if "/" in rel else rel
+    parts_list = [rel.split("/") for rel in hits]
+    common: list[str] = []
+    for index, piece in enumerate(parts_list[0]):
+        if all(len(parts) > index + 1 and parts[index] == piece for parts in parts_list):
+            common.append(piece)
+        else:
+            break
+    if common:
+        return "/".join(common)
+    tree = file_tree_children([(rel, node) for rel, node in files if rel in highlight])
+
+    def walk(parent: str) -> str:
+        for _name, kind, prefix, _node in tree.get(parent, []):
+            if kind == "file" and prefix in highlight:
+                return prefix
+            if kind == "dir":
+                found = walk(prefix)
+                if found:
+                    return found
+        return ""
+
+    return walk("") or hits[0]
+
+
 class DesktopApi:
     def __init__(self, base_url: str, token: str) -> None:
         self.base_url = base_url.rstrip("/") + "/"
@@ -459,7 +652,7 @@ class DesktopApi:
             headers=headers,
         )
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
+            with urllib.request.urlopen(request, timeout=300) as response:
                 raw = response.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")

@@ -26,6 +26,16 @@ Only policy-declared argv checkers run. Failed attempts remain in evidence; a la
 
 `ag2c task finish` requires the final diff digest to equal the passing verification event. AG2C commits in the task worktree, validates the Git objects again, checks that the canonical checkout and source HEAD are unchanged, and integrates with `--ff-only`. The commit message receives only task and evidence digest trailers; the full receipt remains in the external project store.
 
+## Why Codex CLI (and friends) feel tightly bound
+
+Yes: **Skill for entry, Git hook for delivery.** Neither is enough alone.
+
+1. **Skill (soft).** Enrollment copies `ag2c-governed-development` into Codex, Claude Code, Cursor, and `~/.agents/skills`. A compatible harness is supposed to run `ag2c guard status` before the first write, start a task, and edit only the returned worktree. A model can ignore that. Reading copies live in [docs/skills](skills/README.md).
+2. **Git hijack (hard).** Activation sets `core.hooksPath` to an external hook that runs `ag2c guard pre-commit`. That hook refuses commits in the canonical worktree, refuses branches not named `ag2c/…`, and refuses a worktree that does not match an open task record. The tray can be closed. `git commit` on `main` still dies.
+3. **Worktree isolation.** Construction is a second Git checkout. Even when the agent obeys the Skill, the product branch does not move until `task finish` fast-forwards verified bytes.
+
+Older in-repo `AGENTS.md` / `CLAUDE.md` blocks were a fourth reminder. They are gone: the Skill is installed outside the project. The hook is still the part an agent cannot talk its way around.
+
 ## Enforcement boundary
 
 The pre-commit guard rejects delivery from the canonical checkout or an unmanaged branch. It is deliberately independent from the tray window. It does not prevent arbitrary filesystem writes, so an agent that ignores the Skill may dirty the canonical checkout before the guard blocks its commit. AG2C reports that state instead of calling it successful.

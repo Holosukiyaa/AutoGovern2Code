@@ -26,9 +26,9 @@ tray evidence view                          user-readable outcome
 
 `storage.py` owns a per-user registry and one directory per managed clone. The generated project key combines a readable repository name with a hash of its absolute path, so repositories with the same name remain independent.
 
-On Windows the root is `%LOCALAPPDATA%\AutoGovern2Code`; `AG2C_DATA_ROOT` can isolate tests and development. Linux and macOS use `XDG_DATA_HOME` or the normal per-user data directory fallback.
+This release is Windows-only. The installed app keeps the archive under `%LOCALAPPDATA%\AutoGovern2Code`. A portable folder with `portable.ini` (or `AG2C_DATA_ROOT`) keeps the same archive in that folder's `data\`. Tests set `AG2C_DATA_ROOT` so they never touch the user store.
 
-The canonical repository stores only two local Git config values, `ag2c.manifest` and `ag2c.project-key`, plus an external `core.hooksPath`. Nothing is added to the working tree or index. External worktrees are stored below the matching project store.
+The canonical repository stores only two local Git config values, `ag2c.manifest` and `ag2c.project-key`, plus an external `core.hooksPath`. Nothing is added to the working tree or index. New task worktrees belong under the project store, or `AG2C_WORKTREE_ROOT` when the store itself sits inside the checkout.
 
 ## Enrollment and migration
 

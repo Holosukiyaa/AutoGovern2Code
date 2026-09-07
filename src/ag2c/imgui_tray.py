@@ -2208,12 +2208,14 @@ def _start_backend(state: AppState) -> None:
     if stopping or state.api is None:
         return
     try:
-        state.api.request("POST", "api/projects/align", {})
-        _load_projects(state)
-        with state.lock:
-            selected = state.selected_root
-        if selected:
-            _load_details(state, selected, refresh=False)
+        aligned = state.api.request("POST", "api/projects/align", {})
+        migrations = aligned.get("migrations") if isinstance(aligned, dict) else None
+        if migrations:
+            _load_projects(state)
+            with state.lock:
+                selected = state.selected_root
+            if selected:
+                _load_details(state, selected, refresh=False)
     except Exception as exc:
         with state.lock:
             if not state.error:

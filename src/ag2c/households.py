@@ -1,6 +1,7 @@
 """Directory jurisdictions and explicit, versioned census evidence."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections import Counter, defaultdict
@@ -462,6 +463,22 @@ def _last_source_change(manifest: Manifest, card: Card) -> list[dict]:
 
 
 _FILE_COMMIT_CACHE: dict[tuple[str, str], dict[str, dict[str, str]]] = {}
+_CENSUS_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
+
+
+def _census_cache_key(manifest: Manifest, policy: Policy) -> tuple[Any, ...] | None:
+    try:
+        policy_path = Path(policy.path)
+        policy_stat = policy_path.stat()
+        parts: list[Any] = [str(policy_path), int(policy_stat.st_mtime_ns), int(policy_stat.st_size)]
+        for target in manifest.targets:
+            root = manifest.target_root(target.target_id)
+            head = str(_git(root, "rev-parse", "HEAD") or "")
+            dirty = str(_git(root, "status", "--porcelain") or "")
+            parts.extend([target.target_id, head, hashlib.sha256(dirty.encode("utf-8", "replace")).hexdigest()])
+        return tuple(parts)
+    except Exception:
+        return None
 
 
 def file_latest_commits(root: Path, head: str = "") -> dict[str, dict[str, str]]:
@@ -489,6 +506,11 @@ def file_latest_commits(root: Path, head: str = "") -> dict[str, dict[str, str]]
 
 
 def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
+    cache_key = _census_cache_key(manifest, policy)
+    if cache_key is not None:
+        cached = _CENSUS_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
     artifacts: list[dict] = []
     revisions: dict[str, dict] = {}
     signals: list[dict] = []
@@ -661,7 +683,10 @@ def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
             timestamp = datetime.fromisoformat(item["last_census"]["surveyed_at"])
             item["census_age_days"] = max(0, (datetime.now(timezone.utc) - timestamp).days)
     identities = Counter(item.get("identity") or "floor" for item in reports if item.get("jurisdiction"))
-    return {"schema": CENSUS_SCHEMA, "observed_at": datetime.now(timezone.utc).isoformat(), "required": policy.household_required, "project": manifest.project_id, "revisions": revisions, "households": reports, "gaps": gaps, "directories": [{**value, "owners": sorted(value["owners"])} for _, value in sorted(directories.items())], "implementations": implementations, "signals": signals, "counts": {"jurisdictions": len(jurisdictions), "code_files": sum(item["code"] for item in artifacts), "unowned": sum(item["code"] == "code-unowned" for item in gaps), "ambiguous": sum(item["code"] == "code-ambiguous" for item in gaps), "exploring": identities.get("exploring", 0), "named": identities.get("named", 0), "opaque": identities.get("opaque", 0), "leftover": identities.get("leftover", 0), "freshness": dict(Counter(item["freshness"] for item in reports))}}
+    report = {"schema": CENSUS_SCHEMA, "observed_at": datetime.now(timezone.utc).isoformat(), "required": policy.household_required, "project": manifest.project_id, "revisions": revisions, "households": reports, "gaps": gaps, "directories": [{**value, "owners": sorted(value["owners"])} for _, value in sorted(directories.items())], "implementations": implementations, "signals": signals, "counts": {"jurisdictions": len(jurisdictions), "code_files": sum(item["code"] for item in artifacts), "unowned": sum(item["code"] == "code-unowned" for item in gaps), "ambiguous": sum(item["code"] == "code-ambiguous" for item in gaps), "exploring": identities.get("exploring", 0), "named": identities.get("named", 0), "opaque": identities.get("opaque", 0), "leftover": identities.get("leftover", 0), "freshness": dict(Counter(item["freshness"] for item in reports))}}
+    if cache_key is not None:
+        _CENSUS_CACHE[cache_key] = report
+    return report
 
 
 def required_households(report: dict, entry_slice: dict) -> list[dict]:

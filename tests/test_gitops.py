@@ -125,6 +125,17 @@ class GitExecutableTests(unittest.TestCase):
                 with patch("ag2c.gitops.system_git_executable", return_value=None):
                     self.assertEqual(Path(git_executable(project)).resolve(), fake.resolve())
 
+    def test_git_source_is_persisted_once_per_repo(self) -> None:
+        import ag2c.gitops as gitops
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = git_project(Path(directory) / "project")
+            gitops._PERSISTED_GIT_SOURCE.clear()
+            with patch.object(gitops, "_persist_git_source", wraps=gitops._persist_git_source) as persist:
+                git(project, "status")
+                git(project, "status")
+            self.assertEqual(1, persist.call_count)
+
     def test_first_use_records_system_git_source_when_only_system_exists(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project = git_project(Path(directory) / "project")

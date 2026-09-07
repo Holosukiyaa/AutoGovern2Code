@@ -375,6 +375,9 @@ def _classify_executable(executable: str) -> str:
     return GIT_SOURCE_SYSTEM
 
 
+_PERSISTED_GIT_SOURCE: set[str] = set()
+
+
 def git_executable(root: Path | None = None) -> str:
     override = os.environ.get("AG2C_GIT", "").strip()
     if override:
@@ -512,7 +515,10 @@ def git(
         stdin=stdin,
         env=env,
     )
-    _persist_git_source(resolved_root, executable)
+    marker = str(resolved_root)
+    if marker not in _PERSISTED_GIT_SOURCE:
+        _persist_git_source(resolved_root, executable)
+        _PERSISTED_GIT_SOURCE.add(marker)
     return output
 
 

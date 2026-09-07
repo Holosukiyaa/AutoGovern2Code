@@ -1007,17 +1007,17 @@ def evidence(
     canonical = Path(status["canonical_root"])
     manifest, policy = _canonical_manifest(canonical)
     knowledge_rows: list[dict[str, Any]] = []
+    census = None
     if verify_local:
         from .knowledge import knowledge_status
 
         knowledge_rows = knowledge_status(manifest, policy)
-    census = None
-    try:
-        from .households import census_report
+        try:
+            from .households import census_report
 
-        census = census_report(manifest, policy)
-    except Exception:
-        census = None
+            census = census_report(manifest, policy)
+        except Exception:
+            census = None
     ledger_errors, events = inspect_ledger(manifest.ledger_path)
     if ledger_errors:
         events = []

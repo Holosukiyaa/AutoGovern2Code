@@ -187,6 +187,9 @@ class TrayHostSourceTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         ui = (root / "src" / "ag2c" / "imgui_tray.py").read_text(encoding="utf-8")
         host = (root / "src" / "ag2c" / "tray_host.py").read_text(encoding="utf-8")
+        management = (root / "src" / "ag2c" / "management.py").read_text(encoding="utf-8")
+        tasks = (root / "src" / "ag2c" / "tasks.py").read_text(encoding="utf-8")
+        households = (root / "src" / "ag2c" / "households.py").read_text(encoding="utf-8")
         entry = (root / "packaging" / "windows" / "tray.py").read_text(encoding="utf-8")
         build = (root / "scripts" / "build_windows_installer.ps1").read_text(encoding="utf-8")
         installer = (root / "packaging" / "windows" / "AutoGovern2Code.iss").read_text(encoding="utf-8")
@@ -237,6 +240,12 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("检测 MCP", ui)
         self.assertIn("复制连接说明", ui)
         self.assertNotIn("复制提示词", ui)
+        self.assertIn("if migrations:", ui)
+        self.assertIn("status = project_list_item(root)", management)
+        self.assertIn("_CENSUS_CACHE", households)
+        evidence_src = tasks[tasks.find("def evidence(") : tasks.find("def evidence(") + 1800]
+        self.assertIn("if verify_local:", evidence_src)
+        self.assertLess(evidence_src.find("if verify_local:"), evidence_src.find("census_report"))
         self.assertNotIn("已控制", ui)
         self.assertNotIn("交付门禁已接通", ui)
         self.assertNotIn('"id": "delivery"', host)

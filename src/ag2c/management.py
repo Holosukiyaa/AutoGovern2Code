@@ -328,7 +328,7 @@ def project_details(path: Path, *, refresh: bool = False) -> dict[str, Any]:
 
 
 def _compute_project_details(root: Path) -> dict[str, Any]:
-    status = project_status(root)
+    status = project_list_item(root)
     result: dict[str, Any] = {
         "project": status,
         "available": False,

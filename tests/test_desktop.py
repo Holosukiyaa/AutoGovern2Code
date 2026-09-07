@@ -20,6 +20,19 @@ import ag2c_gui.desktop
 from ag2c_gui.desktop import DesktopServer
 
 
+class DesktopBootProbeTests(unittest.TestCase):
+    def test_boot_probe_script_passes_against_a_real_server(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            [sys.executable, "-B", str(root / "scripts" / "check_desktop_boot.py")],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("OK:", result.stdout)
+
+
 class DesktopServerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.server = DesktopServer(("127.0.0.1", 0), "test-token-with-at-least-24-characters")

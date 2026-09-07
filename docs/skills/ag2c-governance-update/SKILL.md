@@ -72,7 +72,7 @@ This Skill updates **named document and interface** cards through `ag2c govern`.
    ag2c govern retrieve --path app:<relative-path> --goal "<user request>" --format json
    ```
 
-   `ag2c task start` already includes the same guidance. Prefer that payload over searching the whole tree.
+   `ag2c task start` already includes the same guidance, including `guidance.lineage` as the knowledge-card 谱系 index. Prefer that payload over searching the whole tree.
    Directory households, tags, and 占位/黑盒 use `ag2c-directory-census`. 设计思路 from tags uses `ag2c-knowledge-authoring`.
    `settle` does not mark a household named or delete leftover code.
 

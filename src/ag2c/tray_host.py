@@ -417,12 +417,23 @@ def _clean_scope_path(value: str) -> str:
     return path
 
 
+def _card_scope_records(card: dict[str, Any]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for scope in card.get("scopes") or []:
+        if isinstance(scope, dict):
+            records.append(scope)
+    household = card.get("household")
+    if isinstance(household, dict):
+        for scope in household.get("scopes") or []:
+            if isinstance(scope, dict):
+                records.append(scope)
+    return records
+
+
 def _rel_under_card(rel: str, card: dict[str, Any]) -> bool:
     includes: list[str] = []
     excludes: list[str] = []
-    for scope in card.get("scopes") or []:
-        if not isinstance(scope, dict):
-            continue
+    for scope in _card_scope_records(card):
         includes.extend(_clean_scope_path(str(item)) for item in (scope.get("include") or scope.get("includes") or []) if item)
         excludes.extend(_clean_scope_path(str(item)) for item in (scope.get("exclude") or scope.get("excludes") or []) if item)
     if not includes:

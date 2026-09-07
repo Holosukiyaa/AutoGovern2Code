@@ -228,6 +228,86 @@ def is_document_knowledge(card: Mapping[str, Any]) -> bool:
     return bool(_items(card.get("references")))
 
 
+def _path_suffix(path: str) -> str:
+    name = _normalize_path(path).rsplit("/", 1)[-1]
+    if "." not in name or name.startswith("."):
+        return ""
+    return "." + name.rsplit(".", 1)[-1].lower()
+
+
+def is_code_file_knowledge(card: Mapping[str, Any]) -> bool:
+    """True for a 一文件一张 code card (cli.py), not a prose document (README.md)."""
+    if not is_document_knowledge(card):
+        return False
+    paths = _scope_paths(card) or [_normalize_path(str(item)) for item in _items(card.get("references"))]
+    if len(paths) != 1:
+        return False
+    from .households import CODE_SUFFIXES
+
+    return _path_suffix(paths[0]) in CODE_SUFFIXES
+
+
+def _index_card_entry(card: Mapping[str, Any]) -> dict[str, Any]:
+    paths = _scope_paths(card)
+    return {
+        "id": _text(card.get("id")),
+        "title": _text(card.get("title")) or _text(card.get("id")),
+        "summary": _text(card.get("summary")),
+        "path": paths[0] if len(paths) == 1 else "",
+        "include": paths,
+        "exclude": _scope_excludes(card),
+        "span": _jurisdiction_span(card) if card.get("jurisdiction") else "none",
+    }
+
+
+def knowledge_lineage_index(
+    cards: Iterable[Mapping[str, Any]],
+    *,
+    selected_ids: Iterable[str] | None = None,
+) -> dict[str, Any]:
+    """Room → file-card tree. This is the coding index agents read before writing."""
+    knowledge = [
+        _mapping(item)
+        for item in cards
+        if _text(_mapping(item).get("type") or _mapping(item).get("kind")) == "knowledge"
+    ]
+    households = [item for item in knowledge if item.get("jurisdiction")]
+    file_span = [item for item in households if _jurisdiction_span(item) == "file"]
+    children: dict[str, list[dict[str, Any]]] = {}
+    documents: list[dict[str, Any]] = []
+    for card in knowledge:
+        if not is_document_knowledge(card):
+            continue
+        parent_id = _file_span_parent(card, file_span)
+        if parent_id:
+            children.setdefault(parent_id, []).append(_mapping(card))
+        else:
+            documents.append(_mapping(card))
+    selected = {str(item) for item in selected_ids} if selected_ids is not None else None
+
+    def household_wanted(household: Mapping[str, Any]) -> bool:
+        hid = _text(household.get("id"))
+        if selected is None:
+            return True
+        if hid in selected:
+            return True
+        return any(_text(child.get("id")) in selected for child in children.get(hid, []))
+
+    rooms: list[dict[str, Any]] = []
+    for household in households:
+        if not household_wanted(household):
+            continue
+        entry = _index_card_entry(household)
+        entry["files"] = [_index_card_entry(child) for child in children.get(_text(household.get("id")), [])]
+        rooms.append(entry)
+    docs = [
+        _index_card_entry(card)
+        for card in documents
+        if selected is None or _text(card.get("id")) in selected
+    ]
+    return {"rooms": rooms, "documents": docs}
+
+
 def placeholder_claim(title: str) -> str:
     name = _text(title)
     suffix = " exploring household"
@@ -420,13 +500,20 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
             flags.extend(_knowledge_flags(knowledge_status.get(card_id, {})))
             if is_enrollment_placeholder(_mapping(card.get("jurisdiction"))):
                 flags.append("placeholder")
-            elif is_document_knowledge(card):
+            elif is_document_knowledge(card) and not is_code_file_knowledge(card):
                 flags.append("document")
             if not _items(card.get("references")) and not card.get("jurisdiction") and "abandoned" not in flags:
                 flags.append("abandoned")
         elif kind == "constitution":
             detection = detection if detection != "无检测" else "交付门禁"
         paths = _scope_paths(card)
+        extra: dict[str, Any] = {}
+        if card.get("scopes"):
+            extra["scopes"] = _items(card.get("scopes"))
+        jurisdiction = _mapping(card.get("jurisdiction"))
+        if jurisdiction:
+            extra["jurisdiction"] = jurisdiction
+            extra["span"] = str(jurisdiction.get("span") or "none")
         nodes[card_id] = _node(
             card_id,
             kind=kind if kind in KIND_LABELS else "knowledge",
@@ -436,6 +523,7 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
             path="、".join(paths[:4]),
             protocol=protocol,
             detection=detection,
+            extra=extra or None,
         )
 
     knowledge_cards = [card for card in cards if _text(card.get("type")) == "knowledge"]
@@ -585,6 +673,7 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
                     "freshness": freshness,
                     "coversDirectories": [],
                     "span": str(declaration.get("span") or "none"),
+                    "scopes": household.get("scopes") or [],
                 },
             )
         history_by_target = _mapping(source.get("file_history"))
@@ -800,7 +889,7 @@ def _knowledge_status_tag(card: Mapping[str, Any], graph_nodes: Mapping[str, Map
         return tag
     if is_enrollment_placeholder(_mapping(card.get("jurisdiction"))):
         return "placeholder"
-    if is_document_knowledge(card):
+    if is_document_knowledge(card) and not is_code_file_knowledge(card):
         return "document"
     flags = _items(record.get("flags"))
     return status_tag_key(str(item) for item in flags)

@@ -12,7 +12,7 @@ The Skill reads the canonical checkout without modifying it and identifies expec
 
 ## During implementation
 
-The AI may inspect, edit, install dependencies, build, test, and generate artifacts inside the task worktree. The canonical checkout remains an integration target. Each project has independent external policy, worktrees, Ledger, and evidence.
+The AI may inspect, edit, install dependencies, build, test, and generate artifacts inside the task worktree. `ag2c task start` returns `guidance.lineage`: the knowledge-card 谱系 for the routed rooms, used as the coding index before writing. The canonical checkout remains an integration target. Each project has independent external policy, worktrees, Ledger, and evidence.
 
 `ag2c task list` tracks each generated worktree. Passing verification marks the task verified but unmerged until `task finish`. If the work is obsolete, `ag2c task abandon` removes the worktree and records the discarded attempt. If the canonical branch moved, `ag2c task refresh` rebases the open worktree onto the current HEAD and requires another verification.
 

@@ -632,6 +632,26 @@ def retrieve_guidance(start: Path, *, path_specs: list[str], contract_specs: lis
         ]
     except AG2CError:
         pass
+    from .graph import knowledge_lineage_index
+
+    card_dicts = [
+        {
+            "id": card.card_id,
+            "type": card.card_type,
+            "title": card.title,
+            "summary": card.summary,
+            "scopes": [
+                {"include": list(scope.includes), "exclude": list(scope.excludes), "target": scope.target_id}
+                for scope in card.scopes
+            ],
+            "references": list(card.references),
+            "jurisdiction": card.jurisdiction,
+        }
+        for card in policy.cards
+        if card.card_type == "knowledge"
+    ]
+    lineage_ids = {str(card["id"]) for card in entry.get("cards") or []}
+    lineage_ids.update(item["id"] for item in households)
     return {
         "route": entry["route"],
         "knowledge": entry.get("knowledge") or [],
@@ -640,6 +660,7 @@ def retrieve_guidance(start: Path, *, path_specs: list[str], contract_specs: lis
             for card in entry.get("cards") or []
         ],
         "households": households,
+        "lineage": knowledge_lineage_index(card_dicts, selected_ids=lineage_ids),
         "implementations": implementations,
         "pending": pending.get("items") or [],
     }

@@ -44,7 +44,7 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
    tighter household on a subset glob, or tighten the existing card, instead of
    hanging a second card on the same glob.
 
-6. Read the JSON response and move into `worktree.path`. Perform every write, dependency install, build, test, screenshot, and generated output only in that external worktree. `ag2c task list` reports worktree lifecycle: constructing, verified but unmerged, diverged, abandoned, or merged.
+6. Read the JSON response and move into `worktree.path`. Before any write, read `guidance.lineage` as the knowledge-card 谱系 — the coding index for this change. Each `rooms[].files[]` entry is one file's 设计思路; the room summary is not a substitute when file cards exist. Empty leftover-parent rooms are not the index for a carved child. `guidance.cards` and `guidance.households` are the same records in flat form. Do not grep the repository for ownership or invent design from a leftover parent. Then perform every write, dependency install, build, test, screenshot, and generated output only in that external worktree. `ag2c task list` reports worktree lifecycle: constructing, verified but unmerged, diverged, abandoned, or merged.
 
 7. After the final change, run from the task worktree:
 
@@ -74,7 +74,7 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
 
    Do not ask the user to operate this. If settle reports remaining items, follow the `ag2c-governance-update` Skill for those leftovers only. Then continue with evidence.
 
-8b. Use the JSON `guidance` from `ag2c task start` as the retrieved project knowledge and contracts for this change. Do not grep the whole repository for ownership or public interfaces when that guidance already names them.
+8b. `guidance.lineage` from `ag2c task start` is the knowledge-card 谱系. Read it as the index before writing (step 6). Do not grep the whole repository for ownership or public interfaces when that payload already names them.
 
 9. Run `ag2c evidence --task <task-id>` and report its plain-language facts: files changed, checks passed, whether a failed attempt was corrected, process evidence completeness, merged commit, and the Product line. Process evidence complete only means the task was delivered through AG2C. If Product is `undeclared`, `blocked`, or `incomplete`, say the work was checked in, not that the product is done. Do not teach the user cards, floors, slices, policies, or checker selection unless they explicitly request diagnostics. Do not edit Policy by hand; use `ag2c govern` through census, knowledge-authoring, or governance-update when stored knowledge must change.
 

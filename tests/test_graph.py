@@ -16,6 +16,7 @@ from ag2c.graph import (
     LINEAGE_PROJECT_ID,
     build_governance_graph,
     build_lineage,
+    knowledge_lineage_index,
     layout_lineage_view,
     lineage_boxes_overlap,
     lineage_card_width,
@@ -299,6 +300,147 @@ class GovernanceGraphTests(unittest.TestCase):
         )
         cli_graph = next(node for node in graph["nodes"] if node["id"] == "knowledge.ag2c-cli")
         self.assertEqual("knowledge.ag2c", cli_graph.get("parentCard"))
+        self.assertNotEqual("document", cli_graph["statusTag"])
+        self.assertNotIn("document", cli_graph.get("flags") or [])
+
+    def test_code_file_cards_are_not_document_tags(self) -> None:
+        cli = _card("knowledge.ag2c-cli", "knowledge", "cli", include=["src/ag2c/cli.py"], references=["src/ag2c/cli.py"])
+        readme = _card("knowledge.readme-md", "knowledge", "README.md", include=["README.md"], references=["README.md"])
+        graph = build_governance_graph(
+            {
+                "cards": [cli, readme],
+                "knowledge": [],
+                "relations": [],
+                "index": {"findings": []},
+                "pending": [],
+                "worktrees": [],
+                "checkers": [],
+            }
+        )
+        cli_node = next(node for node in graph["nodes"] if node["id"] == "knowledge.ag2c-cli")
+        readme_node = next(node for node in graph["nodes"] if node["id"] == "knowledge.readme-md")
+        self.assertEqual("current", cli_node["statusTag"])
+        self.assertEqual("在册", cli_node["statusLabel"])
+        self.assertEqual("document", readme_node["statusTag"])
+        self.assertEqual("文档", readme_node["statusLabel"])
+        lineage = build_lineage(
+            {
+                "project": {"name": "AutoGovern2Code"},
+                "cards": [
+                    _card("floor.src", "floor", "src", include=["src/**"]),
+                    cli,
+                    readme,
+                ],
+                "relations": [
+                    {"source": "knowledge.ag2c-cli", "type": "explains", "target": "floor.src"},
+                    {"source": "knowledge.readme-md", "type": "explains", "target": "floor.src"},
+                ],
+                "graph": {"nodes": []},
+            }
+        )
+        cli_lineage = next(node for node in lineage["nodes"] if node["id"] == "knowledge.ag2c-cli")
+        readme_lineage = next(node for node in lineage["nodes"] if node["id"] == "knowledge.readme-md")
+        self.assertNotEqual("文档", cli_lineage["status"])
+        self.assertEqual("文档", readme_lineage["status"])
+
+    def test_leftover_parent_does_not_own_carved_child_files(self) -> None:
+        leftover = _card("knowledge.src", "knowledge", "src leftover parent", include=["src/**"])
+        leftover["jurisdiction"] = {"span": "folder", "meaning": "none", "status": "current"}
+        leftover["scopes"][0]["exclude"] = ["src/ag2c/**"]
+        household = _card("knowledge.ag2c", "knowledge", "src/ag2c package", include=["src/ag2c/**"])
+        household["jurisdiction"] = {"span": "file", "meaning": "named", "status": "current"}
+        cli = _card(
+            "knowledge.ag2c-cli",
+            "knowledge",
+            "cli",
+            include=["src/ag2c/cli.py"],
+            references=["src/ag2c/cli.py"],
+        )
+        graph = build_governance_graph(
+            {
+                "cards": [leftover, household, cli],
+                "knowledge": [],
+                "relations": [],
+                "index": {"findings": []},
+                "pending": [],
+                "worktrees": [],
+                "checkers": [],
+                "census": {
+                    "households": [
+                        {
+                            "id": "knowledge.src",
+                            "kind": "knowledge",
+                            "title": "src leftover parent",
+                            "summary": "empty parent",
+                            "identity": "exploring",
+                            "scopes": [{"includes": ["src/**"], "excludes": ["src/ag2c/**"]}],
+                            "checkers": [],
+                            "issues": [],
+                            "jurisdiction": leftover["jurisdiction"],
+                            "freshness": "current",
+                        },
+                        {
+                            "id": "knowledge.ag2c",
+                            "kind": "knowledge",
+                            "title": "src/ag2c package",
+                            "summary": "engine",
+                            "identity": "named",
+                            "scopes": [{"includes": ["src/ag2c/**"], "excludes": []}],
+                            "checkers": [],
+                            "issues": [],
+                            "jurisdiction": household["jurisdiction"],
+                            "freshness": "current",
+                        },
+                    ],
+                    "directories": [
+                        {
+                            "target": "app",
+                            "path": "src/ag2c",
+                            "files": ["src/ag2c/cli.py"],
+                            "owners": ["knowledge.ag2c"],
+                            "unowned": False,
+                        }
+                    ],
+                },
+            }
+        )
+        from ag2c.tray_host import files_for_card, focus_card
+
+        leftover_node = next(node for node in graph["nodes"] if node["id"] == "knowledge.src")
+        ag2c_node = next(node for node in graph["nodes"] if node["id"] == "knowledge.ag2c")
+        files = [(node["summary"], node) for node in graph["nodes"] if node.get("kind") == "file"]
+        self.assertEqual([], files_for_card(files, leftover_node))
+        self.assertEqual(["src/ag2c/cli.py"], files_for_card(files, ag2c_node))
+        leftover_focus = focus_card(files, leftover_node)
+        self.assertEqual(set(), leftover_focus["highlight_paths"])
+        ag2c_focus = focus_card(files, ag2c_node)
+        self.assertEqual({"src/ag2c/cli.py"}, ag2c_focus["highlight_paths"])
+
+    def test_knowledge_lineage_index_nests_file_cards_under_the_room(self) -> None:
+        household = _card("knowledge.ag2c", "knowledge", "src/ag2c package", include=["src/ag2c/**"], summary="room identity")
+        household["jurisdiction"] = {"span": "file", "meaning": "named", "status": "current"}
+        leftover = _card("knowledge.src", "knowledge", "src leftover parent", include=["src/**"], summary="empty parent")
+        leftover["jurisdiction"] = {"span": "folder", "meaning": "none", "status": "current"}
+        leftover["scopes"][0]["exclude"] = ["src/ag2c/**"]
+        cli = _card(
+            "knowledge.ag2c-cli",
+            "knowledge",
+            "cli",
+            include=["src/ag2c/cli.py"],
+            references=["src/ag2c/cli.py"],
+            summary="argparse 命令面",
+        )
+        readme = _card("knowledge.readme-md", "knowledge", "README.md", include=["README.md"], references=["README.md"], summary="lead")
+        index = knowledge_lineage_index(
+            [household, leftover, cli, readme],
+            selected_ids=["knowledge.ag2c", "knowledge.ag2c-cli"],
+        )
+        rooms = {item["id"]: item for item in index["rooms"]}
+        self.assertIn("knowledge.ag2c", rooms)
+        self.assertNotIn("knowledge.src", rooms)
+        self.assertEqual(["src/ag2c/cli.py"], [item["path"] for item in rooms["knowledge.ag2c"]["files"]])
+        self.assertIn("argparse 命令面", rooms["knowledge.ag2c"]["files"][0]["summary"])
+        self.assertEqual([], index["documents"])
 
     def test_lineage_is_project_modules_and_knowledge_cards(self) -> None:
         lineage = build_lineage(

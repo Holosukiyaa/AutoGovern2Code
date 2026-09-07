@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `ag2c task start` guidance now includes `lineage`: the knowledge-card 谱系 as a coding index (rooms and per-file 设计思路). The development Skill tells the agent to read it before writing.
+- Code-file knowledge cards (`.py` and other source suffixes) are no longer tagged 文档; that flag stays on prose documents such as README.
+- Clicking a leftover parent that excludes a carved child no longer lights the child's files. Clicking the child household still focuses the files it owns.
+- The portable.ini layout test skips on a task worktree that does not have that operator file.
 - Lineage opens each deeper mapping in a new column to the right. Clicking a file in the tree selects only that file and its file card; clicking the folder selects the directory card. No mapping-level dropdown.
 - File cards for a 一文件一张 directory hang under that directory in the tray (third level), not beside it as extra modules. Expand the directory card to see them.
 - Packaged a fourth Skill, `ag2c-knowledge-authoring`: after coverage tags exist, the agent reads the files and writes detailed 设计思路 cards (`整夹一张` one room card, `一文件一张` one card per code file). `ag2c-directory-census` now sets those tags in the same census pass. The copy-prompt installs all four Skills.

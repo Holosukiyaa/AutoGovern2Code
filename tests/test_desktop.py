@@ -737,6 +737,43 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertEqual({"src/ag2c/cli.py", "src/ag2c/tasks.py"}, room["highlight_paths"])
         self.assertEqual("knowledge.ag2c", room["selected_card_key"])
 
+    def test_leftover_parent_click_does_not_focus_excluded_child_files(self) -> None:
+        from ag2c.tray_host import files_for_card, focus_card
+
+        leftover = {
+            "kind": "knowledge",
+            "id": "knowledge.src",
+            "title": "src leftover parent",
+            "summary": "empty parent after carving src/ag2c",
+            "jurisdiction": {"span": "folder"},
+            "span": "folder",
+            "scopes": [{"includes": ["src/**"], "excludes": ["src/ag2c/**"]}],
+        }
+        household = {
+            "kind": "knowledge",
+            "id": "knowledge.ag2c",
+            "title": "src/ag2c package",
+            "jurisdiction": {"span": "file"},
+            "scopes": [{"include": ["src/ag2c/**"], "exclude": ["src/ag2c/skills/**"]}],
+        }
+        cli = {
+            "kind": "file",
+            "id": "file:app:src/ag2c/cli.py",
+            "title": "cli.py",
+            "path": "app:src/ag2c/cli.py",
+            "coveredBy": ["ag2c command surface"],
+            "parentCard": "knowledge.ag2c-cli",
+            "summary": "src/ag2c/cli.py",
+        }
+        files = [("src/ag2c/cli.py", cli)]
+        self.assertEqual([], files_for_card(files, leftover))
+        self.assertEqual(["src/ag2c/cli.py"], files_for_card(files, household))
+        leftover_focus = focus_card(files, leftover)
+        self.assertEqual(set(), leftover_focus["highlight_paths"])
+        self.assertEqual("这张卡还没有落到文件树上的代码文件", leftover_focus["inspect"]["message"])
+        room = focus_card(files, household)
+        self.assertEqual({"src/ag2c/cli.py"}, room["highlight_paths"])
+
     def test_project_details_cache_skips_rebuild_until_refresh(self) -> None:
         from ag2c.management import project_details
 

@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import bootstrap  # noqa: F401
 
@@ -107,6 +108,23 @@ class McpServerTests(unittest.TestCase):
         payload = json.loads(lines[0])
         self.assertEqual(7, payload["id"])
         self.assertIn("instructions", payload["result"])
+
+    def test_stdio_reconfigures_locale_stdin_to_utf8(self) -> None:
+        message = {
+            "jsonrpc": "2.0",
+            "id": 9,
+            "method": "tools/call",
+            "params": {"name": "未知工具", "arguments": {}},
+        }
+        raw = (json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8")
+        locale_stdin = io.TextIOWrapper(io.BytesIO(raw), encoding="gbk", errors="surrogateescape")
+        outbound = io.StringIO()
+        with patch("sys.stdin", locale_stdin):
+            serve_mcp_stdio(stdout=outbound)
+        lines = [line for line in outbound.getvalue().splitlines() if line.strip()]
+        self.assertEqual(1, len(lines))
+        payload = json.loads(lines[0])
+        self.assertIn("未知工具", payload["result"]["content"][0]["text"])
 
     def test_install_writes_grok_and_cursor_configs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -471,6 +471,14 @@ def _census_cache_key(manifest: Manifest, policy: Policy) -> tuple[Any, ...] | N
         policy_path = Path(policy.path)
         policy_stat = policy_path.stat()
         parts: list[Any] = [str(policy_path), int(policy_stat.st_mtime_ns), int(policy_stat.st_size)]
+        # Census and renewal state feed the report; without them in the key a
+        # record written by this process stays invisible to later reports.
+        for state_file in (census_path(manifest), renewal_path(manifest)):
+            if state_file.is_file():
+                state_stat = state_file.stat()
+                parts.extend([str(state_file), int(state_stat.st_mtime_ns), int(state_stat.st_size)])
+            else:
+                parts.append((str(state_file), "absent"))
         for target in manifest.targets:
             root = manifest.target_root(target.target_id)
             head = str(_git(root, "rev-parse", "HEAD") or "")

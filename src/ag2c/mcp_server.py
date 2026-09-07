@@ -594,8 +594,29 @@ def _decode_line(line: str) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
+def _reconfigure_utf8(stream: Any) -> None:
+    """Force a stdio stream to UTF-8 so a locale console cannot corrupt JSON-RPC.
+
+    MCP clients speak UTF-8 JSON. On a locale console (for example GBK on
+    Chinese Windows) the inherited stdin otherwise decodes tool arguments
+    with the locale codec, producing mojibake or surrogate escapes that later
+    crash strict UTF-8 file writes.
+    """
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is None:
+        return
+    try:
+        reconfigure(encoding="utf-8", errors="replace")
+    except (OSError, ValueError):
+        pass
+
+
 def serve_mcp_stdio(stdin=None, stdout=None) -> int:
     """Newline-delimited JSON-RPC MCP loop. Logs go to stderr only."""
+    if stdin is None:
+        _reconfigure_utf8(sys.stdin)
+    if stdout is None:
+        _reconfigure_utf8(sys.stdout)
     reader = stdin or sys.stdin
     writer = stdout or sys.stdout
     while True:

@@ -108,5 +108,24 @@ class KnowledgeTests(unittest.TestCase):
             self.assertIn("floor.worker", card_ids)
 
 
+class CensusCacheKeyTests(unittest.TestCase):
+    def test_census_and_renewal_state_bust_the_report_cache_key(self) -> None:
+        from ag2c.households import _census_cache_key, census_path, renewal_path
+
+        with tempfile.TemporaryDirectory() as directory:
+            manifest, policy, _ = knowledge_project(Path(directory))
+            key_before = _census_cache_key(manifest, policy)
+            self.assertIsNotNone(key_before)
+            census = census_path(manifest)
+            census.parent.mkdir(parents=True, exist_ok=True)
+            census.write_text('{"schema": "ag2c.census-state.v1", "records": []}\n', encoding="utf-8")
+            key_after_census = _census_cache_key(manifest, policy)
+            self.assertNotEqual(key_before, key_after_census)
+            renewal = renewal_path(manifest)
+            renewal.write_text('{"schema": "ag2c.renewal.v1", "cards": {}}\n', encoding="utf-8")
+            key_after_renewal = _census_cache_key(manifest, policy)
+            self.assertNotEqual(key_after_census, key_after_renewal)
+
+
 if __name__ == "__main__":
     unittest.main()

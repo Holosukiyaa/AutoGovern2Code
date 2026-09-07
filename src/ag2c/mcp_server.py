@@ -322,12 +322,13 @@ def tool_defs() -> list[dict[str, Any]]:
         ),
         _tool(
             "ag2c_mcp_health",
-            "Detect whether this AG2C MCP server can start and answer initialize.",
+            "Detect whether this AG2C MCP server can start, and whether the Git guard is on when cwd is a project.",
             {
                 "handshake": {
                     "type": "boolean",
                     "description": "Spawn the stdio server and initialize. Default true.",
-                }
+                },
+                "cwd": _cwd_prop(),
             },
         ),
     ]
@@ -495,7 +496,11 @@ def _call_skill(args: dict[str, Any]) -> Any:
 
 def _call_health(args: dict[str, Any]) -> Any:
     handshake = args.get("handshake")
-    return mcp_health(handshake=True if handshake is None else bool(handshake))
+    cwd = str(args.get("cwd") or args.get("root") or "").strip()
+    return mcp_health(
+        handshake=True if handshake is None else bool(handshake),
+        cwd=cwd or None,
+    )
 
 
 HANDLERS: dict[str, Callable[[dict[str, Any]], Any]] = {
@@ -786,7 +791,28 @@ def probe_mcp_handshake(*, timeout: float = 8.0) -> dict[str, Any]:
     }
 
 
-def mcp_health(*, handshake: bool = True, home: Path | None = None, timeout: float = 8.0) -> dict[str, Any]:
+def _guard_probe(cwd: str | Path | None = None, *, managed: bool | None = None) -> dict[str, Any] | None:
+    if managed is not None:
+        return {"managed": bool(managed), "issues": [] if managed else ["Git hook is off"]}
+    if cwd is None or not str(cwd).strip():
+        return None
+    try:
+        from .enrollment import activation_status
+
+        status = activation_status(Path(str(cwd)))
+    except AG2CError as exc:
+        return {"managed": False, "issues": [str(exc)]}
+    return {"managed": bool(status.get("managed")), "issues": list(status.get("issues") or [])}
+
+
+def mcp_health(
+    *,
+    handshake: bool = True,
+    home: Path | None = None,
+    timeout: float = 8.0,
+    cwd: str | Path | None = None,
+    managed: bool | None = None,
+) -> dict[str, Any]:
     spec = mcp_launch_spec()
     command = Path(str(spec["command"]))
     src = Path(str((spec.get("env") or {}).get("PYTHONPATH") or ""))
@@ -798,7 +824,9 @@ def mcp_health(*, handshake: bool = True, home: Path | None = None, timeout: flo
     if handshake and python_ok and src_ok:
         handshake_result = probe_mcp_handshake(timeout=timeout)
     handshake_ok = handshake_result is None or bool(handshake_result.get("ok"))
-    ok = bool(python_ok and src_ok and handshake_ok)
+    guard = _guard_probe(cwd, managed=managed)
+    guard_ok = True if guard is None else bool(guard.get("managed"))
+    ok = bool(python_ok and src_ok and handshake_ok and guard_ok)
     status = "ok" if ok else "broken"
     label = "MCP 正常" if ok else "MCP 异常"
     error = ""
@@ -808,6 +836,9 @@ def mcp_health(*, handshake: bool = True, home: Path | None = None, timeout: flo
         error = "console Python is missing"
     elif not src_ok:
         error = "AG2C src is missing"
+    elif not guard_ok:
+        issues = (guard or {}).get("issues") or []
+        error = str(issues[0] if issues else "Git hook is off")
     return {
         "ok": ok,
         "status": status,
@@ -820,5 +851,6 @@ def mcp_health(*, handshake: bool = True, home: Path | None = None, timeout: flo
         "skill_count": len(PACKAGED_SKILLS),
         "tool_count": len(tool_defs()),
         "handshake": handshake_result,
+        "guard": guard,
         "clients": [{"harness": item["harness"], "configured": item["configured"]} for item in clients],
     }

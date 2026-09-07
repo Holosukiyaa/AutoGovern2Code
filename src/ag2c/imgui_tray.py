@@ -1059,7 +1059,11 @@ def _gui_gate_strip(state: AppState, project: dict[str, Any]) -> None:
             copied = ""
             health = None
             if kind == "gate":
-                health = mcp_health_snapshot(handshake=False)
+                health = mcp_health_snapshot(
+                    handshake=False,
+                    cwd=text(project, "root") or None,
+                    managed=bool(project.get("delivery_enforced")) if "delivery_enforced" in project else None,
+                )
                 copied = mcp_entry_text()
             _inspect_gate(state, kind, project, details, prompt=copied, health=health)
 
@@ -1086,7 +1090,7 @@ def _inspect_gate(
     agents = [item for item in (project.get("agents") or []) if isinstance(item, dict)]
     last = project.get("last_task") if isinstance(project.get("last_task"), dict) else None
     worktrees = [item for item in ((details or {}).get("worktrees") or []) if isinstance(item, dict)]
-    titles = {"gate": "AI 入口", "delivery": "交付", "records": "实际记录", "worktrees": "施工"}
+    titles = {"gate": "AI 入口", "records": "实际记录", "worktrees": "施工"}
     with state.lock:
         state.inspect = {
             "mode": kind,
@@ -1917,7 +1921,7 @@ def _gui_inspect(state: AppState) -> None:
             imgui.text_disabled(status)
     if mode == "gate":
         imgui.separator()
-        imgui.text_wrapped("AI 入口只有两件事：通用 MCP 连接说明（占位符，不绑厂商），以及检测 MCP 是否在工作。Skill 全文在 MCP 里。")
+        imgui.text_wrapped("AI 入口只有两件事：通用 MCP 连接说明（占位符，不绑厂商），以及检测 MCP 是否在工作。Skill 全文在 MCP 里；检测会连 Git hook 一起看。")
         if imgui.button("检测 MCP"):
             from .mcp_server import install_mcp_clients, mcp_health
 
@@ -1925,7 +1929,7 @@ def _gui_inspect(state: AppState) -> None:
                 install_mcp_clients()
             except OSError:
                 pass
-            health = mcp_health(handshake=True)
+            health = mcp_health(handshake=True, cwd=str(fields.get("path") or "") or None)
             with state.lock:
                 state.inspect["mcp_health"] = health
                 state.inspect["status"] = str(health.get("label") or "")
@@ -1956,15 +1960,6 @@ def _gui_inspect(state: AppState) -> None:
         if prompt:
             imgui.separator()
             imgui.text_wrapped(prompt)
-        return
-    if mode == "delivery":
-        imgui.separator()
-        if fields.get("delivery_enforced"):
-            imgui.text("交付门禁已接通")
-            imgui.text_disabled("Git 提交会走 AG2C 验证后再合回。")
-        else:
-            imgui.text_colored((0.92, 0.78, 0.35, 1.0), "还没有接通交付门禁")
-            imgui.text_disabled("重新检查可以把 hooks 接上。")
         return
     if mode == "records":
         imgui.separator()

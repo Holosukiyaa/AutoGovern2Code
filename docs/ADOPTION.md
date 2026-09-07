@@ -33,10 +33,9 @@ After adoption, the AI entry is two things: the generic MCP connect prompt (`ag2
 
 The MCP tools discover enrollment through local Git configuration and perform route selection, worktree creation, verification, commit, fast-forward integration, and evidence recording without asking the user to operate governance. Connecting MCP does not replace the Git delivery hook.
 
-The tray separates three facts:
+The tray no longer shows a separate Delivery row. Enrollment turns the Git hook on; **检测 MCP** reports whether that hook and the stdio server are working.
 
 - **AI entry**: generic connect prompt + MCP health. One local stdio server carries Skill text and live tools.
-- **Delivery**: whether the external store and Git guard are connected. Enrollment turns this on; the user does not configure Git.
 - **Observed records**: finished tasks and what they implemented or fixed.
 
 A finished governed task is process delivery, not product acceptance. Until the project declares contracts or boundary/scenario checks, Product stays undeclared. This avoids treating “Skill installed” or “process finished” as “the product is done.”

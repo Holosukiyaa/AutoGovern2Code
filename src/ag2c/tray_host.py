@@ -293,10 +293,16 @@ def mcp_entry_text(project_root: str = "") -> str:
     return text if text.endswith("\n") else text + "\n"
 
 
-def mcp_health_snapshot(*, handshake: bool = False, home: Path | None = None) -> dict[str, Any]:
+def mcp_health_snapshot(
+    *,
+    handshake: bool = False,
+    home: Path | None = None,
+    cwd: str | Path | None = None,
+    managed: bool | None = None,
+) -> dict[str, Any]:
     from .mcp_server import mcp_health
 
-    return mcp_health(handshake=handshake, home=home)
+    return mcp_health(handshake=handshake, home=home, cwd=cwd, managed=managed)
 
 
 def project_gate_rows(
@@ -305,13 +311,19 @@ def project_gate_rows(
     *,
     mcp: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Always-on operator strip: AI entry, delivery gate, deliveries, construction."""
+    """Always-on operator strip: MCP entry, observed records, construction."""
     if not project:
         return []
-    health = mcp if mcp is not None else mcp_health_snapshot(handshake=False)
+    managed = project.get("delivery_enforced")
+    health = mcp if mcp is not None else mcp_health_snapshot(
+        handshake=False,
+        cwd=text(project, "root") or None,
+        managed=None if managed is None else bool(managed),
+    )
+    if managed is False and health.get("ok"):
+        health = {**health, "ok": False, "status": "broken", "label": "MCP 异常", "error": "Git hook is off"}
     entry_value = str(health.get("label") or "MCP 异常")
     entry_warn = not bool(health.get("ok"))
-    delivery_ok = bool(project.get("delivery_enforced"))
     completed = int(project.get("completed_tasks") or 0)
     last_line = _task_line(project.get("last_task") if isinstance(project.get("last_task"), dict) else None)
     if completed:
@@ -346,7 +358,6 @@ def project_gate_rows(
         construction_warn = False
     return [
         {"id": "gate", "label": "AI 入口", "value": entry_value, "warn": entry_warn},
-        {"id": "delivery", "label": "交付", "value": "已控制" if delivery_ok else "未生效", "warn": not delivery_ok},
         {"id": "records", "label": "实际记录", "value": records_value, "warn": False},
         {"id": "worktrees", "label": "施工", "value": construction_value, "warn": construction_warn},
     ]

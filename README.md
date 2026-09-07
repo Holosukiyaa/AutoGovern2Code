@@ -30,8 +30,7 @@ The community installer is unsigned, so Windows SmartScreen may warn. Download i
 
 The desktop window is the normal interface. For each project it shows:
 
-- **AI entry** — generic MCP connect prompt + health check. One local stdio server carries Skill text and live tools. The prompt does not name a vendor or a user path.
-- **Delivery** — whether the external store and Git guard are connected.
+- **AI entry** — generic MCP connect prompt + health check. One local stdio server carries Skill text and live tools. The prompt does not name a vendor or a user path. Git-hook status is inside that health check, not a separate Delivery row.
 - **Observed records** — finished tasks, what they implemented or fixed, and whether the run was process-complete.
 - **Worktrees, journals, and recent evidence** — open construction copies, versioned logs, and local receipts.
 - **Stop / Resume / Uninstall project** — stop leaves the project listed with its archive; resume reconnects it; uninstall deletes that project's governance archive.

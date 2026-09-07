@@ -230,6 +230,10 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("检测 MCP", ui)
         self.assertIn("复制连接说明", ui)
         self.assertNotIn("复制提示词", ui)
+        self.assertNotIn("已控制", ui)
+        self.assertNotIn("交付门禁已接通", ui)
+        self.assertNotIn('"id": "delivery"', host)
+        self.assertNotIn('"label": "交付"', host)
         self.assertIn("mcp_health_snapshot", ui)
         self.assertIn("mcp_entry_text", ui)
         self.assertIn("set_clipboard_text", ui)
@@ -980,7 +984,7 @@ class TrayGateTests(unittest.TestCase):
         healthy = {row["id"]: row for row in project_gate_rows(project, {"worktrees": []}, mcp={"ok": True, "label": "MCP 正常"})}
         self.assertEqual("MCP 正常", healthy["gate"]["value"])
         self.assertFalse(healthy["gate"]["warn"])
-        self.assertEqual("已控制", healthy["delivery"]["value"])
+        self.assertNotIn("delivery", healthy)
         self.assertIn("3 次入库", healthy["records"]["value"])
         self.assertIn("实现功能", healthy["records"]["value"])
         self.assertEqual("没有进行中的施工", healthy["worktrees"]["value"])
@@ -996,9 +1000,19 @@ class TrayGateTests(unittest.TestCase):
         }
         self.assertEqual("MCP 异常", empty["gate"]["value"])
         self.assertTrue(empty["gate"]["warn"])
-        self.assertEqual("未生效", empty["delivery"]["value"])
-        self.assertTrue(empty["delivery"]["warn"])
+        self.assertNotIn("delivery", empty)
         self.assertEqual("尚未观察", empty["records"]["value"])
+        unguarded = {
+            row["id"]: row
+            for row in project_gate_rows(
+                {"delivery_enforced": False, "completed_tasks": 0},
+                None,
+                mcp={"ok": True, "label": "MCP 正常"},
+            )
+        }
+        self.assertEqual("MCP 异常", unguarded["gate"]["value"])
+        self.assertTrue(unguarded["gate"]["warn"])
+        self.assertNotIn("delivery", unguarded)
 
         details = {
             "worktrees": [

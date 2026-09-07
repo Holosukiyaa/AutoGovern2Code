@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The tray no longer shows **交付 / 已控制**. Git-hook status is inside MCP health. AI entry stays a generic connect prompt plus **检测 MCP**.
 - AI entry is only a generic MCP connect prompt (placeholders `<python>` / `<ag2c-src>`, no vendor names, no user paths) plus MCP health (`ag2c mcp health` / tray **检测 MCP**). Skill text stays inside MCP. Enrollment keeps the project's `.git` and forces bundled MinGit for AG2C operations. The Git hook remains the delivery gate.
 - AG2C is a local stdio MCP server. Packaged Skills ship as initialize `instructions` and `ag2c://skill/*` resources. `ag2c mcp install` writes local client configs when those files exist. Copy-prompt is no longer the tray AI entry.
 - The tray no longer has buttons to set 未打标 / 整夹一张 / 一文件一张. Coverage tags stay visible for supervision; the agent sets them. Healthy cards no longer show 在册, and the card list no longer prints `0 个文件`.

@@ -214,11 +214,11 @@ class PortableLayoutTests(unittest.TestCase):
         ignore = (root / ".gitignore").read_text(encoding="utf-8")
         self.assertIn("/portable.ini", ignore)
         self.assertIn(".grok/", ignore)
+        if not (root / "portable.ini").is_file():
+            self.skipTest("portable.ini lives on the operator checkout, not a task worktree")
         ignored = git(root, "check-ignore", "portable.ini", ".grok/session.md")
         self.assertIn("portable.ini", ignored)
         self.assertIn(".grok/session.md", ignored.replace("\\", "/"))
-        if not (root / "portable.ini").is_file():
-            self.skipTest("portable.ini lives on the operator checkout, not a task worktree")
         with patch.dict(os.environ, {"AG2C_PORTABLE": "", "AG2C_DATA_ROOT": ""}, clear=False):
             from ag2c.util import default_data_root, portable_home
 

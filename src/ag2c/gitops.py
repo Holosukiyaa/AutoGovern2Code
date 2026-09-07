@@ -390,7 +390,13 @@ def git_executable(root: Path | None = None) -> str:
         return bundled
     source = read_local_git_source(root) if root is not None else ""
     if source == GIT_SOURCE_BUNDLED:
-        return ensure_bundled_git()
+        try:
+            return ensure_bundled_git()
+        except AG2CError:
+            system = system_git_executable()
+            if system:
+                return system
+            raise
     system = system_git_executable()
     if system:
         return system

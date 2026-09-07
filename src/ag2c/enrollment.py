@@ -437,6 +437,13 @@ def activate_project(
     runtime_command = _runtime_command()
     hook, delegated_hooks = _install_guard_hooks(hooks, previous_dir, runtime_command)
     skills = install_skills(skill_root, harnesses)
+    mcp = []
+    try:
+        from .mcp_server import install_mcp_clients
+
+        mcp = install_mcp_clients()
+    except OSError:
+        mcp = []
     primary_skill = skills[0]
     git(canonical, "config", "core.hooksPath", expected)
     activation = {
@@ -451,6 +458,7 @@ def activate_project(
         "skill_path": primary_skill["path"],
         "skill_digest": primary_skill["digest"],
         "skills": skills,
+        "mcp": mcp,
     }
     _write_json(activation_path, activation)
     policy = load_policy(manifest)
@@ -1091,12 +1099,20 @@ def setup_project(
 ) -> dict[str, Any]:
     if project is None:
         skills = install_skills(skill_root, harnesses)
+        mcp = []
+        try:
+            from .mcp_server import install_mcp_clients
+
+            mcp = install_mcp_clients()
+        except OSError:
+            mcp = []
         return {
             "action": "skill-installed",
             "version": __version__,
             "skill_path": skills[0]["path"],
             "skill_paths": [item["path"] for item in skills],
             "skills": skills,
+            "mcp": mcp,
         }
     root = repository_root(project)
     binding = resolve_enrollment_binding(root)
@@ -1135,6 +1151,13 @@ def repair_project(
         recovered = recover_relocated_enrollment(root, binding, skill_root=skill_root, harnesses=harnesses)
         recovery = recovered.get("recovery") or recovery
     aligned = align_engine(root, skill_root=skill_root, harnesses=harnesses)
+    mcp = []
+    try:
+        from .mcp_server import install_mcp_clients
+
+        mcp = install_mcp_clients()
+    except OSError:
+        mcp = []
     status = activation_status(root)
     if not status["managed"]:
         raise AG2CError("AG2C repair did not restore management: " + "; ".join(status["issues"]))
@@ -1145,6 +1168,7 @@ def repair_project(
         "activation": status.get("activation") or {},
         "recovery": recovery,
         "alignment": aligned,
+        "mcp": mcp,
     }
 
 
@@ -1220,8 +1244,8 @@ def guard_pre_commit(start: Path) -> int:
         except Exception:
             pass
         raise AG2CError(
-            "AG2C blocks commits in the canonical worktree; use a AG2C task worktree. "
-            "Copy the Skill prompt with `ag2c skill prompt` and paste it into your coding agent."
+            "AG2C blocks commits in the canonical worktree; use an AG2C task worktree. "
+            "Connect the AG2C MCP once (`ag2c mcp install`) and call ag2c_task_start."
         )
     branch = current_branch(root)
     if not branch.startswith("ag2c/"):

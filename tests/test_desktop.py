@@ -227,6 +227,7 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("_gui_project_bar", ui)
         self.assertIn("_gui_gate_strip", ui)
         self.assertIn("AI 入口", ui)
+        self.assertIn("连接 MCP", ui)
         self.assertIn("复制提示词", ui)
         self.assertIn("skill_prompt_text", ui)
         self.assertIn("set_clipboard_text", ui)
@@ -975,7 +976,7 @@ class TrayGateTests(unittest.TestCase):
             "last_task": {"goal": "fix tray", "delivery": {"request": "修托盘", "outcome": "实现功能"}},
         }
         healthy = {row["id"]: row for row in project_gate_rows(project, {"worktrees": []})}
-        self.assertEqual("复制提示词", healthy["gate"]["value"])
+        self.assertEqual("连接 MCP", healthy["gate"]["value"])
         self.assertFalse(healthy["gate"]["warn"])
         self.assertEqual("已控制", healthy["delivery"]["value"])
         self.assertIn("3 次入库", healthy["records"]["value"])
@@ -984,7 +985,7 @@ class TrayGateTests(unittest.TestCase):
         self.assertFalse(healthy["worktrees"]["warn"])
 
         empty = {row["id"]: row for row in project_gate_rows({"agents": [], "delivery_enforced": False, "completed_tasks": 0}, None)}
-        self.assertEqual("复制提示词", empty["gate"]["value"])
+        self.assertEqual("连接 MCP", empty["gate"]["value"])
         self.assertFalse(empty["gate"]["warn"])
         self.assertEqual("未生效", empty["delivery"]["value"])
         self.assertTrue(empty["delivery"]["warn"])

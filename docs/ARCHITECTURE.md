@@ -7,7 +7,7 @@ tray project selection
         |
 external registry + Git-local pointer       enrollment without project files
         |
-copy-prompt + Skill + guard status          agent entry (not harness detection)
+MCP stdio + Skill instructions + guard      agent entry (connect once; copy-prompt fallback)
         |
 external task record + Git worktree         isolated construction
         |
@@ -73,7 +73,7 @@ The UI can add, inspect, recheck, open, and stop managing projects. A registered
 
 The external hooks directory runs AG2C `pre-commit` first, then forwards every previous Git hook by name. That guard rejects commits from the canonical checkout and branches not created by AG2C. The project's `.git`, history, and remotes stay put. The Skill, task state, diff digest, trusted checks, fast-forward integration, and Ledger must all agree before success.
 
-This is a single-user local governance boundary, not an operating-system ACL. A hostile process with filesystem and Git-config access can bypass it. An agent that never received the copy-prompt may still be blocked at `git commit`. Remote team coordination and portable evidence exchange are not implemented in this release.
+This is a single-user local governance boundary, not an operating-system ACL. A hostile process with filesystem and Git-config access can bypass it. An agent that never connected the AG2C MCP may still be blocked at `git commit`. Remote team coordination and portable evidence exchange are not implemented in this release.
 
 ## Detachability
 

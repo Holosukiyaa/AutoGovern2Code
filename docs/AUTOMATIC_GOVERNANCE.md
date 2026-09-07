@@ -4,7 +4,7 @@ Once a local Git clone is added to AG2C, governance becomes the default construc
 
 ## Entry
 
-The AI entry is a copyable Skill prompt. AG2C does not detect whether Codex, Claude, Cursor, or any other harness is installed. Paste the prompt into the current agent; that agent refreshes Skills into its own home. The installed Skill then checks `ag2c guard status` for file-changing work. AG2C discovers the external Manifest through local Git configuration; the agent does not search for governance files in the project. Missing Git activation is repaired before writing. `managed` means the Git guard is on, not that a Skill folder was found.
+The AI entry is a local stdio MCP server (`ag2c mcp`). Packaged Skills are initialize `instructions` and `ag2c://skill/*` resources, so connecting once is enough. `ag2c mcp install` or the tray **连接 MCP** writes Grok, Cursor, Claude, and Codex user configs. Copy-prompt remains a fallback. AG2C does not detect which harness is installed. Tools check `ag2c_guard_status` for file-changing work. AG2C discovers the external Manifest through local Git configuration; the agent does not search for governance files in the project. Missing Git activation is repaired before writing. `managed` means the Git guard is on, not that a Skill folder was found.
 
 ## Before the first write
 
@@ -28,9 +28,9 @@ Only policy-declared argv checkers run. Failed attempts remain in evidence; a la
 
 ## Why Codex CLI (and friends) feel tightly bound
 
-Yes: **Skill for entry, Git hook for delivery.** Neither is enough alone.
+Yes: **MCP for entry, Git hook for delivery.** Neither is enough alone.
 
-1. **Skill (soft).** Enrollment copies `ag2c-governed-development`, `ag2c-governance-update`, `ag2c-directory-census`, and `ag2c-knowledge-authoring` into known agent homes. File changes use the first; named document cards the second; 彻查/普查/打标 the third; writing 设计思路 from those tags the fourth. A model can ignore that. Reading copies live in [docs/skills](skills/README.md). The AI-entry prompt names this AG2C's Skill versions and digests; each paste tells the agent to replace its installed copies if they are not this AG2C's.
+1. **MCP (soft).** `ag2c mcp` serves Skill workflow as `instructions`, full SKILL.md as resources, and live tools (`ag2c_task_start` returns `guidance.lineage`). Enrollment writes this server into local MCP configs. A model can ignore tools. Reading copies still live in [docs/skills](skills/README.md) for humans. Copy-prompt remains a fallback when the agent has no MCP.
 2. **Git hijack (hard).** The project's `.git` stays put. Activation sets `core.hooksPath` to an external directory: AG2C `pre-commit` runs first, then every hook that was already there (husky, leftover, default `.git/hooks`) is forwarded by name. That guard refuses commits in the canonical worktree, refuses branches not named `ag2c/…`, and refuses a worktree that does not match an open task record. History and remotes are unchanged. The tray can be closed. `git commit` on `main` still dies.
 3. **Worktree isolation.** Construction is a second Git checkout. Even when the agent obeys the Skill, the product branch does not move until `task finish` fast-forwards verified bytes.
 

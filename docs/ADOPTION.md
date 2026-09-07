@@ -7,7 +7,7 @@ AG2C adoption has one user-facing action: choose a Git project in the tray appli
 Download `AutoGovern2Code-Setup-Windows-x64.exe` from the [latest GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest) and double-click it. The per-user installer:
 
 - installs a self-contained AG2C runtime without requiring Python, administrator rights, or Edge WebView2; the tray is a Dear ImGui window (Hello ImGui) and the package ships MinGit next to the app;
-- may copy Skills into known homes (Codex, Claude Code, Cursor, `~/.agents/skills`) as a convenience; the operator entry is still **复制提示词** / `ag2c skill prompt`;
+- writes this AG2C into local MCP configs (`ag2c mcp install`) and may still copy Skills into known homes as a fallback; the operator entry is **连接 MCP**;
 - adds the runtime to the user PATH for agent use;
 - starts the tray application and registers it for user startup.
 
@@ -29,13 +29,13 @@ No `.ag2c`, AG2C-managed `AGENTS.md`, `CLAUDE.md`, or receipt is added to the pr
 
 ## Daily work
 
-After adoption, copy **复制提示词** from the tray (or run `ag2c skill prompt`) and paste it into the current coding agent. That agent refreshes AG2C Skills into its own home from this AutoGovern2Code. AG2C does not detect whether Codex, Claude, Cursor, or any other harness is installed.
+After adoption, click **连接 MCP** in the tray (or run `ag2c mcp install`). That writes a stdio MCP server into Grok, Cursor, Claude, and Codex user configs. The next agent session receives Skill instructions and tools from this AG2C; the user does not paste a copy-prompt again. AG2C does not detect which harness is installed.
 
-The Skill then discovers enrollment through local Git configuration and performs route selection, worktree creation, verification, commit, fast-forward integration, and evidence recording without asking the user to operate governance.
+The MCP tools discover enrollment through local Git configuration and perform route selection, worktree creation, verification, commit, fast-forward integration, and evidence recording without asking the user to operate governance. Copy-prompt remains a fallback for agents without MCP.
 
 The tray separates three facts:
 
-- **AI entry**: 复制提示词. Paste it into the agent you are using.
+- **AI entry**: 连接 MCP. One local stdio server carries Skills and live tools.
 - **Delivery**: whether the external store and Git guard are connected.
 - **Observed records**: finished tasks and what they implemented or fixed.
 

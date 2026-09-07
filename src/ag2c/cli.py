@@ -143,6 +143,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_harness_arguments(skill_uninstall)
 
+    mcp = subparsers.add_parser("mcp", help="stdio MCP server: Skill workflow as instructions, live tools, one-time connect")
+    mcp_commands = mcp.add_subparsers(dest="mcp_command")
+    mcp_commands.add_parser("serve", help="run the stdio MCP server (default)")
+    mcp_commands.add_parser("install", help="write this AG2C into local agent MCP configs")
+    mcp_commands.add_parser("config", help="print the MCP launch snippet")
+
     project = subparsers.add_parser("project", help="manage externally governed projects")
     project_commands = project.add_subparsers(dest="project_command", required=True)
     project_list = project_commands.add_parser("list")
@@ -485,6 +491,17 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             return 0
+        if args.command == "mcp":
+            from .mcp_server import install_mcp_clients, mcp_config_snippet, mcp_toml_block, serve_mcp_stdio
+
+            action = args.mcp_command or "serve"
+            if action == "install":
+                print(_json(install_mcp_clients()))
+                return 0
+            if action == "config":
+                print(_json({"json": mcp_config_snippet(), "toml": mcp_toml_block()}))
+                return 0
+            return serve_mcp_stdio()
         if args.command == "project":
             from .management import add_project, managed_projects, project_status, stop_managing
 

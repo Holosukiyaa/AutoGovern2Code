@@ -285,11 +285,41 @@ def skill_prompt_text(project_root: str = "") -> str:
     return skill_entry_prompt(project=Path(project_root) if project_root else Path.cwd())
 
 
+def mcp_entry_text(project_root: str = "") -> str:
+    from .mcp_server import install_mcp_clients, mcp_config_snippet, mcp_toml_block
+
+    installed = []
+    try:
+        installed = install_mcp_clients()
+    except OSError:
+        installed = []
+    lines = [
+        "AG2C MCP is the AI entry. Skills are inside this server. Connect once; do not paste a copy-prompt on every change.",
+        "",
+        "Wrote local MCP configs:" if installed else "Could not write MCP configs; paste the snippet below into your agent.",
+    ]
+    for item in installed:
+        lines.append(f"- {item['harness']}: {item['path']}")
+    lines.extend(
+        [
+            "",
+            "Grok (~/.grok/config.toml):",
+            mcp_toml_block().rstrip(),
+            "",
+            "Cursor / Claude JSON:",
+            json.dumps(mcp_config_snippet(), ensure_ascii=False, indent=2),
+        ]
+    )
+    if project_root:
+        lines.extend(["", f"Project: {project_root}"])
+    return "\n".join(lines) + "\n"
+
+
 def project_gate_rows(project: dict[str, Any] | None, details: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Always-on operator strip: AI entry, delivery gate, deliveries, construction."""
     if not project:
         return []
-    entry_value = "复制提示词"
+    entry_value = "连接 MCP"
     entry_warn = False
     delivery_ok = bool(project.get("delivery_enforced"))
     completed = int(project.get("completed_tasks") or 0)

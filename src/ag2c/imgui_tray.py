@@ -41,6 +41,7 @@ from .tray_host import (
     is_portable,
     issue_label,
     lineage_subtitle,
+    mcp_entry_text,
     portable_env,
     project_gate_rows,
     register_app,
@@ -1057,9 +1058,9 @@ def _gui_gate_strip(state: AppState, project: dict[str, Any]) -> None:
             audit(state, "查看" + label, "项目栏", value)
             copied = ""
             if kind == "gate":
-                copied = _copy_skill_prompt(text(project, "root"))
+                copied = _copy_mcp_entry(text(project, "root"))
                 with state.lock:
-                    state.status = "提示词已复制，贴进当前 AI"
+                    state.status = "MCP 已写入本机，配置已复制"
             _inspect_gate(state, kind, project, details, prompt=copied)
 
 
@@ -1067,6 +1068,17 @@ def _copy_skill_prompt(root: str) -> str:
     from imgui_bundle import imgui
 
     prompt = skill_prompt_text(root)
+    try:
+        imgui.set_clipboard_text(prompt)
+    except Exception:
+        pass
+    return prompt
+
+
+def _copy_mcp_entry(root: str) -> str:
+    from imgui_bundle import imgui
+
+    prompt = mcp_entry_text(root)
     try:
         imgui.set_clipboard_text(prompt)
     except Exception:
@@ -1089,7 +1101,7 @@ def _inspect_gate(
         state.inspect = {
             "mode": kind,
             "title": titles.get(kind, kind),
-            "status": "提示词已复制，贴进当前 AI" if kind == "gate" and prompt else "",
+            "status": "MCP 已写入本机，配置已复制" if kind == "gate" and prompt else "",
             "summary": "",
             "claim": "",
             "path": text(project, "root"),
@@ -1097,7 +1109,7 @@ def _inspect_gate(
             "files": [],
             "cards": [],
             "message": "",
-            "prompt": prompt or (skill_prompt_text(text(project, "root")) if kind == "gate" else ""),
+            "prompt": prompt or (mcp_entry_text(text(project, "root")) if kind == "gate" else ""),
             "agents": agents,
             "entry_ready": bool(project.get("entry_ready")),
             "delivery_enforced": bool(project.get("delivery_enforced")),
@@ -1914,15 +1926,23 @@ def _gui_inspect(state: AppState) -> None:
             imgui.text_disabled(status)
     if mode == "gate":
         imgui.separator()
-        imgui.text_wrapped("把提示词贴进当前 AI。Skill 装进那个 agent 自己的目录；AG2C 不给每家写安装器。")
+        imgui.text_wrapped("AG2C 作为本机 MCP。Skill 流程在 MCP 的 instructions 和工具里。连接一次即可，不必再贴复制提示词。")
+        if imgui.button("连接 MCP"):
+            copied = _copy_mcp_entry(str(fields.get("path") or ""))
+            with state.lock:
+                state.inspect["prompt"] = copied
+                state.inspect["status"] = "MCP 已写入本机，配置已复制"
+                state.status = "MCP 已写入本机，配置已复制"
+            audit(state, "连接 MCP", "详情", "")
+        imgui.same_line()
         if imgui.button("复制提示词"):
             copied = _copy_skill_prompt(str(fields.get("path") or ""))
             with state.lock:
                 state.inspect["prompt"] = copied
-                state.inspect["status"] = "提示词已复制，贴进当前 AI"
-                state.status = "提示词已复制，贴进当前 AI"
+                state.inspect["status"] = "提示词已复制（无 MCP 时的退路）"
+                state.status = "提示词已复制（无 MCP 时的退路）"
             audit(state, "复制提示词", "详情", "")
-        imgui.text_disabled("贴进当前 AI。典型目录：Codex ~/.codex/skills · Claude ~/.claude/skills · Cursor ~/.cursor/skills")
+        imgui.text_disabled("连接 MCP 写入 ~/.grok/config.toml、Cursor/Claude/Codex。新开一轮对话后工具即可用。")
         prompt = str(fields.get("prompt") or "")
         if prompt:
             imgui.separator()

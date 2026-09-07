@@ -1,15 +1,13 @@
 # Skills used with AutoGovern2Code
 
-These are **reading copies**. Compatible agents load Skills from their own homes
-(`~/.codex/skills`, `~/.claude/skills`, `~/.cursor/skills`, `~/.agents/skills`).
-Enrollment installs the AG2C Skills there from `src/ag2c/skills/`. Do not edit
-Policy by pasting these files into a project.
+These are **reading copies**. Agents that speak MCP receive the same text as
+initialize instructions and `ag2c://skill/<name>` resources from `ag2c mcp`.
+Enrollment writes that server into local MCP configs (`ag2c mcp install` / tray
+连接 MCP). Skill folders under `~/.codex/skills` and friends remain a fallback.
+Do not edit Policy by pasting these files into a project.
 
-Each `SKILL.md` has `version:` matching this AG2C package. Pasting the AI-entry
-prompt (`ag2c skill prompt` or tray 复制提示词) tells the agent to refresh its
-home from this copy whenever the installed version or digest differs. Latest
-means this AutoGovern2Code, not a newer folder from the internet or another
-install. `ag2c skill version` prints the required identity.
+Each `SKILL.md` has `version:` matching this AG2C package. Latest means this
+AutoGovern2Code. `ag2c skill version` prints the required identity.
 
 | Copy | What it binds |
 | --- | --- |
@@ -19,5 +17,5 @@ install. `ag2c skill version` prints the required identity.
 | `ag2c-knowledge-authoring` | Write detailed 设计思路 knowledge cards from those tags. |
 | `result-lock` | Lock a checkable finished state before implementation (Grok 结果门). |
 
-The strong constraint on Codex CLI is not the Skill text alone. The Skill is
-entry; `core.hooksPath` is delivery. See [Automatic governance](../AUTOMATIC_GOVERNANCE.md).
+The strong constraint is not the Skill text alone. MCP is entry; `core.hooksPath`
+is delivery. See [Automatic governance](../AUTOMATIC_GOVERNANCE.md).

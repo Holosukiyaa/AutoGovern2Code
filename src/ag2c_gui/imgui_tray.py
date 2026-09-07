@@ -188,6 +188,12 @@ AUDIT_LIMIT = 800
 # Shared warning amber for gate strips, tree claims, lineage status, and inspect notes.
 _WARN_COLOR = (0.92, 0.78, 0.35, 1.0)
 
+# The theme paints header_hovered fully transparent, and ImGui ranks hovered above
+# selected when picking a row's frame color — so a selected row under the cursor
+# would lose its blue. Selected rows override hover/active to stay visibly blue.
+_SELECTED_HOVER_COLOR = (0.28, 0.50, 0.78, 0.62)
+_SELECTED_ACTIVE_COLOR = (0.28, 0.50, 0.78, 0.70)
+
 
 def _audit_log_path() -> Path:
     override = os.environ.get("AG2C_AUDIT_LOG", "").strip()
@@ -384,7 +390,15 @@ def widget_id(label: str, key: str) -> str:
 def _selectable(label: str, selected: bool = False) -> bool:
     from imgui_bundle import imgui
 
-    clicked, _checked = imgui.selectable(label, selected)
+    if not selected:
+        clicked, _checked = imgui.selectable(label, selected)
+        return bool(clicked)
+    imgui.push_style_color(imgui.Col_.header_hovered, _SELECTED_HOVER_COLOR)
+    imgui.push_style_color(imgui.Col_.header_active, _SELECTED_ACTIVE_COLOR)
+    try:
+        clicked, _checked = imgui.selectable(label, selected)
+    finally:
+        imgui.pop_style_color(2)
     return bool(clicked)
 
 
@@ -1123,6 +1137,10 @@ def _gui_tree(state: AppState) -> None:
             if kin:
                 imgui.push_style_color(imgui.Col_.header, (0.28, 0.50, 0.78, 0.32))
                 imgui.push_style_color(imgui.Col_.header_hovered, (0.28, 0.50, 0.78, 0.40))
+                pushed += 2
+            if selected:
+                imgui.push_style_color(imgui.Col_.header_hovered, _SELECTED_HOVER_COLOR)
+                imgui.push_style_color(imgui.Col_.header_active, _SELECTED_ACTIVE_COLOR)
                 pushed += 2
             if claim == "未认领":
                 imgui.push_style_color(imgui.Col_.text, (0.90, 0.55, 0.38, 1.0))

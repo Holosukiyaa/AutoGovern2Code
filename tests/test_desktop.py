@@ -227,9 +227,11 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("_gui_project_bar", ui)
         self.assertIn("_gui_gate_strip", ui)
         self.assertIn("AI 入口", ui)
-        self.assertIn("连接 MCP", ui)
-        self.assertIn("复制提示词", ui)
-        self.assertIn("skill_prompt_text", ui)
+        self.assertIn("检测 MCP", ui)
+        self.assertIn("复制连接说明", ui)
+        self.assertNotIn("复制提示词", ui)
+        self.assertIn("mcp_health_snapshot", ui)
+        self.assertIn("mcp_entry_text", ui)
         self.assertIn("set_clipboard_text", ui)
         self.assertIn("实际记录", ui)
         self.assertIn("_lineage_is_marked", ui)
@@ -975,8 +977,8 @@ class TrayGateTests(unittest.TestCase):
             ],
             "last_task": {"goal": "fix tray", "delivery": {"request": "修托盘", "outcome": "实现功能"}},
         }
-        healthy = {row["id"]: row for row in project_gate_rows(project, {"worktrees": []})}
-        self.assertEqual("连接 MCP", healthy["gate"]["value"])
+        healthy = {row["id"]: row for row in project_gate_rows(project, {"worktrees": []}, mcp={"ok": True, "label": "MCP 正常"})}
+        self.assertEqual("MCP 正常", healthy["gate"]["value"])
         self.assertFalse(healthy["gate"]["warn"])
         self.assertEqual("已控制", healthy["delivery"]["value"])
         self.assertIn("3 次入库", healthy["records"]["value"])
@@ -984,9 +986,16 @@ class TrayGateTests(unittest.TestCase):
         self.assertEqual("没有进行中的施工", healthy["worktrees"]["value"])
         self.assertFalse(healthy["worktrees"]["warn"])
 
-        empty = {row["id"]: row for row in project_gate_rows({"agents": [], "delivery_enforced": False, "completed_tasks": 0}, None)}
-        self.assertEqual("连接 MCP", empty["gate"]["value"])
-        self.assertFalse(empty["gate"]["warn"])
+        empty = {
+            row["id"]: row
+            for row in project_gate_rows(
+                {"agents": [], "delivery_enforced": False, "completed_tasks": 0},
+                None,
+                mcp={"ok": False, "label": "MCP 异常"},
+            )
+        }
+        self.assertEqual("MCP 异常", empty["gate"]["value"])
+        self.assertTrue(empty["gate"]["warn"])
         self.assertEqual("未生效", empty["delivery"]["value"])
         self.assertTrue(empty["delivery"]["warn"])
         self.assertEqual("尚未观察", empty["records"]["value"])

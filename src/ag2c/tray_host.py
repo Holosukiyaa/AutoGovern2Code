@@ -286,41 +286,31 @@ def skill_prompt_text(project_root: str = "") -> str:
 
 
 def mcp_entry_text(project_root: str = "") -> str:
-    from .mcp_server import install_mcp_clients, mcp_config_snippet, mcp_toml_block
+    from .mcp_server import mcp_connect_prompt
 
-    installed = []
-    try:
-        installed = install_mcp_clients()
-    except OSError:
-        installed = []
-    lines = [
-        "AG2C MCP is the AI entry. Skills are inside this server. Connect once; do not paste a copy-prompt on every change.",
-        "",
-        "Wrote local MCP configs:" if installed else "Could not write MCP configs; paste the snippet below into your agent.",
-    ]
-    for item in installed:
-        lines.append(f"- {item['harness']}: {item['path']}")
-    lines.extend(
-        [
-            "",
-            "Grok (~/.grok/config.toml):",
-            mcp_toml_block().rstrip(),
-            "",
-            "Cursor / Claude JSON:",
-            json.dumps(mcp_config_snippet(), ensure_ascii=False, indent=2),
-        ]
-    )
-    if project_root:
-        lines.extend(["", f"Project: {project_root}"])
-    return "\n".join(lines) + "\n"
+    del project_root
+    text = mcp_connect_prompt()
+    return text if text.endswith("\n") else text + "\n"
 
 
-def project_gate_rows(project: dict[str, Any] | None, details: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def mcp_health_snapshot(*, handshake: bool = False, home: Path | None = None) -> dict[str, Any]:
+    from .mcp_server import mcp_health
+
+    return mcp_health(handshake=handshake, home=home)
+
+
+def project_gate_rows(
+    project: dict[str, Any] | None,
+    details: dict[str, Any] | None = None,
+    *,
+    mcp: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     """Always-on operator strip: AI entry, delivery gate, deliveries, construction."""
     if not project:
         return []
-    entry_value = "连接 MCP"
-    entry_warn = False
+    health = mcp if mcp is not None else mcp_health_snapshot(handshake=False)
+    entry_value = str(health.get("label") or "MCP 异常")
+    entry_warn = not bool(health.get("ok"))
     delivery_ok = bool(project.get("delivery_enforced"))
     completed = int(project.get("completed_tasks") or 0)
     last_line = _task_line(project.get("last_task") if isinstance(project.get("last_task"), dict) else None)

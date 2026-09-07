@@ -4,11 +4,11 @@ Once a local Git clone is added to AG2C, governance becomes the default construc
 
 ## Entry
 
-The AI entry is a local stdio MCP server (`ag2c mcp`). Packaged Skills are initialize `instructions` and `ag2c://skill/*` resources, so connecting once is enough. `ag2c mcp install` or the tray **连接 MCP** writes Grok, Cursor, Claude, and Codex user configs. Copy-prompt remains a fallback. AG2C does not detect which harness is installed. Tools check `ag2c_guard_status` for file-changing work. AG2C discovers the external Manifest through local Git configuration; the agent does not search for governance files in the project. Missing Git activation is repaired before writing. `managed` means the Git guard is on, not that a Skill folder was found.
+The AI entry is a local stdio MCP server (`ag2c mcp`). Packaged Skills are initialize `instructions` and `ag2c://skill/*` resources; the generic connect prompt is `ag2c://connect`. The tray shows only that prompt (placeholders, no vendor or user-path lock-in) and **检测 MCP**. `ag2c mcp health` handshakes the server. AG2C does not detect which harness is installed. Tools check `ag2c_guard_status` for file-changing work. AG2C discovers the external Manifest through local Git configuration; the agent does not search for governance files in the project. Missing Git activation is repaired before writing. `managed` means the Git guard is on, not that a Skill folder was found.
 
 ## Before the first write
 
-The Skill reads the canonical checkout without modifying it and identifies expected paths or exact public contracts. Unknown scope uses conservative all-project routing. AG2C captures the branch and HEAD, creates an external task record and external Git worktree, and returns the only permitted construction directory.
+MCP tools read the canonical checkout without modifying it and identify expected paths or exact public contracts. Unknown scope uses conservative all-project routing. AG2C captures the branch and HEAD, creates an external task record and external Git worktree, and returns the only permitted construction directory.
 
 ## During implementation
 
@@ -26,19 +26,19 @@ Only policy-declared argv checkers run. Failed attempts remain in evidence; a la
 
 `ag2c task finish` requires the final diff digest to equal the passing verification event. AG2C commits in the task worktree, validates the Git objects again, checks that the canonical checkout and source HEAD are unchanged, and integrates with `--ff-only`. The commit message receives only task and evidence digest trailers; the full receipt remains in the external project store.
 
-## Why Codex CLI (and friends) feel tightly bound
+## Why entry and delivery are both required
 
-Yes: **MCP for entry, Git hook for delivery.** Neither is enough alone.
+Yes: **MCP for entry, Git hook for delivery.** Neither is enough alone. Connecting MCP cannot replace the hook.
 
-1. **MCP (soft).** `ag2c mcp` serves Skill workflow as `instructions`, full SKILL.md as resources, and live tools (`ag2c_task_start` returns `guidance.lineage`). Enrollment writes this server into local MCP configs. A model can ignore tools. Reading copies still live in [docs/skills](skills/README.md) for humans. Copy-prompt remains a fallback when the agent has no MCP.
-2. **Git hijack (hard).** The project's `.git` stays put. Activation sets `core.hooksPath` to an external directory: AG2C `pre-commit` runs first, then every hook that was already there (husky, leftover, default `.git/hooks`) is forwarded by name. That guard refuses commits in the canonical worktree, refuses branches not named `ag2c/…`, and refuses a worktree that does not match an open task record. History and remotes are unchanged. The tray can be closed. `git commit` on `main` still dies.
-3. **Worktree isolation.** Construction is a second Git checkout. Even when the agent obeys the Skill, the product branch does not move until `task finish` fast-forwards verified bytes.
+1. **MCP (soft).** `ag2c mcp` serves the Skill workflow as `instructions`, full SKILL.md as resources, and live tools (`ag2c_task_start` returns `guidance.lineage`). Enrollment writes this server into local MCP configs. A model can ignore tools. Reading copies still live in [docs/skills](skills/README.md) for humans.
+2. **Git hijack (hard).** The project's `.git` stays put. Activation sets `core.hooksPath` to an external directory: AG2C `pre-commit` runs first, then every hook that was already there (husky, leftover, default `.git/hooks`) is forwarded by name. That guard refuses commits in the canonical worktree, refuses branches not named `ag2c/…`, and refuses a worktree that does not match an open task record. History and remotes are unchanged. AG2C operations use bundled MinGit when it is available. The tray can be closed. `git commit` on `main` still dies.
+3. **Worktree isolation.** Construction is a second Git checkout. Even when the agent obeys MCP tools, the product branch does not move until `task finish` fast-forwards verified bytes.
 
-Older in-repo `AGENTS.md` / `CLAUDE.md` blocks were a fourth reminder. They are gone: the Skill is installed outside the project. The hook is still the part an agent cannot talk its way around.
+Older in-repo `AGENTS.md` / `CLAUDE.md` blocks were a fourth reminder. They are gone. Connecting MCP is the user-facing entry; the hook is still the part an agent cannot talk its way around.
 
 ## Enforcement boundary
 
-The pre-commit guard rejects delivery from the canonical checkout or an unmanaged branch. It is deliberately independent from the tray window. It does not prevent arbitrary filesystem writes, so an agent that ignores the Skill may dirty the canonical checkout before the guard blocks its commit. AG2C reports that state instead of calling it successful.
+The pre-commit guard rejects delivery from the canonical checkout or an unmanaged branch. It is deliberately independent from the tray window. It does not prevent arbitrary filesystem writes, so an agent that ignores MCP tools may dirty the canonical checkout before the guard blocks its commit. AG2C reports that state instead of calling it successful.
 
 ## User-visible result
 

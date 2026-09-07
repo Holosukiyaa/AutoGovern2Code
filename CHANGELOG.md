@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- AG2C is a local stdio MCP server. Packaged Skills ship as initialize `instructions` and `ag2c://skill/*` resources. `ag2c mcp install` writes Grok/Cursor/Claude/Codex configs once; the tray AI entry is 连接 MCP. Copy-prompt remains a fallback for agents without MCP.
+- AI entry is only a generic MCP connect prompt (placeholders `<python>` / `<ag2c-src>`, no vendor names, no user paths) plus MCP health (`ag2c mcp health` / tray **检测 MCP**). Skill text stays inside MCP. Enrollment keeps the project's `.git` and forces bundled MinGit for AG2C operations. The Git hook remains the delivery gate.
+- AG2C is a local stdio MCP server. Packaged Skills ship as initialize `instructions` and `ag2c://skill/*` resources. `ag2c mcp install` writes local client configs when those files exist. Copy-prompt is no longer the tray AI entry.
 - The tray no longer has buttons to set 未打标 / 整夹一张 / 一文件一张. Coverage tags stay visible for supervision; the agent sets them. Healthy cards no longer show 在册, and the card list no longer prints `0 个文件`.
 - `ag2c task start` guidance now includes `lineage`: the knowledge-card 谱系 as a coding index (rooms and per-file 设计思路). The development Skill tells the agent to read it before writing.
 - Code-file knowledge cards (`.py` and other source suffixes) are no longer tagged 文档; that flag stays on prose documents such as README.

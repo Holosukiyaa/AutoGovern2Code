@@ -2,9 +2,9 @@
 
 These are **reading copies**. Agents that speak MCP receive the same text as
 initialize instructions and `ag2c://skill/<name>` resources from `ag2c mcp`.
-Enrollment writes that server into local MCP configs (`ag2c mcp install` / tray
-连接 MCP). Skill folders under `~/.codex/skills` and friends remain a fallback.
-Do not edit Policy by pasting these files into a project.
+The user-facing AI entry is the generic connect prompt (`ag2c://connect`,
+placeholders only) plus `ag2c mcp health`. Do not edit Policy by pasting these
+files into a project.
 
 Each `SKILL.md` has `version:` matching this AG2C package. Latest means this
 AutoGovern2Code. `ag2c skill version` prints the required identity.

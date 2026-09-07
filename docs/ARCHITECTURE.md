@@ -7,7 +7,7 @@ tray project selection
         |
 external registry + Git-local pointer       enrollment without project files
         |
-MCP stdio + Skill instructions + guard      agent entry (connect once; copy-prompt fallback)
+MCP stdio (instructions + tools + health)   agent entry; Git hook remains the delivery gate
         |
 external task record + Git worktree         isolated construction
         |

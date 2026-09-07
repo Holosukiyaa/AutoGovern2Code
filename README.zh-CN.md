@@ -9,7 +9,7 @@
 
 当前版本：**v0.8.4**（2026-09-01）。Alpha。仅 Windows。单人、本机。
 
-AutoGovern2Code 是一层本地、开源的 AI 编程治理工具。把 Git 工程加入一次即可。在托盘点 **连接 MCP**（或 `ag2c mcp install`）；agent 通过 MCP 拿到 Skill 流程和工具，以后不必再贴复制提示词。施工在工程外的 Git worktree，运行项目自己的检查，只把验证过的提交 fast-forward 回原分支。完整证据留在这台电脑上。
+AutoGovern2Code 是一层本地、开源的 AI 编程治理工具。把 Git 工程加入一次即可。AI 入口只有两件事：通用 MCP 连接说明（占位符，不绑厂商、不写本机路径）和 **检测 MCP**。Skill 全文在 MCP 里。施工在工程外的 Git worktree，运行项目自己的检查，只把验证过的提交 fast-forward 回原分支。完整证据留在这台电脑上。
 
 用户工程里不会出现 `.ag2c` 目录，不会由 AG2C 生成 `AGENTS.md` 或 `CLAUDE.md`，也不会混入治理凭证。产品的构建和运行永远不依赖 AG2C。
 
@@ -20,17 +20,17 @@ AutoGovern2Code 是一层本地、开源的 AI 编程治理工具。把 Git 工�
 1. 从[最新 GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)下载 `AutoGovern2Code-Setup-Windows-x64.exe`。
 2. 双击安装。安装器只写入当前用户，会加入开始菜单，并启动托盘程序。
 3. 从托盘或开始菜单打开 AG2C，点击「添加项目」，选择一个非空的 Git 工程。
-4. 在托盘点一次「连接 MCP」（或运行 `ag2c mcp install`）。新开一轮对话后，继续像以前一样提开发需求。
+4. 在托盘点一次「检测 MCP」（或运行 `ag2c mcp health`）。需要时复制通用连接说明。新开一轮对话后，继续像以前一样提开发需求。
 
 托盘程序会随 Windows 启动。关掉窗口只是缩回托盘；已经纳管工程的 Git 交付门禁仍然生效。
 
-社区安装器目前没有代码签名，Windows SmartScreen 可能会警告。请只从本仓库下载，先按 `SHA256SUMS.txt` 核对文件，再选择「更多信息 > 仍要运行」。下载的 Git 仍是独立的 GPL-2.0 程序，放在 `%LOCALAPPDATA%\AutoGovern2Code\runtime\git`。每个工程会记住当时用的是系统 Git 还是内置 Git，文件夹搬走后仍按这个选择处理。
+社区安装器目前没有代码签名，Windows SmartScreen 可能会警告。请只从本仓库下载，先按 `SHA256SUMS.txt` 核对文件，再选择「更多信息 > 仍要运行」。下载的 Git 仍是独立的 GPL-2.0 程序，放在 `%LOCALAPPDATA%\AutoGovern2Code\runtime\git`。AG2C 操作用这份 MinGit；工程自己的 `.git` 和历史不动。
 
 ## 加入工程之后能看到什么
 
 桌面窗口是普通用户的主界面。每个工程会显示：
 
-- **AI 入口**：连接 MCP。本机 stdio 服务带上 Skill 流程和活工具。AG2C 不检测 Codex、Claude、Cursor 或任何一家。
+- **AI 入口**：通用 MCP 连接说明 + 健康检测。本机 stdio 服务带上 Skill 全文和活工具。提示词不写厂商名，也不写用户路径。
 - **交付**：外部治理档案和 Git 门禁有没有接通。
 - **实际记录**：已经完成的任务、它们实现或修复了什么，以及这次是不是流程交付完成。
 - **施工副本、治理日志、最近证据**：进行中的 worktree、带版本的日志、本机凭证。
@@ -42,7 +42,7 @@ AutoGovern2Code 是一层本地、开源的 AI 编程治理工具。把 Git 工�
 
 ```text
 用户正常提出开发需求
-  -> 连接一次 AG2C MCP；工具和 Skill 说明随会话到达
+  -> 连接一次 AG2C MCP；工具和 Skill 全文随会话到达
   -> AG2C 在写入前确定责任范围
   -> AI 只在工程外的 Git worktree 施工
   -> 最终范围按实际 diff 重新计算
@@ -74,10 +74,10 @@ Windows 默认位置：
 
 ## 支持哪些 AI
 
-安装器会把同一份 Agent Skills 标准 Skill 装到 Codex、Claude Code、Cursor（`~/.cursor/skills`）和通用 Skill 目录（`~/.agents/skills`）。托盘会分别检测这些入口。
+任何能启动本地 stdio MCP 的编程 agent 都可以接。本机若已有常见客户端配置文件，AG2C 会写入；连接说明本身不点名任何一家。
 
-- 支持 Agent Skills 的工具可以进入完整的自动流程。
-- 对没有 Skill 机制的未知工具，Git 交付门禁仍可能挡住不合规提交，但不能保证它在编辑前就会进入 AG2C。
+- 已经连上 AG2C MCP 的 agent 可以进入完整自动流程。
+- 从没连 MCP 的 agent，Git 交付门禁仍可能挡住不合规提交，但不能保证它在编辑前就会调用工具。
 - 本机 Guard 是 Git 交付边界，不是操作系统文件权限。故意改 Git 配置的进程仍然可以绕过它。
 
 当前版本只做 Windows、单人、本地工作流；多人协调和跨机器证据交换还不包含。

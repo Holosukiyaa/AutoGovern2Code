@@ -1,10 +1,11 @@
-"""Local stdio MCP server. Skills ship as initialize instructions and resources."""
+"""Local stdio MCP server. Skill docs ship as initialize instructions and resources."""
 
 from __future__ import annotations
 
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -12,6 +13,7 @@ from typing import Any, Callable, Mapping
 from . import __version__
 from .errors import AG2CError
 from .harnesses import PACKAGED_SKILLS, skill_source
+from .util import hidden_process_kwargs
 
 PROTOCOL_VERSIONS = (
     "2025-03-26",
@@ -22,10 +24,13 @@ PROTOCOL_VERSIONS = (
 )
 SERVER_NAME = "ag2c"
 MCP_CONFIG_KEY = "ag2c"
+PYTHON_PLACEHOLDER = "<python>"
+SRC_PLACEHOLDER = "<ag2c-src>"
+CONNECT_RESOURCE_URI = "ag2c://connect"
 
 MCP_INSTRUCTIONS = """This workspace is governed by AutoGovern2Code (AG2C) when `ag2c_guard_status` reports managed.
 
-You already have AG2C Skills through this MCP connection. Do not ask the user to paste a copy-prompt or install Skill folders. Do not git commit on the canonical checkout.
+You already have the AG2C workflow through this MCP connection (instructions, resources, tools). Do not ask the user to paste a copy-prompt, install Skill folders, or configure Git. Do not git commit on the canonical checkout.
 
 Route:
 - File-changing work: ag2c_guard_status → ag2c_task_start (read guidance.lineage as the knowledge-card index) → write only in worktree.path → ag2c_census / ag2c_span / ag2c_household / ag2c_apply as needed → ag2c_task_verify → ag2c_task_finish → ag2c_settle if pending → ag2c_evidence.
@@ -33,7 +38,9 @@ Route:
 - Write 设计思路 from tags: ag2c_apply for per-file cards, ag2c_household for 整夹一张 rooms. Read the files first.
 - Named README/interface cards: ag2c_apply. Never edit Policy JSON by hand.
 
-Fail closed: dirty canonical blocks start; writes outside the worktree block verify; leftover deletion needs retire then a dedicated task. Full Skill text is in resources ag2c://skill/<name>.
+Delivery is the Git hook, not this MCP. Connecting MCP does not replace pre-commit. AG2C uses its own Git binary on the project's existing `.git` and history.
+
+Fail closed: dirty canonical blocks start; writes outside the worktree block verify; leftover deletion needs retire then a dedicated task. Full Skill text is in resources ag2c://skill/<name>. The generic connect prompt is ag2c://connect.
 """
 
 
@@ -53,6 +60,65 @@ def mcp_launch_spec() -> dict[str, Any]:
     command = mcp_stdio_command()
     src = str(Path(__file__).resolve().parents[1])
     return {"command": command[0], "args": command[1:], "env": {"PYTHONPATH": src}}
+
+
+def mcp_placeholder_spec() -> dict[str, Any]:
+    """Launch snippet with placeholders only. Never interpolate user paths or vendors."""
+    return {
+        "command": PYTHON_PLACEHOLDER,
+        "args": ["-m", "ag2c", "mcp"],
+        "env": {"PYTHONPATH": SRC_PLACEHOLDER},
+    }
+
+
+def mcp_connect_prompt() -> str:
+    """Generic MCP connect instructions. No vendor names, no absolute paths."""
+    spec = mcp_placeholder_spec()
+    json_block = json.dumps(
+        {
+            "mcpServers": {
+                MCP_CONFIG_KEY: {
+                    "command": spec["command"],
+                    "args": spec["args"],
+                    "env": spec["env"],
+                }
+            }
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+    toml_block = (
+        f"[mcp_servers.{MCP_CONFIG_KEY}]\n"
+        f"command = {json.dumps(spec['command'])}\n"
+        f"args = [{', '.join(json.dumps(item) for item in spec['args'])}]\n"
+        f"env = {{ PYTHONPATH = {json.dumps(SRC_PLACEHOLDER)} }}\n"
+        "enabled = true\n"
+    )
+    return "\n".join(
+        [
+            "将 AG2C 作为本地 stdio MCP 接到你的编程 agent。不要绑定某一家产品。",
+            "Connect AG2C as a local stdio MCP server in your coding agent. Do not lock this to one vendor.",
+            "",
+            "Server key: ag2c",
+            "Transport: stdio",
+            f"command: {PYTHON_PLACEHOLDER}",
+            'args: ["-m", "ag2c", "mcp"]',
+            f"env.PYTHONPATH: {SRC_PLACEHOLDER}",
+            "",
+            "Placeholders:",
+            f"  {PYTHON_PLACEHOLDER}     console Python (python, not pythonw)",
+            f"  {SRC_PLACEHOLDER}   the `src` directory of this AG2C install",
+            "",
+            "JSON:",
+            json_block,
+            "",
+            "TOML:",
+            toml_block.rstrip(),
+            "",
+            "接上后新开一轮对话。Skill 全文和施工工具都在这个 MCP 里：不要再装 Skill 目录，也不要再贴复制提示词。",
+            "交付门禁仍是 Git hook；连上 MCP 不会替代它。AG2C 用自带 Git 操作已有仓库，不改写历史。",
+        ]
+    )
 
 
 def _text_result(payload: Any, *, is_error: bool = False) -> dict[str, Any]:
@@ -92,7 +158,15 @@ def _string_list(args: Mapping[str, Any], key: str) -> list[str]:
 
 
 def _skill_resources() -> list[dict[str, str]]:
-    rows = []
+    rows = [
+        {
+            "uri": CONNECT_RESOURCE_URI,
+            "name": "connect",
+            "title": "MCP connect prompt",
+            "mimeType": "text/plain",
+            "description": "Generic stdio MCP connect instructions with placeholders.",
+        }
+    ]
     for name in PACKAGED_SKILLS:
         rows.append(
             {
@@ -111,6 +185,13 @@ def _read_skill(uri: str) -> str:
     if name not in PACKAGED_SKILLS:
         raise AG2CError(f"unknown AG2C Skill: {name}")
     return (skill_source(name) / "SKILL.md").read_text(encoding="utf-8")
+
+
+def _read_resource(uri: str) -> tuple[str, str]:
+    key = uri.strip()
+    if key.rstrip("/") == CONNECT_RESOURCE_URI:
+        return mcp_connect_prompt(), "text/plain"
+    return _read_skill(key), "text/markdown"
 
 
 def _tool(name: str, description: str, properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
@@ -232,12 +313,22 @@ def tool_defs() -> list[dict[str, Any]]:
             ["reason"],
         ),
         _tool("ag2c_evidence", "Plain-language evidence for a finished task.", {"task": {"type": "string"}, "cwd": _cwd_prop()}),
-        _tool("ag2c_doctor_repair", "Restore Git guard, MCP config, and Skill copies if activation is broken.", {"cwd": _cwd_prop()}),
+        _tool("ag2c_doctor_repair", "Restore Git guard and MCP config if activation is broken.", {"cwd": _cwd_prop()}),
         _tool(
             "ag2c_skill",
             "Return a packaged Skill markdown by name. Prefer initialize instructions; use this for the full text.",
             {"name": {"type": "string", "description": "One of: " + ", ".join(PACKAGED_SKILLS)}},
             ["name"],
+        ),
+        _tool(
+            "ag2c_mcp_health",
+            "Detect whether this AG2C MCP server can start and answer initialize.",
+            {
+                "handshake": {
+                    "type": "boolean",
+                    "description": "Spawn the stdio server and initialize. Default true.",
+                }
+            },
         ),
     ]
 
@@ -402,6 +493,11 @@ def _call_skill(args: dict[str, Any]) -> Any:
     return {"name": name, "text": _read_skill(f"ag2c://skill/{name}")}
 
 
+def _call_health(args: dict[str, Any]) -> Any:
+    handshake = args.get("handshake")
+    return mcp_health(handshake=True if handshake is None else bool(handshake))
+
+
 HANDLERS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "ag2c_guard_status": _call_guard,
     "ag2c_task_start": _call_start,
@@ -419,6 +515,7 @@ HANDLERS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "ag2c_evidence": _call_evidence,
     "ag2c_doctor_repair": _call_doctor,
     "ag2c_skill": _call_skill,
+    "ag2c_mcp_health": _call_health,
 }
 
 
@@ -462,11 +559,11 @@ def handle_mcp_request(message: Mapping[str, Any]) -> dict[str, Any] | None:
             return {"jsonrpc": "2.0", "id": req_id, "result": {"resources": _skill_resources()}}
         if method == "resources/read":
             uri = str(params.get("uri") or "")
-            text = _read_skill(uri)
+            text, mime = _read_resource(uri)
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {"contents": [{"uri": uri, "mimeType": "text/markdown", "text": text}]},
+                "result": {"contents": [{"uri": uri, "mimeType": mime, "text": text}]},
             }
         if method == "prompts/list":
             return {"jsonrpc": "2.0", "id": req_id, "result": {"prompts": []}}
@@ -513,8 +610,8 @@ def serve_mcp_stdio(stdin=None, stdout=None) -> int:
         writer.flush()
 
 
-def mcp_config_snippet() -> dict[str, Any]:
-    spec = mcp_launch_spec()
+def mcp_config_snippet(*, placeholders: bool = False) -> dict[str, Any]:
+    spec = mcp_placeholder_spec() if placeholders else mcp_launch_spec()
     return {
         "mcpServers": {
             MCP_CONFIG_KEY: {
@@ -526,8 +623,8 @@ def mcp_config_snippet() -> dict[str, Any]:
     }
 
 
-def mcp_toml_block() -> str:
-    spec = mcp_launch_spec()
+def mcp_toml_block(*, placeholders: bool = False) -> str:
+    spec = mcp_placeholder_spec() if placeholders else mcp_launch_spec()
     args = ", ".join(json.dumps(item) for item in spec["args"])
     env = spec.get("env") or {}
     env_inline = ", ".join(f"{key} = {json.dumps(value)}" for key, value in env.items())
@@ -604,3 +701,124 @@ def install_mcp_clients(*, home: Path | None = None, create_missing: bool = True
             _upsert_json_server(path)
         installed.append({"harness": harness, "path": str(path), "kind": kind})
     return installed
+
+
+def mcp_client_probe(*, home: Path | None = None) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for harness, path, kind in default_mcp_targets(home):
+        exists = path.is_file()
+        configured = False
+        if exists:
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                text = ""
+            configured = MCP_CONFIG_KEY in text
+        rows.append(
+            {
+                "harness": harness,
+                "exists": exists,
+                "configured": configured,
+                "kind": kind,
+            }
+        )
+    return rows
+
+
+def probe_mcp_handshake(*, timeout: float = 8.0) -> dict[str, Any]:
+    spec = mcp_launch_spec()
+    env = os.environ.copy()
+    env.update(spec.get("env") or {})
+    message = (
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": PROTOCOL_VERSIONS[0],
+                    "capabilities": {},
+                    "clientInfo": {"name": "ag2c-health", "version": __version__},
+                },
+            }
+        )
+        + "\n"
+    )
+    try:
+        completed = subprocess.run(
+            [spec["command"], *spec["args"]],
+            input=message,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            env=env,
+            **hidden_process_kwargs(),
+        )
+    except FileNotFoundError as exc:
+        return {"ok": False, "error": f"python missing: {exc}"}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "MCP handshake timed out"}
+    except OSError as exc:
+        return {"ok": False, "error": str(exc)}
+    line = next((item for item in (completed.stdout or "").splitlines() if item.strip()), "")
+    if not line:
+        err = (completed.stderr or "").strip() or f"exit {completed.returncode}"
+        return {"ok": False, "error": err[:500], "returncode": completed.returncode}
+    try:
+        payload = json.loads(line)
+    except json.JSONDecodeError:
+        return {"ok": False, "error": "MCP did not return JSON", "raw": line[:300]}
+    result = payload.get("result") if isinstance(payload, dict) else None
+    if not isinstance(result, dict):
+        err = ""
+        if isinstance(payload, dict) and isinstance(payload.get("error"), dict):
+            err = str(payload["error"].get("message") or "")
+        return {"ok": False, "error": err or "initialize failed", "raw": line[:300]}
+    capabilities = result.get("capabilities") if isinstance(result.get("capabilities"), dict) else {}
+    return {
+        "ok": True,
+        "protocol": result.get("protocolVersion"),
+        "server": result.get("serverInfo"),
+        "has_instructions": bool(str(result.get("instructions") or "").strip()),
+        "capabilities": capabilities,
+    }
+
+
+def mcp_health(*, handshake: bool = True, home: Path | None = None, timeout: float = 8.0) -> dict[str, Any]:
+    spec = mcp_launch_spec()
+    command = Path(str(spec["command"]))
+    src = Path(str((spec.get("env") or {}).get("PYTHONPATH") or ""))
+    python_ok = command.is_file()
+    src_ok = src.is_dir() and (src / "ag2c").is_dir()
+    clients = mcp_client_probe(home=home)
+    configured = sum(1 for item in clients if item.get("configured"))
+    handshake_result: dict[str, Any] | None = None
+    if handshake and python_ok and src_ok:
+        handshake_result = probe_mcp_handshake(timeout=timeout)
+    handshake_ok = handshake_result is None or bool(handshake_result.get("ok"))
+    ok = bool(python_ok and src_ok and handshake_ok)
+    status = "ok" if ok else "broken"
+    label = "MCP 正常" if ok else "MCP 异常"
+    error = ""
+    if handshake_result and not handshake_result.get("ok"):
+        error = str(handshake_result.get("error") or "")
+    elif not python_ok:
+        error = "console Python is missing"
+    elif not src_ok:
+        error = "AG2C src is missing"
+    return {
+        "ok": ok,
+        "status": status,
+        "label": label,
+        "error": error,
+        "python_ok": python_ok,
+        "src_ok": src_ok,
+        "configured": configured,
+        "skills_internalized": True,
+        "skill_count": len(PACKAGED_SKILLS),
+        "tool_count": len(tool_defs()),
+        "handshake": handshake_result,
+        "clients": [{"harness": item["harness"], "configured": item["configured"]} for item in clients],
+    }

@@ -7,7 +7,7 @@ AG2C adoption has one user-facing action: choose a Git project in the tray appli
 Download `AutoGovern2Code-Setup-Windows-x64.exe` from the [latest GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest) and double-click it. The per-user installer:
 
 - installs a self-contained AG2C runtime without requiring Python, administrator rights, or Edge WebView2; the tray is a Dear ImGui window (Hello ImGui) and the package ships MinGit next to the app;
-- writes this AG2C into local MCP configs (`ag2c mcp install`) and may still copy Skills into known homes as a fallback; the operator entry is **连接 MCP**;
+- writes this AG2C into local MCP configs (`ag2c mcp install`); the operator AI entry is a generic MCP connect prompt plus **检测 MCP**;
 - adds the runtime to the user PATH for agent use;
 - starts the tray application and registers it for user startup.
 
@@ -20,7 +20,7 @@ Open AG2C from the tray, select **Add project**, and choose the root of a non-em
 1. detects the repository's tracked top-level areas and native checks;
 2. creates an external Manifest, Policy, index, Ledger, hook, and project record;
 3. writes only local pointers to `.git/config`;
-4. seizes the existing Git repo by setting `core.hooksPath` to AG2C and wrapping every previous hook name (`pre-commit`, `pre-push`, `commit-msg`, …). History and remotes stay in the project's `.git`;
+4. seizes the existing Git repo by setting `core.hooksPath` to AG2C and wrapping every previous hook name (`pre-commit`, `pre-push`, `commit-msg`, …). History and remotes stay in the project's `.git`. AG2C then uses its own bundled MinGit for later operations; it does not replace `.git` or rewrite history;
 5. leaves the working tree, index, and HEAD unchanged.
 
 A dirty project can be registered, but the tray reports that it needs attention and AG2C refuses to start governed construction until the canonical checkout is clean.
@@ -29,14 +29,14 @@ No `.ag2c`, AG2C-managed `AGENTS.md`, `CLAUDE.md`, or receipt is added to the pr
 
 ## Daily work
 
-After adoption, click **连接 MCP** in the tray (or run `ag2c mcp install`). That writes a stdio MCP server into Grok, Cursor, Claude, and Codex user configs. The next agent session receives Skill instructions and tools from this AG2C; the user does not paste a copy-prompt again. AG2C does not detect which harness is installed.
+After adoption, the AI entry is two things: the generic MCP connect prompt (`ag2c mcp prompt`, placeholders only, no vendor names and no user paths) and **检测 MCP** (`ag2c mcp health`). Detection writes local MCP configs when possible, then handshakes the stdio server. Skill text lives inside that server. AG2C does not detect which harness is installed.
 
-The MCP tools discover enrollment through local Git configuration and perform route selection, worktree creation, verification, commit, fast-forward integration, and evidence recording without asking the user to operate governance. Copy-prompt remains a fallback for agents without MCP.
+The MCP tools discover enrollment through local Git configuration and perform route selection, worktree creation, verification, commit, fast-forward integration, and evidence recording without asking the user to operate governance. Connecting MCP does not replace the Git delivery hook.
 
 The tray separates three facts:
 
-- **AI entry**: 连接 MCP. One local stdio server carries Skills and live tools.
-- **Delivery**: whether the external store and Git guard are connected.
+- **AI entry**: generic connect prompt + MCP health. One local stdio server carries Skill text and live tools.
+- **Delivery**: whether the external store and Git guard are connected. Enrollment turns this on; the user does not configure Git.
 - **Observed records**: finished tasks and what they implemented or fixed.
 
 A finished governed task is process delivery, not product acceptance. Until the project declares contracts or boundary/scenario checks, Product stays undeclared. This avoids treating “Skill installed” or “process finished” as “the product is done.”

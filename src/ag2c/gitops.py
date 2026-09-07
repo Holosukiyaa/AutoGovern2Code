@@ -176,7 +176,7 @@ def peek_git_executable() -> str | None:
     if override:
         path = Path(override).expanduser()
         return str(path.resolve()) if path.is_file() else None
-    return system_git_executable() or _git_exe_in(bundled_git_root())
+    return shipped_git_executable() or _git_exe_in(bundled_git_root()) or system_git_executable()
 
 
 def _discover_git_dir(root: Path) -> Path | None:
@@ -385,17 +385,30 @@ def git_executable(root: Path | None = None) -> str:
     shipped = shipped_git_executable()
     if shipped:
         return shipped
+    bundled = _git_exe_in(bundled_git_root())
+    if bundled:
+        return bundled
     source = read_local_git_source(root) if root is not None else ""
-    system = system_git_executable()
     if source == GIT_SOURCE_BUNDLED:
         return ensure_bundled_git()
-    if source == GIT_SOURCE_SYSTEM:
-        if system:
-            return system
-        return ensure_bundled_git()
+    system = system_git_executable()
     if system:
         return system
     return ensure_bundled_git()
+
+
+def seize_existing_git(root: Path) -> str:
+    """Keep the project's `.git` and history. Force AG2C operations onto bundled MinGit."""
+    existing = shipped_git_executable() or _git_exe_in(bundled_git_root())
+    if existing:
+        _persist_git_source(root, existing)
+        return existing
+    try:
+        executable = ensure_bundled_git()
+    except AG2CError:
+        executable = git_executable(root)
+    _persist_git_source(root, executable)
+    return executable
 
 
 def which_command(name: str) -> str | None:
@@ -467,8 +480,9 @@ def _persist_git_source(root: Path, executable: str) -> None:
         return
     if current == source:
         return
+    writer = system_git_executable() or executable
     try:
-        _run_git(executable, root, "config", "--local", GIT_SOURCE_CONFIG_KEY, source, check=False)
+        _run_git(writer, root, "config", "--local", GIT_SOURCE_CONFIG_KEY, source, check=False)
     except AG2CError:
         pass
 

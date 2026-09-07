@@ -143,11 +143,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_harness_arguments(skill_uninstall)
 
-    mcp = subparsers.add_parser("mcp", help="stdio MCP server: Skill workflow as instructions, live tools, one-time connect")
+    mcp = subparsers.add_parser("mcp", help="stdio MCP server: internalized Skill workflow, live tools, health check")
     mcp_commands = mcp.add_subparsers(dest="mcp_command")
     mcp_commands.add_parser("serve", help="run the stdio MCP server (default)")
     mcp_commands.add_parser("install", help="write this AG2C into local agent MCP configs")
-    mcp_commands.add_parser("config", help="print the MCP launch snippet")
+    mcp_commands.add_parser("config", help="print the generic MCP launch snippet (placeholders)")
+    mcp_commands.add_parser("prompt", help="print the generic MCP connect prompt (placeholders)")
+    mcp_commands.add_parser("health", help="detect whether the local AG2C MCP server works")
 
     project = subparsers.add_parser("project", help="manage externally governed projects")
     project_commands = project.add_subparsers(dest="project_command", required=True)
@@ -492,14 +494,34 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         if args.command == "mcp":
-            from .mcp_server import install_mcp_clients, mcp_config_snippet, mcp_toml_block, serve_mcp_stdio
+            from .mcp_server import (
+                install_mcp_clients,
+                mcp_config_snippet,
+                mcp_connect_prompt,
+                mcp_health,
+                mcp_toml_block,
+                serve_mcp_stdio,
+            )
 
             action = args.mcp_command or "serve"
             if action == "install":
                 print(_json(install_mcp_clients()))
                 return 0
             if action == "config":
-                print(_json({"json": mcp_config_snippet(), "toml": mcp_toml_block()}))
+                print(
+                    _json(
+                        {
+                            "json": mcp_config_snippet(placeholders=True),
+                            "toml": mcp_toml_block(placeholders=True),
+                        }
+                    )
+                )
+                return 0
+            if action == "prompt":
+                print(mcp_connect_prompt())
+                return 0
+            if action == "health":
+                print(_json(mcp_health(handshake=True)))
                 return 0
             return serve_mcp_stdio()
         if args.command == "project":

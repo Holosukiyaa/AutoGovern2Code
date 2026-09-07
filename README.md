@@ -9,7 +9,7 @@
 
 Current release: **v0.8.4** (2026-09-01). Alpha. Windows only. Single-user and local.
 
-AutoGovern2Code is a local open-source governance layer for AI coding. Add a Git project once. Click **连接 MCP** (or `ag2c mcp install`); the agent gets AG2C Skills through that MCP connection and does not need a copy-prompt on later sessions. Work happens in an external Git worktree, the project's own checks run, and only verified bytes fast-forward. Evidence stays on this machine.
+AutoGovern2Code is a local open-source governance layer for AI coding. Add a Git project once. The AI entry is a generic MCP connect prompt (placeholders, no vendor lock-in) plus **检测 MCP**. Skill text lives inside that MCP. Work happens in an external Git worktree, the project's own checks run, and only verified bytes fast-forward. Evidence stays on this machine.
 
 The project never receives an `.ag2c` directory, AG2C-generated `AGENTS.md` or `CLAUDE.md`, or evidence files. Product build and runtime never depend on AG2C.
 
@@ -20,17 +20,17 @@ Requirements: Windows 10 or 11 x64. Python is not required. The tray is a Dear I
 1. Download `AutoGovern2Code-Setup-Windows-x64.exe` from the [latest GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest).
 2. Double-click the installer. It installs for the current user, puts AG2C in the Start Menu, and starts the tray app.
 3. Open AG2C from the tray or Start Menu, click **Add project**, and choose a non-empty Git repository.
-4. In the tray click **连接 MCP** once (or run `ag2c mcp install`). Start a new agent session, then keep working in that repository as usual.
+4. In the tray click **检测 MCP** once (or run `ag2c mcp health`). Copy the generic connect prompt if your agent needs it. Start a new agent session, then keep working in that repository as usual.
 
 The tray starts with Windows. Closing the window hides it; Git delivery guards on enrolled projects stay active.
 
-The community installer is unsigned, so Windows SmartScreen may warn. Download it only from this repository, compare the file with `SHA256SUMS.txt`, then choose **More info > Run anyway**. A downloaded Git remains a separate GPL-2.0 program under `%LOCALAPPDATA%\AutoGovern2Code\runtime\git`. Each project remembers whether it used your Git or the bundled copy, so a moved folder keeps that choice.
+The community installer is unsigned, so Windows SmartScreen may warn. Download it only from this repository, compare the file with `SHA256SUMS.txt`, then choose **More info > Run anyway**. A downloaded Git remains a separate GPL-2.0 program under `%LOCALAPPDATA%\AutoGovern2Code\runtime\git`. AG2C uses that bundled MinGit for its operations; the project's `.git` and history stay put.
 
 ## What you see after adding a project
 
 The desktop window is the normal interface. For each project it shows:
 
-- **AI entry** — 连接 MCP. One local stdio server carries the Skill workflow and live tools. AG2C does not detect Codex, Claude, Cursor, or any other harness.
+- **AI entry** — generic MCP connect prompt + health check. One local stdio server carries Skill text and live tools. The prompt does not name a vendor or a user path.
 - **Delivery** — whether the external store and Git guard are connected.
 - **Observed records** — finished tasks, what they implemented or fixed, and whether the run was process-complete.
 - **Worktrees, journals, and recent evidence** — open construction copies, versioned logs, and local receipts.
@@ -42,7 +42,7 @@ A passing construction check is not the same as product acceptance. Until the pr
 
 ```text
 normal coding request
-  -> connect AG2C MCP once; tools and Skill instructions arrive with the session
+  -> connect AG2C MCP once; tools and Skill text arrive with the session
   -> AG2C routes responsibility before writing
   -> work happens in an external Git worktree
   -> the actual diff determines the final scope
@@ -74,10 +74,10 @@ Copying a folder to another PC can leave `.git/config` pointing at a missing use
 
 ## Agent compatibility
 
-The installer places the same Agent Skills-compatible Skills in Codex, Claude Code, Cursor (`~/.cursor/skills`), and the generic user Skill location (`~/.agents/skills`). The tray reports each entry separately.
+Any coding agent that can launch a local stdio MCP server can connect. AG2C writes known client configs when those files already exist on this machine; the connect prompt itself does not name a vendor.
 
-- A harness that supports Agent Skills can enter the full automatic workflow.
-- An unknown harness may still be stopped by the Git delivery guard, but AG2C cannot promise it will select the Skill before editing.
+- An agent that connected the AG2C MCP can enter the full automatic workflow.
+- An agent that never connected MCP may still be stopped by the Git delivery guard, but AG2C cannot promise it will call tools before editing.
 - The local guard is a Git delivery boundary, not an operating-system write ACL. A process that edits Git configuration can bypass it.
 
 This release is Windows-only and single-user. Multi-user coordination and remote evidence exchange are not included.

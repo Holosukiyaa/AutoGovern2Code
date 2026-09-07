@@ -21,6 +21,7 @@ from ag2c.gitops import (
     git_executable,
     head,
     read_local_git_source,
+    seize_existing_git,
     shipped_git_executable,
 )
 
@@ -95,13 +96,14 @@ class GitExecutableTests(unittest.TestCase):
                 self.assertEqual(Path(shipped_git_executable()).resolve(), fake.resolve())
                 self.assertNotEqual(Path(git_executable()).resolve(), Path(real).resolve())
 
-    def test_system_git_is_preferred_when_source_is_unset(self) -> None:
+    def test_bundled_git_is_preferred_when_present(self) -> None:
         real = shutil.which("git")
         self.assertIsNotNone(real)
         with tempfile.TemporaryDirectory() as directory:
-            bundled, _fake = _fake_bundled_git(directory)
+            bundled, fake = _fake_bundled_git(directory)
             with patch.dict(os.environ, {"AG2C_GIT": "", "AG2C_GIT_ROOT": str(bundled), "AG2C_PORTABLE_GIT": ""}, clear=False):
-                self.assertEqual(Path(git_executable()).resolve(), Path(real).resolve())
+                self.assertEqual(Path(git_executable()).resolve(), fake.resolve())
+                self.assertNotEqual(Path(git_executable()).resolve(), Path(real).resolve())
 
     def test_sticky_bundled_source_keeps_bundled_git(self) -> None:
         real = shutil.which("git")
@@ -123,11 +125,26 @@ class GitExecutableTests(unittest.TestCase):
                 with patch("ag2c.gitops.system_git_executable", return_value=None):
                     self.assertEqual(Path(git_executable(project)).resolve(), fake.resolve())
 
-    def test_first_use_records_system_git_source(self) -> None:
+    def test_first_use_records_system_git_source_when_only_system_exists(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project = git_project(Path(directory) / "project")
-            git(project, "status")
+            with patch.dict(os.environ, {"AG2C_GIT": "", "AG2C_GIT_ROOT": "", "AG2C_PORTABLE_GIT": ""}, clear=False):
+                git(project, "status")
             self.assertEqual(GIT_SOURCE_SYSTEM, read_local_git_source(project))
+
+    def test_seize_keeps_history_and_records_bundled_git(self) -> None:
+        real = shutil.which("git")
+        self.assertIsNotNone(real)
+        with tempfile.TemporaryDirectory() as directory:
+            project = git_project(Path(directory) / "project")
+            before = (project / ".git" / "HEAD").read_text(encoding="utf-8")
+            bundled, fake = _fake_bundled_git(str(Path(directory) / "mingit"))
+            with patch.dict(os.environ, {"AG2C_GIT": "", "AG2C_GIT_ROOT": str(bundled), "AG2C_PORTABLE_GIT": ""}, clear=False):
+                seized = seize_existing_git(project)
+            self.assertEqual(Path(seized).resolve(), fake.resolve())
+            self.assertEqual(GIT_SOURCE_BUNDLED, read_local_git_source(project))
+            self.assertEqual(before, (project / ".git" / "HEAD").read_text(encoding="utf-8"))
+            self.assertTrue((project / ".git").is_dir())
 
     def test_missing_git_is_a_named_error(self) -> None:
         with patch.dict(

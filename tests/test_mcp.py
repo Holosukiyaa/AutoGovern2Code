@@ -10,10 +10,17 @@ import bootstrap  # noqa: F401
 
 from ag2c.harnesses import PACKAGED_SKILLS
 from ag2c.mcp_server import (
+    CONNECT_RESOURCE_URI,
     MCP_INSTRUCTIONS,
+    PYTHON_PLACEHOLDER,
+    SRC_PLACEHOLDER,
     handle_mcp_request,
     install_mcp_clients,
+    mcp_config_snippet,
+    mcp_connect_prompt,
+    mcp_health,
     mcp_stdio_command,
+    mcp_toml_block,
     serve_mcp_stdio,
     tool_defs,
 )
@@ -56,6 +63,7 @@ class McpServerTests(unittest.TestCase):
                 "ag2c_household",
                 "ag2c_apply",
                 "ag2c_skill",
+                "ag2c_mcp_health",
             }.issubset(names)
         )
         listed = _rpc("tools/list")["result"]["tools"]
@@ -64,6 +72,7 @@ class McpServerTests(unittest.TestCase):
     def test_resources_expose_packaged_skills(self) -> None:
         resources = _rpc("resources/list")["result"]["resources"]
         uris = {item["uri"] for item in resources}
+        self.assertIn(CONNECT_RESOURCE_URI, uris)
         for name in PACKAGED_SKILLS:
             self.assertIn(f"ag2c://skill/{name}", uris)
         body = _rpc("resources/read", {"uri": "ag2c://skill/ag2c-governed-development"})["result"]
@@ -122,6 +131,42 @@ class McpServerTests(unittest.TestCase):
         command = mcp_stdio_command()
         self.assertNotIn("pythonw", command[0].lower())
         self.assertIn("mcp", command)
+
+    def test_connect_prompt_uses_placeholders_not_vendors_or_paths(self) -> None:
+        prompt = mcp_connect_prompt()
+        self.assertIn(PYTHON_PLACEHOLDER, prompt)
+        self.assertIn(SRC_PLACEHOLDER, prompt)
+        self.assertIn("stdio", prompt.casefold())
+        lowered = prompt.casefold()
+        for vendor in ("grok", "cursor", "claude", "codex"):
+            self.assertNotIn(vendor, lowered)
+        self.assertNotIn(str(Path.home()), prompt)
+        self.assertNotIn("C:\\Users\\", prompt)
+        self.assertNotIn("/Users/", prompt)
+        snippet = mcp_config_snippet(placeholders=True)
+        self.assertEqual(PYTHON_PLACEHOLDER, snippet["mcpServers"]["ag2c"]["command"])
+        self.assertEqual(SRC_PLACEHOLDER, snippet["mcpServers"]["ag2c"]["env"]["PYTHONPATH"])
+        toml = mcp_toml_block(placeholders=True)
+        self.assertIn(PYTHON_PLACEHOLDER, toml)
+        self.assertNotIn(mcp_stdio_command()[0], toml)
+        connect = _rpc("resources/read", {"uri": CONNECT_RESOURCE_URI})["result"]
+        self.assertIn(PYTHON_PLACEHOLDER, connect["contents"][0]["text"])
+
+    def test_health_reports_launch_and_handshake(self) -> None:
+        cheap = mcp_health(handshake=False, home=Path(tempfile.mkdtemp()))
+        self.assertIn(cheap["status"], {"ok", "broken"})
+        self.assertTrue(cheap["skills_internalized"])
+        self.assertGreaterEqual(cheap["tool_count"], 8)
+        self.assertIsNone(cheap["handshake"])
+        live = mcp_health(handshake=True, home=Path(tempfile.mkdtemp()))
+        self.assertTrue(live["python_ok"])
+        self.assertTrue(live["src_ok"])
+        self.assertTrue(live["ok"], live.get("error"))
+        self.assertEqual("MCP 正常", live["label"])
+        self.assertTrue((live.get("handshake") or {}).get("ok"))
+        tool = _rpc("tools/call", {"name": "ag2c_mcp_health", "arguments": {"handshake": False}})
+        payload = json.loads(tool["result"]["content"][0]["text"])
+        self.assertTrue(payload["skills_internalized"])
 
 
 if __name__ == "__main__":

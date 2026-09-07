@@ -13,7 +13,7 @@ from typing import Any
 from . import __version__
 from .config import MANIFEST_SCHEMA, POLICY_SCHEMA, discover_manifest, load_manifest, load_policy
 from .errors import AG2CError, RELOCATED_PROJECT, STALE_EXTERNAL_STORE
-from .gitops import canonical_worktree, current_branch, git, repository_root, status_entries
+from .gitops import canonical_worktree, current_branch, git, repository_root, seize_existing_git, status_entries
 from .harnesses import SKILL_NAME, SUPPORTED_HARNESSES, install_skills
 from .index import build_index
 from .lifecycle import LifecycleTransaction, lifecycle_pending, recover_lifecycle
@@ -436,6 +436,10 @@ def activate_project(
     previous, previous_dir = _previous_hooks_directory(canonical, expected, old_activation)
     runtime_command = _runtime_command()
     hook, delegated_hooks = _install_guard_hooks(hooks, previous_dir, runtime_command)
+    try:
+        seize_existing_git(canonical)
+    except AG2CError:
+        pass
     skills = install_skills(skill_root, harnesses)
     mcp = []
     try:

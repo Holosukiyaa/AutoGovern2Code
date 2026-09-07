@@ -23,4 +23,5 @@ if SOURCE_ROOT not in python_path_entries:
 _TEST_DATA_ROOT = tempfile.mkdtemp(prefix="ag2c-tests-")
 os.environ["AG2C_DATA_ROOT"] = _TEST_DATA_ROOT
 os.environ["AG2C_PORTABLE"] = "0"
+os.environ["AG2C_SKIP_GIT_DOWNLOAD"] = "1"
 atexit.register(shutil.rmtree, _TEST_DATA_ROOT, ignore_errors=True)

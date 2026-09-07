@@ -42,11 +42,11 @@ from .tray_host import (
     issue_label,
     lineage_subtitle,
     mcp_entry_text,
+    mcp_health_snapshot,
     portable_env,
     project_gate_rows,
     register_app,
     runtime_command,
-    skill_prompt_text,
     session_token,
     start_desktop_server,
     state_label,
@@ -1057,28 +1057,17 @@ def _gui_gate_strip(state: AppState, project: dict[str, Any]) -> None:
         if picked:
             audit(state, "查看" + label, "项目栏", value)
             copied = ""
+            health = None
             if kind == "gate":
-                copied = _copy_mcp_entry(text(project, "root"))
-                with state.lock:
-                    state.status = "MCP 已写入本机，配置已复制"
-            _inspect_gate(state, kind, project, details, prompt=copied)
+                health = mcp_health_snapshot(handshake=False)
+                copied = mcp_entry_text()
+            _inspect_gate(state, kind, project, details, prompt=copied, health=health)
 
 
-def _copy_skill_prompt(root: str) -> str:
+def _copy_mcp_entry() -> str:
     from imgui_bundle import imgui
 
-    prompt = skill_prompt_text(root)
-    try:
-        imgui.set_clipboard_text(prompt)
-    except Exception:
-        pass
-    return prompt
-
-
-def _copy_mcp_entry(root: str) -> str:
-    from imgui_bundle import imgui
-
-    prompt = mcp_entry_text(root)
+    prompt = mcp_entry_text()
     try:
         imgui.set_clipboard_text(prompt)
     except Exception:
@@ -1092,6 +1081,7 @@ def _inspect_gate(
     project: dict[str, Any],
     details: dict[str, Any] | None,
     prompt: str = "",
+    health: dict[str, Any] | None = None,
 ) -> None:
     agents = [item for item in (project.get("agents") or []) if isinstance(item, dict)]
     last = project.get("last_task") if isinstance(project.get("last_task"), dict) else None
@@ -1101,7 +1091,7 @@ def _inspect_gate(
         state.inspect = {
             "mode": kind,
             "title": titles.get(kind, kind),
-            "status": "MCP 已写入本机，配置已复制" if kind == "gate" and prompt else "",
+            "status": str((health or {}).get("label") or "") if kind == "gate" else "",
             "summary": "",
             "claim": "",
             "path": text(project, "root"),
@@ -1109,7 +1099,8 @@ def _inspect_gate(
             "files": [],
             "cards": [],
             "message": "",
-            "prompt": prompt or (mcp_entry_text(text(project, "root")) if kind == "gate" else ""),
+            "prompt": prompt or (mcp_entry_text() if kind == "gate" else ""),
+            "mcp_health": health or {},
             "agents": agents,
             "entry_ready": bool(project.get("entry_ready")),
             "delivery_enforced": bool(project.get("delivery_enforced")),
@@ -1926,23 +1917,41 @@ def _gui_inspect(state: AppState) -> None:
             imgui.text_disabled(status)
     if mode == "gate":
         imgui.separator()
-        imgui.text_wrapped("AG2C 作为本机 MCP。Skill 流程在 MCP 的 instructions 和工具里。连接一次即可，不必再贴复制提示词。")
-        if imgui.button("连接 MCP"):
-            copied = _copy_mcp_entry(str(fields.get("path") or ""))
+        imgui.text_wrapped("AI 入口只有两件事：通用 MCP 连接说明（占位符，不绑厂商），以及检测 MCP 是否在工作。Skill 全文在 MCP 里。")
+        if imgui.button("检测 MCP"):
+            from .mcp_server import install_mcp_clients, mcp_health
+
+            try:
+                install_mcp_clients()
+            except OSError:
+                pass
+            health = mcp_health(handshake=True)
             with state.lock:
-                state.inspect["prompt"] = copied
-                state.inspect["status"] = "MCP 已写入本机，配置已复制"
-                state.status = "MCP 已写入本机，配置已复制"
-            audit(state, "连接 MCP", "详情", "")
+                state.inspect["mcp_health"] = health
+                state.inspect["status"] = str(health.get("label") or "")
+                state.inspect["prompt"] = mcp_entry_text()
+                state.status = str(health.get("label") or "MCP")
+            audit(state, "检测 MCP", "详情", str(health.get("status") or ""))
         imgui.same_line()
-        if imgui.button("复制提示词"):
-            copied = _copy_skill_prompt(str(fields.get("path") or ""))
+        if imgui.button("复制连接说明"):
+            copied = _copy_mcp_entry()
             with state.lock:
                 state.inspect["prompt"] = copied
-                state.inspect["status"] = "提示词已复制（无 MCP 时的退路）"
-                state.status = "提示词已复制（无 MCP 时的退路）"
-            audit(state, "复制提示词", "详情", "")
-        imgui.text_disabled("连接 MCP 写入 ~/.grok/config.toml、Cursor/Claude/Codex。新开一轮对话后工具即可用。")
+                state.status = "连接说明已复制"
+            audit(state, "复制连接说明", "详情", "")
+        health = fields.get("mcp_health") if isinstance(fields.get("mcp_health"), dict) else {}
+        if health:
+            detail = str(health.get("label") or "")
+            if health.get("error"):
+                detail += " · " + str(health["error"])
+            elif health.get("ok"):
+                detail += f" · 工具 {health.get('tool_count') or 0} · Skill 已内化"
+                configured = int(health.get("configured") or 0)
+                if configured:
+                    detail += f" · 本机已写入 {configured} 处配置"
+            imgui.text_disabled(detail)
+        else:
+            imgui.text_disabled("点「检测 MCP」做一次握手。连接说明只用占位符，不含本机路径。")
         prompt = str(fields.get("prompt") or "")
         if prompt:
             imgui.separator()

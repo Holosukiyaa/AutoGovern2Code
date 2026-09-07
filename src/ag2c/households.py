@@ -12,7 +12,7 @@ from typing import Any
 
 from .errors import AG2CError, ConfigurationError, WidenError
 from .index import _discover_files, _git, _scope_matches, primary_owners
-from .model import Card, Manifest, Policy
+from .model import Card, Manifest, Policy, Scope
 from .util import digest_file, digest_json, path_matches
 
 
@@ -451,12 +451,35 @@ def _matches_include(card: Card, target: str, path: str) -> bool:
     )
 
 
-def _last_source_change(manifest: Manifest, card: Card) -> list[dict]:
+def _latest_change_in_scope(latest: dict[str, dict[str, str]], scope: Scope) -> dict[str, str] | None:
+    """Most recent bulk-log entry inside a scope, or None when the window misses it."""
+    for path, info in latest.items():
+        if any(path_matches(path, pattern) for pattern in scope.includes) and not any(
+            path_matches(path, pattern) for pattern in scope.excludes
+        ):
+            return info
+    return None
+
+
+def _last_source_change(
+    manifest: Manifest,
+    card: Card,
+    latest_by_root: dict[str, dict[str, dict[str, str]]] | None = None,
+) -> list[dict]:
     changes = []
     for scope in card.scopes:
+        root = manifest.target_root(scope.target_id)
+        # Bulk path: one cached `git log --name-only` per repo head replaces a
+        # per-scope `git log -1` subprocess for every card in the report.
+        info = _latest_change_in_scope(latest_by_root.get(str(root), {}), scope) if latest_by_root is not None else None
+        if info is not None:
+            changes.append({"target": scope.target_id, **info})
+            continue
+        # Fallback: the bulk window (--max-count) may miss ancient files, and
+        # scopes matching nothing must come back empty either way.
         patterns = [f":(glob){pattern}" for pattern in scope.includes]
         patterns.extend(f":(glob,exclude){pattern}" for pattern in scope.excludes)
-        output = str(_git(manifest.target_root(scope.target_id), "log", "-1", "--format=%H%n%cI%n%s", "--", *patterns) or "").splitlines()
+        output = str(_git(root, "log", "-1", "--format=%H%n%cI%n%s", "--", *patterns) or "").splitlines()
         if len(output) >= 3:
             changes.append({"target": scope.target_id, "commit": output[0], "changed_at": output[1], "summary": output[2]})
     return changes
@@ -684,9 +707,15 @@ def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
             for item in members:
                 if item["jurisdiction"]["status"] == "current":
                     item["issues"].append({"code": "competing-current-implementations", "capability": capability})
+    latest_by_root: dict[str, dict[str, dict[str, str]]] = {}
+    for target in manifest.targets:
+        target_root = manifest.target_root(target.target_id)
+        target_head = str(_git(target_root, "rev-parse", "HEAD") or "").strip()
+        if target_head:
+            latest_by_root[str(target_root)] = file_latest_commits(target_root, target_head)
     for item in reports:
         item["checker_details"] = [asdict(policy.checker(checker_id)) for checker_id in item["checkers"]]
-        item["last_source_change"] = _last_source_change(manifest, policy.card(item["id"]))
+        item["last_source_change"] = _last_source_change(manifest, policy.card(item["id"]), latest_by_root)
         if item["last_census"]:
             timestamp = datetime.fromisoformat(item["last_census"]["surveyed_at"])
             item["census_age_days"] = max(0, (datetime.now(timezone.utc) - timestamp).days)

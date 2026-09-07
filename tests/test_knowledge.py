@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import bootstrap
 
@@ -125,6 +126,58 @@ class CensusCacheKeyTests(unittest.TestCase):
             renewal.write_text('{"schema": "ag2c.renewal.v1", "cards": {}}\n', encoding="utf-8")
             key_after_renewal = _census_cache_key(manifest, policy)
             self.assertNotEqual(key_after_census, key_after_renewal)
+
+
+class LastSourceChangeTests(unittest.TestCase):
+    def _card(self, includes: tuple[str, ...], excludes: tuple[str, ...] = ()):
+        from ag2c.model import Card, Scope
+
+        return Card(
+            card_id="floor.demo",
+            card_type="floor",
+            title="Demo",
+            summary="demo",
+            scopes=(Scope(target_id="app", includes=includes, excludes=excludes, ownership="primary"),),
+            checkers=(),
+            references=(),
+        )
+
+    def test_latest_change_in_scope_picks_newest_match_and_honors_excludes(self) -> None:
+        from ag2c.households import _latest_change_in_scope
+
+        latest = {
+            "src/newer.py": {"commit": "new", "changed_at": "2026-09-01", "summary": "newer"},
+            "src/older.py": {"commit": "old", "changed_at": "2026-08-01", "summary": "older"},
+        }
+        hit = _latest_change_in_scope(latest, self._card(("src/**",)).scopes[0])
+        self.assertEqual("new", hit["commit"])
+        excluded = _latest_change_in_scope(latest, self._card(("src/**",), ("src/newer.py",)).scopes[0])
+        self.assertEqual("old", excluded["commit"])
+        self.assertIsNone(_latest_change_in_scope(latest, self._card(("docs/**",)).scopes[0]))
+
+    def test_bulk_map_hit_spawns_no_per_scope_git(self) -> None:
+        from ag2c.households import _last_source_change
+
+        with tempfile.TemporaryDirectory() as directory:
+            manifest, _ = write_project(Path(directory) / "demo")
+            root_key = str(manifest.target_root("app"))
+            latest = {root_key: {"src/api/service.py": {"commit": "abc", "changed_at": "2026-09-01", "summary": "bulk"}}}
+            with patch("ag2c.households._git") as git_spy:
+                changes = _last_source_change(manifest, self._card(("src/api/**",)), latest)
+            git_spy.assert_not_called()
+            self.assertEqual([{"target": "app", "commit": "abc", "changed_at": "2026-09-01", "summary": "bulk"}], changes)
+
+    def test_bulk_map_miss_falls_back_to_per_scope_git_log(self) -> None:
+        from ag2c.households import _last_source_change
+
+        with tempfile.TemporaryDirectory() as directory:
+            manifest, _ = write_project(Path(directory) / "demo")
+            root_key = str(manifest.target_root("app"))
+            with patch("ag2c.households._git", return_value="deadbeef\n2026-08-01T00:00:00+00:00\nancient\n") as git_spy:
+                changes = _last_source_change(manifest, self._card(("src/api/**",)), {root_key: {}})
+            git_spy.assert_called_once()
+            self.assertEqual("deadbeef", changes[0]["commit"])
+            self.assertEqual("ancient", changes[0]["summary"])
 
 
 if __name__ == "__main__":

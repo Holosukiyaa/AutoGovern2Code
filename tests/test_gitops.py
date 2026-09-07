@@ -11,6 +11,7 @@ from unittest.mock import patch
 import bootstrap
 from support import git_project, _git
 
+from ag2c import gitops
 from ag2c.errors import GIT_MISSING, AG2CError
 from ag2c.gitops import (
     GIT_SOURCE_BUNDLED,
@@ -85,6 +86,24 @@ class GitExecutableTests(unittest.TestCase):
         self.assertIsNotNone(real)
         with patch.dict(os.environ, {"AG2C_GIT": real, "AG2C_GIT_ROOT": ""}, clear=False):
             self.assertEqual(Path(git_executable()).resolve(), Path(real).resolve())
+
+    def test_system_git_resolution_is_memoized_per_path(self) -> None:
+        gitops._SYSTEM_GIT_CACHE.clear()
+        self.addCleanup(gitops._SYSTEM_GIT_CACHE.clear)
+        with patch("ag2c.gitops.shutil.which", wraps=shutil.which) as spy:
+            first = gitops.system_git_executable()
+            second = gitops.system_git_executable()
+        self.assertEqual(first, second)
+        # One PATH scan is at most two which() calls; a second scan would double it.
+        self.assertLessEqual(spy.call_count, 2)
+
+    def test_system_git_cache_is_keyed_on_path(self) -> None:
+        gitops._SYSTEM_GIT_CACHE.clear()
+        self.addCleanup(gitops._SYSTEM_GIT_CACHE.clear)
+        with patch.dict(os.environ, {"PATH": ""}, clear=False):
+            self.assertIsNone(gitops.system_git_executable())
+        # A different PATH must not reuse the empty-PATH result.
+        self.assertIsNotNone(gitops.system_git_executable())
 
     def test_portable_git_wins_over_system_git(self) -> None:
         real = shutil.which("git")

@@ -156,7 +156,22 @@ def git_command_env(base: dict[str, str] | None = None, *, executable: str | Non
     return run_env
 
 
+_SYSTEM_GIT_CACHE: dict[str, str | None] = {}
+
+
 def system_git_executable() -> str | None:
+    # Scanning PATH costs hundreds of milliseconds on Windows (thousands of
+    # file probes per call), and the resolution cannot change unless PATH
+    # itself changes, so memoize per PATH value.
+    path_value = os.environ.get("PATH") or ""
+    if path_value in _SYSTEM_GIT_CACHE:
+        return _SYSTEM_GIT_CACHE[path_value]
+    resolved = _scan_system_git()
+    _SYSTEM_GIT_CACHE[path_value] = resolved
+    return resolved
+
+
+def _scan_system_git() -> str | None:
     for name in ("git.exe", "git"):
         found = shutil.which(name)
         if not found:

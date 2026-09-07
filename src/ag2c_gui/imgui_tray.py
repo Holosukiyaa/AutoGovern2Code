@@ -634,7 +634,7 @@ def _gui_audit(state: AppState) -> None:
 def _gate_panel_content(state: AppState, fields: dict[str, Any]) -> None:
     from imgui_bundle import imgui
 
-    imgui.text_wrapped("AI 入口只有两件事：通用 MCP 连接说明（占位符，不绑厂商），以及检测 MCP 是否在工作。Skill 全文在 MCP 里；检测会连 Git hook 一起看。")
+    imgui.text_wrapped("这里只有两件事：通用 MCP 连接说明（占位符，不绑厂商），以及检测 MCP 是否在工作。Skill 全文在 MCP 里；检测会连 Git hook 一起看。")
     if imgui.button("检测 MCP"):
         from ag2c.mcp_server import install_mcp_clients, mcp_health
 
@@ -649,14 +649,14 @@ def _gate_panel_content(state: AppState, fields: dict[str, Any]) -> None:
             panel["status"] = str(health.get("label") or "")
             panel["prompt"] = mcp_entry_text()
             state.status = str(health.get("label") or "MCP")
-        audit(state, "检测 MCP", "AI 入口", str(health.get("status") or ""))
+        audit(state, "检测 MCP", "MCP 链接", str(health.get("status") or ""))
     imgui.same_line()
     if imgui.button("复制连接说明"):
         copied = _copy_mcp_entry()
         with state.lock:
             state.panel_fields.setdefault("gate", {})["prompt"] = copied
             state.status = "连接说明已复制"
-        audit(state, "复制连接说明", "AI 入口", "")
+        audit(state, "复制连接说明", "MCP 链接", "")
     health = fields.get("mcp_health") if isinstance(fields.get("mcp_health"), dict) else {}
     if health:
         detail = str(health.get("label") or "")
@@ -676,23 +676,55 @@ def _gate_panel_content(state: AppState, fields: dict[str, Any]) -> None:
         imgui.text_wrapped(prompt)
 
 
+def _short_time(iso: str) -> str:
+    """ISO timestamp → local 'MM-dd HH:mm' for compact history rows."""
+    if not iso:
+        return ""
+    from datetime import datetime, timezone
+
+    try:
+        moment = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    except ValueError:
+        return iso[:16]
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone().strftime("%m-%d %H:%M")
+
+
 def _records_panel_content(state: AppState, fields: dict[str, Any]) -> None:
     from imgui_bundle import imgui
 
     completed = int(fields.get("completed_tasks") or 0)
     imgui.text_disabled(f"{completed} 次入库" if completed else "还没有入库任务")
-    last = fields.get("last_task") if isinstance(fields.get("last_task"), dict) else None
-    if last:
-        delivery = last.get("delivery") if isinstance(last.get("delivery"), dict) else {}
-        imgui.spacing()
-        imgui.text_wrapped(str(delivery.get("request") or last.get("goal") or "最近一次任务"))
-        if delivery.get("outcome"):
-            imgui.text_wrapped(str(delivery.get("outcome")))
     product = fields.get("product")
     product_key = str(product.get("status") or product) if isinstance(product, dict) else str(product or "")
     if product_key:
-        imgui.separator()
+        imgui.same_line()
         imgui.text_disabled(PRODUCT_LABELS.get(product_key, product_key))
+    imgui.separator()
+    versions = [item for item in (fields.get("journal") or []) if isinstance(item, dict)]
+    if not versions:
+        imgui.text_disabled("还没有历史记录")
+        return
+    imgui.begin_child("##records-body", imgui.ImVec2(0.0, 0.0), 1)
+    try:
+        for item in versions:
+            header = f"v{item.get('version') or '?'} · {_short_time(str(item.get('marked_at') or ''))}"
+            commit = str(item.get("commit") or "")[:7]
+            if commit:
+                header += f" · {commit}"
+            imgui.text_disabled(header)
+            goal = str(item.get("goal") or "")
+            if goal:
+                imgui.text_wrapped(goal)
+            outcome = str(item.get("outcome") or "")
+            if outcome and outcome != goal:
+                imgui.push_style_color(imgui.Col_.text, (0.62, 0.68, 0.76, 1.0))
+                imgui.text_wrapped(outcome)
+                imgui.pop_style_color()
+            imgui.separator()
+    finally:
+        imgui.end_child()
 
 
 def _work_panel_content(state: AppState, fields: dict[str, Any]) -> None:
@@ -714,7 +746,7 @@ def _work_panel_content(state: AppState, fields: dict[str, Any]) -> None:
             imgui.text(f"{label}  ·  {goal}")
 
 
-_PANEL_SIZES = {"gate": (560.0, 380.0), "records": (520.0, 300.0), "worktrees": (520.0, 300.0)}
+_PANEL_SIZES = {"gate": (560.0, 380.0), "records": (560.0, 420.0), "worktrees": (520.0, 300.0)}
 
 
 def _gui_panels(state: AppState) -> None:
@@ -825,8 +857,11 @@ def _gui_project_bar(state: AppState) -> None:
     imgui.separator()
 
 
+GATE_BUTTON_LABELS = {"gate": "MCP 链接", "records": "实际记录", "worktrees": "施工"}
+
+
 def _gui_gate_strip(state: AppState, project: dict[str, Any]) -> None:
-    """Always-visible operator pulse: entry, records, construction. Buttons open floating panels."""
+    """Always-visible operator pulse. Each row: a button that opens a floating panel + status text."""
     from imgui_bundle import imgui
 
     with state.lock:
@@ -841,21 +876,23 @@ def _gui_gate_strip(state: AppState, project: dict[str, Any]) -> None:
         value = str(row.get("value") or "")
         kind = str(row.get("id") or "")
         warn = bool(row.get("warn"))
-        shown = f"{label} · {value}"
+        button_label = GATE_BUTTON_LABELS.get(kind, label)
         pushed = 0
-        if warn:
-            imgui.push_style_color(imgui.Col_.text, _WARN_COLOR)
-            pushed += 1
         if panel_open.get(kind):
             imgui.push_style_color(imgui.Col_.button, (0.28, 0.50, 0.78, 0.70))
             imgui.push_style_color(imgui.Col_.button_hovered, (0.32, 0.56, 0.84, 0.85))
             pushed += 2
-        clicked = imgui.small_button(widget_id(shown, "gate:" + kind))
+        clicked = imgui.small_button(widget_id(button_label, "gate:" + kind))
         if pushed:
             imgui.pop_style_color(pushed)
+        imgui.same_line()
+        if warn:
+            imgui.text_colored(_WARN_COLOR, value)
+        else:
+            imgui.text_disabled(value)
         if clicked:
             opening = not panel_open.get(kind)
-            audit(state, ("打开" if opening else "关闭") + label, "项目栏", value)
+            audit(state, ("打开" if opening else "关闭") + button_label, "项目栏", value)
             with state.lock:
                 state.panel_open[kind] = opening
             if opening:
@@ -873,7 +910,7 @@ def _copy_mcp_entry() -> str:
     return prompt
 
 
-PANEL_TITLES = {"gate": "AI 入口", "records": "实际记录", "worktrees": "施工"}
+PANEL_TITLES = {"gate": "MCP 链接", "records": "实际记录", "worktrees": "施工"}
 
 
 def _refresh_panel(
@@ -895,6 +932,14 @@ def _refresh_panel(
             managed=bool(project.get("delivery_enforced")) if "delivery_enforced" in project else None,
         )
         prompt = mcp_entry_text()
+    journal: list[dict[str, Any]] = []
+    if kind == "records":
+        try:
+            from ag2c.journal import list_journals
+
+            journal = [item for item in reversed(list_journals(Path(text(project, "root")))) if isinstance(item, dict)]
+        except Exception:
+            journal = []
     with state.lock:
         state.panel_fields[kind] = {
             "title": PANEL_TITLES.get(kind, kind),
@@ -910,6 +955,7 @@ def _refresh_panel(
             "product": project.get("product"),
             "worktrees": worktrees,
             "open_tasks": int(project.get("open_tasks") or 0),
+            "journal": journal,
         }
 
 

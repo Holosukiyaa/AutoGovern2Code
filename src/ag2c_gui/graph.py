@@ -238,6 +238,30 @@ def is_document_knowledge(card: Mapping[str, Any]) -> bool:
     return bool(_items(card.get("references")))
 
 
+def is_empty_leftover_parent(card: Mapping[str, Any], *, file_count: int) -> bool:
+    """Placeholder parent whose children were carved out and which owns no files itself.
+
+    Such cards only hold the exclusion guard (src/** minus src/ag2c/** ...); they
+    carry no design content, so the lineage graph can skip them by default. Both
+    current placeholders and their legacy/retired equivalents qualify.
+    """
+    if file_count > 0:
+        return False
+    jurisdiction = _mapping(card.get("jurisdiction"))
+    if not jurisdiction:
+        return False
+    if _text(jurisdiction.get("meaning") or "none") != "none":
+        return False
+    if not _text(jurisdiction.get("implementation")).endswith(".exploring"):
+        return False
+    if _text(jurisdiction.get("status") or "current") not in {"", "current", "legacy", "retired"}:
+        return False
+    return any(
+        _items(_mapping(scope).get("exclude"))
+        for scope in _items(card.get("scopes"))
+    )
+
+
 def _path_suffix(path: str) -> str:
     name = _normalize_path(path).rsplit("/", 1)[-1]
     if "." not in name or name.startswith("."):
@@ -1000,7 +1024,13 @@ def _knowledge_status_label(card: Mapping[str, Any], graph_nodes: Mapping[str, M
     return STATUS_TAG_LABELS.get(_knowledge_status_tag(card, graph_nodes, card_id), FLAG_LABELS["current"])
 
 
-def build_lineage(details: Mapping[str, Any] | None, *, project_name: str = "") -> dict[str, Any]:
+def build_lineage(
+    details: Mapping[str, Any] | None,
+    *,
+    project_name: str = "",
+    hide_empty_leftovers: bool = False,
+    file_counts: Mapping[str, int] | None = None,
+) -> dict[str, Any]:
     """Project → module → knowledge cards. Constitution sits on the project node."""
     source = _mapping(details)
     cards = [_mapping(item) for item in _items(source.get("cards"))]
@@ -1087,8 +1117,16 @@ def build_lineage(details: Mapping[str, Any] | None, *, project_name: str = "") 
         for item in cards
         if _text(item.get("type") or item.get("kind")) == "knowledge" and _text(item.get("id"))
     }
+    counts = file_counts or {}
+    hidden_leftovers: set[str] = set()
+    if hide_empty_leftovers:
+        hidden_leftovers = {
+            card_id
+            for card_id, card in knowledge_cards.items()
+            if is_empty_leftover_parent(card, file_count=int(counts.get(card_id, 0) or 0))
+        }
     for floor_id, card_ids in explained.items():
-        unique_ids = list(dict.fromkeys(card_ids))
+        unique_ids = [card_id for card_id in dict.fromkeys(card_ids) if card_id not in hidden_leftovers]
         nodes[floor_id]["empty"] = not unique_ids
         nodes[floor_id]["status"] = f"{len(unique_ids)} 张知识卡" if unique_ids else "还没有知识卡"
         for index, knowledge_id in enumerate(unique_ids):
@@ -1132,7 +1170,7 @@ def build_lineage(details: Mapping[str, Any] | None, *, project_name: str = "") 
         node["layer"] = 3
         node["path"] = (_scope_paths(card) or [""])[0]
         nodes[parent_visual]["nested"] = True
-    orphans = [card_id for card_id in knowledge_cards if card_id not in hung]
+    orphans = [card_id for card_id in knowledge_cards if card_id not in hung and card_id not in hidden_leftovers]
     if orphans:
         add_node(
             LINEAGE_UNGROUPED_ID,

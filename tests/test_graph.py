@@ -707,6 +707,110 @@ class GovernanceGraphTests(unittest.TestCase):
         self.assertTrue(all(not item.get("hidden") for item in cards))
         self.assertEqual(1, len({float(item["x"]) for item in cards}))
 
+    def test_lineage_hides_empty_leftover_parent_when_asked(self) -> None:
+        leftover = {
+            "id": "knowledge.src",
+            "type": "knowledge",
+            "title": "src leftover parent",
+            "summary": "只挡住空的父目录",
+            "scopes": [{"target": "app", "include": ["src/**"], "exclude": ["src/ag2c/**"], "ownership": "primary"}],
+            "checkers": [],
+            "references": [],
+            "jurisdiction": {"implementation": "src.exploring", "meaning": "none", "status": "current"},
+        }
+        cards = [
+            _card("constitution.project", "constitution", "宪章"),
+            _card("floor.src", "floor", "src", include=["src/**"]),
+            leftover,
+            _card("knowledge.ag2c", "knowledge", "src/ag2c package", include=["src/ag2c/**"]),
+        ]
+        relations = [
+            {"source": "knowledge.src", "type": "explains", "target": "floor.src"},
+            {"source": "knowledge.ag2c", "type": "explains", "target": "floor.src"},
+        ]
+        details = {"project": {"name": "Demo"}, "cards": cards, "relations": relations, "graph": {"nodes": []}}
+        counts = {"knowledge.src": 0, "knowledge.ag2c": 30}
+
+        shown = build_lineage(details, file_counts=counts)
+        self.assertIn("knowledge.src", {node.get("id") for node in shown["nodes"]})
+
+        hidden = build_lineage(details, hide_empty_leftovers=True, file_counts=counts)
+        ids = {node.get("id") for node in hidden["nodes"]}
+        self.assertNotIn("knowledge.src", ids)
+        self.assertIn("knowledge.ag2c", ids)
+        # Ordinals stay gapless: the remaining card takes 1-1, not 1-2.
+        child = next(node for node in hidden["nodes"] if node.get("id") == "knowledge.ag2c")
+        self.assertEqual("1-1", child.get("ordinal_label"))
+
+    def test_lineage_keeps_placeholder_with_files_or_without_excludes(self) -> None:
+        leftover = {
+            "id": "knowledge.src",
+            "type": "knowledge",
+            "title": "src leftover parent",
+            "summary": "",
+            "scopes": [{"target": "app", "include": ["src/**"], "exclude": ["src/ag2c/**"], "ownership": "primary"}],
+            "checkers": [],
+            "references": [],
+            "jurisdiction": {"implementation": "src.exploring", "meaning": "none", "status": "current"},
+        }
+        fresh = {
+            "id": "knowledge.new",
+            "type": "knowledge",
+            "title": "new exploring household",
+            "summary": "",
+            "scopes": [{"target": "app", "include": ["src/new/**"], "exclude": [], "ownership": "primary"}],
+            "checkers": [],
+            "references": [],
+            "jurisdiction": {"implementation": "new.exploring", "meaning": "none", "status": "current"},
+        }
+        cards = [
+            _card("constitution.project", "constitution", "宪章"),
+            _card("floor.src", "floor", "src", include=["src/**"]),
+            leftover,
+            fresh,
+        ]
+        relations = [
+            {"source": "knowledge.src", "type": "explains", "target": "floor.src"},
+            {"source": "knowledge.new", "type": "explains", "target": "floor.src"},
+        ]
+        details = {"project": {"name": "Demo"}, "cards": cards, "relations": relations, "graph": {"nodes": []}}
+        # A leftover parent that still owns files stays visible.
+        with_files = build_lineage(details, hide_empty_leftovers=True, file_counts={"knowledge.src": 2, "knowledge.new": 0})
+        self.assertIn("knowledge.src", {node.get("id") for node in with_files["nodes"]})
+        # A fresh exploring room without carved-out excludes is not a leftover parent:
+        # even with zero files it stays visible, while the empty leftover parent hides.
+        no_files = build_lineage(details, hide_empty_leftovers=True, file_counts={"knowledge.src": 0, "knowledge.new": 0})
+        ids = {node.get("id") for node in no_files["nodes"]}
+        self.assertNotIn("knowledge.src", ids)
+        self.assertIn("knowledge.new", ids)
+
+    def test_lineage_hides_legacy_leftover_parent_too(self) -> None:
+        legacy = {
+            "id": "knowledge.packaging",
+            "type": "knowledge",
+            "title": "packaging leftover parent",
+            "summary": "只保住排除",
+            "scopes": [{"target": "app", "include": ["packaging/**"], "exclude": ["packaging/windows/**"], "ownership": "primary"}],
+            "checkers": [],
+            "references": [],
+            "jurisdiction": {"implementation": "packaging.exploring", "meaning": "none", "status": "legacy"},
+        }
+        cards = [
+            _card("constitution.project", "constitution", "宪章"),
+            _card("floor.packaging", "floor", "packaging", include=["packaging/**"]),
+            legacy,
+            _card("knowledge.packaging-windows", "knowledge", "Windows tray packager", include=["packaging/windows/**"]),
+        ]
+        relations = [
+            {"source": "knowledge.packaging", "type": "explains", "target": "floor.packaging"},
+            {"source": "knowledge.packaging-windows", "type": "explains", "target": "floor.packaging"},
+        ]
+        details = {"project": {"name": "Demo"}, "cards": cards, "relations": relations, "graph": {"nodes": []}}
+        hidden = build_lineage(details, hide_empty_leftovers=True, file_counts={"knowledge.packaging": 0, "knowledge.packaging-windows": 3})
+        ids = {node.get("id") for node in hidden["nodes"]}
+        self.assertNotIn("knowledge.packaging", ids)
+        self.assertIn("knowledge.packaging-windows", ids)
+
     def test_lineage_expand_steps_do_not_overlap(self) -> None:
         cards = [
             _card("constitution.project", "constitution", "宪章"),

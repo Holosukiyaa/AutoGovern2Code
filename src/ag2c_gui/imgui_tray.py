@@ -107,6 +107,8 @@ class AppState:
         self.lineage_nav_ids: list[str] = []
         self.lineage_cache: dict[str, Any] | None = None
         self.lineage_cache_from: object | None = None
+        self.lineage_show_placeholder = False
+        self.lineage_cache_placeholder: bool | None = None
         self.lineage_placed = False
         self.lineage_view: list[dict[str, Any]] | None = None
         self.lineage_layout_key: frozenset[str] | None = None
@@ -1282,12 +1284,29 @@ def _focus_lineage_node(state: AppState, node: dict[str, Any]) -> None:
 
 
 def _lineage_snapshot(state: AppState, details: dict[str, Any]) -> dict[str, Any]:
-    if state.lineage_cache is not None and state.lineage_cache_from is details:
+    show_placeholder = state.lineage_show_placeholder
+    if (
+        state.lineage_cache is not None
+        and state.lineage_cache_from is details
+        and state.lineage_cache_placeholder == show_placeholder
+    ):
         return state.lineage_cache
     project = details.get("project") if isinstance(details.get("project"), dict) else {}
-    snapshot = build_lineage(details, project_name=text(project, "name"))
+    files, cards = _cached_all_rows(state, details)
+    counts = {
+        text(card, "id"): len(files_for_card(files, card))
+        for card in cards
+        if text(card, "id")
+    }
+    snapshot = build_lineage(
+        details,
+        project_name=text(project, "name"),
+        hide_empty_leftovers=not show_placeholder,
+        file_counts=counts,
+    )
     state.lineage_cache = snapshot
     state.lineage_cache_from = details
+    state.lineage_cache_placeholder = show_placeholder
     state.lineage_placed = False
     state.lineage_view = None
     state.lineage_layout_key = None
@@ -1810,6 +1829,11 @@ def _gui_lineage(state: AppState) -> None:
         return
     if loading or busy:
         _scan_overlay("正在重新扫描谱系…")
+    show_placeholder = state.lineage_show_placeholder
+    changed, show_placeholder = imgui.checkbox("显示占位父卡", show_placeholder)
+    if changed:
+        with state.lock:
+            state.lineage_show_placeholder = show_placeholder
     lineage = _lineage_snapshot(state, details)
     if not lineage["nodes"]:
         imgui.text_disabled("还没有可画的知识卡谱系")

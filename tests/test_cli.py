@@ -4,12 +4,14 @@ import io
 import json
 import unittest
 from contextlib import redirect_stdout
+from pathlib import Path
 from unittest.mock import patch
 
 import bootstrap
 
-from ag2c import __version__
+from ag2c import __version__, tasks
 from ag2c.cli import main
+from ag2c.errors import AG2CError
 
 
 class CLITests(unittest.TestCase):
@@ -54,3 +56,22 @@ class CLITests(unittest.TestCase):
         for item in payload["skills"]:
             self.assertEqual(__version__, item["version"])
             self.assertTrue(item["digest"])
+
+
+class WorktreeLocationTests(unittest.TestCase):
+    def test_outside_worktree_needs_no_ignore_rule(self) -> None:
+        with patch("ag2c.tasks.git") as runner:
+            tasks._ensure_worktree_location(Path("C:/repo"), Path("D:/ag2c-worktrees/task-1"))
+        runner.assert_not_called()
+
+    def test_in_checkout_worktree_allowed_when_git_ignores_it(self) -> None:
+        worktree = Path("C:/repo/data/projects/key/worktrees/task-1")
+        with patch("ag2c.tasks.git", return_value="data/projects/key/worktrees/task-1\n") as runner:
+            tasks._ensure_worktree_location(Path("C:/repo"), worktree)
+        runner.assert_called_once()
+        self.assertEqual("check-ignore", runner.call_args.args[1])
+
+    def test_in_checkout_worktree_refused_when_not_ignored(self) -> None:
+        with patch("ag2c.tasks.git", return_value=""):
+            with self.assertRaises(AG2CError):
+                tasks._ensure_worktree_location(Path("C:/repo"), Path("C:/repo/src/worktrees/task-1"))

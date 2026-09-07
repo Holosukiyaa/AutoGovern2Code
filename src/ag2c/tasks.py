@@ -332,6 +332,27 @@ def _assert_retirement_diff(canonical: Path, worktree: Path, task: dict[str, Any
         raise AG2CError("retirement-references:\n- " + "\n- ".join(hits[:20]))
 
 
+def _ensure_worktree_location(canonical: Path, worktree: Path) -> None:
+    """Refuse an in-checkout worktree unless Git ignores that path.
+
+    A self-governed portable checkout keeps its project store under the
+    Git-ignored ``data\\`` directory, so per-project task worktrees may live
+    inside the checkout there. Any other in-checkout location is refused;
+    use AG2C_WORKTREE_ROOT or --worktree-root to place worktrees elsewhere.
+    """
+    try:
+        relative = worktree.relative_to(canonical)
+    except ValueError:
+        return
+    ignored = str(git(canonical, "check-ignore", "--", relative.as_posix(), check=False)).strip()
+    if ignored:
+        return
+    raise AG2CError(
+        "AG2C task worktree must be outside the canonical project or under a Git-ignored directory: "
+        + str(worktree)
+    )
+
+
 def start_task(
     start: Path,
     *,
@@ -379,12 +400,7 @@ def start_task(
     configured_root = os.environ.get("AG2C_WORKTREE_ROOT")
     base = worktree_root or (Path(configured_root) if configured_root else manifest.path.parent / "worktrees")
     worktree = (base.resolve() / task_id).resolve()
-    try:
-        worktree.relative_to(canonical)
-    except ValueError:
-        pass
-    else:
-        raise AG2CError("AG2C task worktree must be outside the canonical project")
+    _ensure_worktree_location(canonical, worktree)
     if worktree.exists():
         raise AG2CError(f"task worktree already exists: {worktree}")
     branch = f"ag2c/{task_id}"

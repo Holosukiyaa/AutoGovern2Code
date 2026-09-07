@@ -28,7 +28,7 @@ tray evidence view                          user-readable outcome
 
 This release is Windows-only. The installed app keeps the archive under `%LOCALAPPDATA%\AutoGovern2Code`. A portable folder with `portable.ini` (or `AG2C_DATA_ROOT`) keeps the same archive in that folder's `data\`. Tests set `AG2C_DATA_ROOT` so they never touch the user store.
 
-The canonical repository stores only two local Git config values, `ag2c.manifest` and `ag2c.project-key`, plus an external `core.hooksPath`. Nothing is added to the working tree or index. New task worktrees belong under the project store, or `AG2C_WORKTREE_ROOT` when the store itself sits inside the checkout.
+The canonical repository stores only two local Git config values, `ag2c.manifest` and `ag2c.project-key`, plus an external `core.hooksPath`. Nothing is added to the working tree or index. New task worktrees belong under the project store. When the store itself sits inside the checkout (a self-governed portable folder keeps its store under the Git-ignored `data\` directory), an in-checkout worktree is accepted only where Git ignores that path; otherwise place worktrees outside with `AG2C_WORKTREE_ROOT` or `--worktree-root`.
 
 ## Enrollment and migration
 

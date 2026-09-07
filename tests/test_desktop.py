@@ -185,8 +185,8 @@ class DesktopServerTests(unittest.TestCase):
 class TrayHostSourceTests(unittest.TestCase):
     def test_tray_host_is_hello_imgui_without_webview2_or_pyside(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        ui = (root / "src" / "ag2c" / "imgui_tray.py").read_text(encoding="utf-8")
-        host = (root / "src" / "ag2c" / "tray_host.py").read_text(encoding="utf-8")
+        ui = (root / "src" / "ag2c_gui" / "imgui_tray.py").read_text(encoding="utf-8")
+        host = (root / "src" / "ag2c_gui" / "tray_host.py").read_text(encoding="utf-8")
         management = (root / "src" / "ag2c" / "management.py").read_text(encoding="utf-8")
         tasks = (root / "src" / "ag2c" / "tasks.py").read_text(encoding="utf-8")
         households = (root / "src" / "ag2c" / "households.py").read_text(encoding="utf-8")
@@ -219,7 +219,7 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("序号按层写", ui)
         self.assertIn("1-1-1", ui)
         self.assertNotIn('text_disabled("摘要")', ui)
-        self.assertIn("outward_hull", (root / "src" / "ag2c" / "graph.py").read_text(encoding="utf-8"))
+        self.assertIn("outward_hull", (root / "src" / "ag2c_gui" / "graph.py").read_text(encoding="utf-8"))
         self.assertIn("exp:", ui)
         self.assertIn("{LINEAGE_PROJECT_ID}", ui)
         self.assertIn("highlight_card_keys", ui)
@@ -344,7 +344,7 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("enable_idling = False", ui)
         self.assertIn("background_color = (0.13, 0.14, 0.16, 1.0)", ui)
         self.assertIn("photoshop_style", ui)
-        self.assertIn("from ag2c.imgui_tray import main", entry)
+        self.assertIn("from ag2c_gui.imgui_tray import main", entry)
         self.assertIn("packaging\\windows\\tray.py", build)
         self.assertIn("NOTICE-imgui.txt", build)
         self.assertIn("tray-host", installer)
@@ -374,7 +374,7 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn('("placeholder", "占位")', host)
         self.assertIn("入学占位，还没有说清这个目录", host)
         self.assertIn("_lineage_status_color", ui)
-        self.assertIn("ensure_portable_archive", (root / "src" / "ag2c" / "desktop.py").read_text(encoding="utf-8"))
+        self.assertIn("ensure_portable_archive", (root / "src" / "ag2c_gui" / "desktop.py").read_text(encoding="utf-8"))
         storage = (root / "src" / "ag2c" / "storage.py").read_text(encoding="utf-8")
         self.assertIn("rebind_portable_git_enrollment", storage)
         self.assertIn("relocate_installed_worktrees", storage)
@@ -394,7 +394,7 @@ class TrayHostSourceTests(unittest.TestCase):
 
 class TrayFontTests(unittest.TestCase):
     def test_windows_cjk_font_file_exists(self) -> None:
-        from ag2c.imgui_tray import cjk_font_path
+        from ag2c_gui.imgui_tray import cjk_font_path
 
         found = cjk_font_path()
         self.assertIsNotNone(found)
@@ -403,7 +403,7 @@ class TrayFontTests(unittest.TestCase):
         self.assertEqual("C:\\Windows\\Fonts", str(found.parent))
 
     def test_load_fonts_uses_filesystem_cjk_as_default(self) -> None:
-        from ag2c.imgui_tray import _load_fonts, cjk_font_path
+        from ag2c_gui.imgui_tray import _load_fonts, cjk_font_path
 
         loaded: list[dict[str, object]] = []
 
@@ -444,7 +444,7 @@ class TrayFontTests(unittest.TestCase):
 
 class TraySelectionTests(unittest.TestCase):
     def test_duplicate_titles_get_distinct_widget_ids(self) -> None:
-        from ag2c.imgui_tray import node_key, widget_id
+        from ag2c_gui.imgui_tray import node_key, widget_id
 
         label = "ADOPTION.md  ·  在册"
         left = widget_id(label, node_key({"title": "ADOPTION.md", "path": "docs/ADOPTION.md"}))
@@ -455,7 +455,7 @@ class TraySelectionTests(unittest.TestCase):
         self.assertIn("docs/zh-CN/ADOPTION.md", right)
 
     def test_tray_hides_nav_cursor_and_uses_unique_selectable_ids(self) -> None:
-        ui = (Path(__file__).resolve().parents[1] / "src" / "ag2c" / "imgui_tray.py").read_text(encoding="utf-8")
+        ui = (Path(__file__).resolve().parents[1] / "src" / "ag2c_gui" / "imgui_tray.py").read_text(encoding="utf-8")
         self.assertIn("set_nav_cursor_visible(False)", ui)
         self.assertIn("Col_.nav_cursor", ui)
         self.assertIn("widget_id(label, root)", ui)
@@ -474,7 +474,7 @@ class TraySelectionTests(unittest.TestCase):
 
 class TrayHostHelperTests(unittest.TestCase):
     def test_coverage_filter_keeps_exploring_cards(self) -> None:
-        from ag2c.tray_host import coverage_rows, node_matches
+        from ag2c_gui.tray_host import coverage_rows, node_matches
 
         details = {
             "graph": {
@@ -494,7 +494,7 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertFalse(node_matches(details["graph"]["nodes"][2], "", "exploring"))
 
     def test_placeholder_filter_excludes_exploring_and_inspect_explains_enrollment(self) -> None:
-        from ag2c.tray_host import FILTERS, claim_label, coverage_rows, inspect_card, node_matches
+        from ag2c_gui.tray_host import FILTERS, claim_label, coverage_rows, inspect_card, node_matches
 
         self.assertIn(("placeholder", "占位"), FILTERS)
         details = {
@@ -551,7 +551,7 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertNotIn("未普查", inspected["message"])
 
     def test_lineage_view_pads_leave_more_space_on_the_left(self) -> None:
-        from ag2c.imgui_tray import _lineage_view_pads
+        from ag2c_gui.imgui_tray import _lineage_view_pads
 
         pads = _lineage_view_pads(
             [
@@ -564,7 +564,7 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertGreater(graph_left - pads[0], pads[2] - graph_right)
 
     def test_lineage_node_matches_knowledge_card_by_id_or_title(self) -> None:
-        from ag2c.tray_host import card_matching_lineage
+        from ag2c_gui.tray_host import card_matching_lineage
 
         cards = [{"kind": "knowledge", "id": "knowledge.http", "title": "HTTP 与 Agent 协作接口"}]
         by_id = card_matching_lineage(cards, {"id": "knowledge.http", "title": "other"})
@@ -574,7 +574,7 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertIsNone(card_matching_lineage(cards, {"id": "missing", "title": "nope"}))
 
     def test_file_tree_lets_src_open_nested_children(self) -> None:
-        from ag2c.tray_host import file_tree_children
+        from ag2c_gui.tray_host import file_tree_children
 
         tree = file_tree_children(
             [
@@ -592,7 +592,7 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertTrue(all(kind == "file" for _name, kind, _prefix, _node in tree["src/ag2c"]))
 
     def test_file_and_card_focus_are_bidirectional(self) -> None:
-        from ag2c.tray_host import claim_label, coverage_scroll_key, files_for_card, focus_card, focus_file, peer_rels
+        from ag2c_gui.tray_host import claim_label, coverage_scroll_key, files_for_card, focus_card, focus_file, peer_rels
 
         gitops = {
             "kind": "file",
@@ -712,7 +712,7 @@ class TrayHostHelperTests(unittest.TestCase):
         )
 
     def test_file_tree_click_uses_file_card_not_the_parent_room(self) -> None:
-        from ag2c.tray_host import focus_card, focus_file
+        from ag2c_gui.tray_host import focus_card, focus_file
 
         household = {
             "kind": "knowledge",
@@ -762,7 +762,7 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertEqual("knowledge.ag2c", room["selected_card_key"])
 
     def test_leftover_parent_click_does_not_focus_excluded_child_files(self) -> None:
-        from ag2c.tray_host import files_for_card, focus_card
+        from ag2c_gui.tray_host import files_for_card, focus_card
 
         leftover = {
             "kind": "knowledge",
@@ -799,7 +799,7 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertEqual({"src/ag2c/cli.py"}, room["highlight_paths"])
 
     def test_card_list_hides_zaice_and_zero_file_counts(self) -> None:
-        from ag2c.tray_host import card_list_label, inspect_card, lineage_subtitle
+        from ag2c_gui.tray_host import card_list_label, inspect_card, lineage_subtitle
 
         household = {
             "kind": "knowledge",
@@ -914,7 +914,7 @@ class TrayHostHelperTests(unittest.TestCase):
         repo.assert_called_once()
 
     def test_preferred_project_root_skips_missing_folders(self) -> None:
-        from ag2c.tray_host import preferred_project_root
+        from ag2c_gui.tray_host import preferred_project_root
 
         vanished = {"name": "demo", "root": r"C:\Users\Holo\AppData\Local\Temp\tmpxoioswl5\demo", "state": "missing"}
         live = {"name": "AutoGovern2Code-main", "root": r"C:\_HOLOLAB\code\AutoGovern2Code-main", "state": "protected"}
@@ -925,7 +925,7 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertEqual("", preferred_project_root([]))
 
     def test_load_projects_drops_a_selection_that_left_the_registry(self) -> None:
-        from ag2c.imgui_tray import _load_projects
+        from ag2c_gui.imgui_tray import _load_projects
 
         vanished = r"C:\Users\Holo\AppData\Local\Temp\tmpxoioswl5\demo"
         live = r"C:\_HOLOLAB\code\AutoGovern2Code-main"
@@ -991,7 +991,7 @@ class TrayHostHelperTests(unittest.TestCase):
 
 class TrayGateTests(unittest.TestCase):
     def test_project_gate_rows_report_entry_delivery_records_and_anomalies(self) -> None:
-        from ag2c.tray_host import project_gate_rows
+        from ag2c_gui.tray_host import project_gate_rows
 
         project = {
             "entry_ready": True,
@@ -1052,7 +1052,7 @@ class TrayGateTests(unittest.TestCase):
         self.assertIn("已分叉", sick["worktrees"]["value"])
 
     def test_lineage_mark_matches_card_id_and_module_copy(self) -> None:
-        from ag2c.imgui_tray import _lineage_is_marked
+        from ag2c_gui.imgui_tray import _lineage_is_marked
 
         node = {"kind": "knowledge", "id": "knowledge.src", "visual_id": "knowledge.src@module:config", "title": "config exploring household"}
         self.assertTrue(_lineage_is_marked(node, "knowledge.src", set(), ""))
@@ -1064,7 +1064,7 @@ class TrayGateTests(unittest.TestCase):
 
 class TrayAuditTests(unittest.TestCase):
     def test_audit_records_clicks_to_ring_and_log_file(self) -> None:
-        from ag2c.imgui_tray import AUDIT_LIMIT, AppState, audit
+        from ag2c_gui.imgui_tray import AUDIT_LIMIT, AppState, audit
 
         with tempfile.TemporaryDirectory() as directory:
             log = Path(directory) / "ag2c-audit.log"
@@ -1087,7 +1087,7 @@ class TrayAuditTests(unittest.TestCase):
         self.assertGreaterEqual(AUDIT_LIMIT, 100)
 
     def test_audit_ring_drops_oldest_past_limit(self) -> None:
-        from ag2c.imgui_tray import AUDIT_LIMIT, AppState, audit
+        from ag2c_gui.imgui_tray import AUDIT_LIMIT, AppState, audit
 
         with tempfile.TemporaryDirectory() as directory:
             log = Path(directory) / "ag2c-audit.log"
@@ -1103,7 +1103,7 @@ class TrayAuditTests(unittest.TestCase):
             self.assertNotIn(" 测试  24\n", joined)
 
     def test_focus_path_and_card_write_audit_lines(self) -> None:
-        from ag2c.imgui_tray import AppState, _focus_card, _focus_path
+        from ag2c_gui.imgui_tray import AppState, _focus_card, _focus_path
 
         tray = {
             "kind": "file",
@@ -1145,7 +1145,7 @@ class TrayAuditTests(unittest.TestCase):
             self.assertIn("未命中文件  详情  missing/nope.py", written)
 
     def test_audit_overlay_is_not_a_dock_and_newest_is_reversed_in_gui_source(self) -> None:
-        ui = (Path(__file__).resolve().parents[1] / "src" / "ag2c" / "imgui_tray.py").read_text(encoding="utf-8")
+        ui = (Path(__file__).resolve().parents[1] / "src" / "ag2c_gui" / "imgui_tray.py").read_text(encoding="utf-8")
         self.assertIn("reversed(state.audit_lines)", ui)
         self.assertIn('small_button("清空")', ui)
         self.assertIn('small_button("打开日志文件")', ui)
@@ -1193,7 +1193,7 @@ class HiddenConsoleTests(unittest.TestCase):
                 self.assertNotIn("creationflags", kwargs)
 
     def test_runtime_and_desktop_server_do_not_open_a_console(self) -> None:
-        from ag2c.tray_host import runtime_command, start_desktop_server
+        from ag2c_gui.tray_host import runtime_command, start_desktop_server
 
         command = runtime_command([], Path("."))
         self.assertEqual("-m", command[1])
@@ -1214,7 +1214,7 @@ class HiddenConsoleTests(unittest.TestCase):
         self.assertIn("**hidden_process_kwargs()", source)
 
     def test_wait_for_status_can_be_cancelled(self) -> None:
-        from ag2c.tray_host import wait_for_status
+        from ag2c_gui.tray_host import wait_for_status
 
         class DeadApi:
             def request(self, *args: object, **kwargs: object) -> dict[str, str]:

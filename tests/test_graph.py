@@ -542,7 +542,7 @@ class GovernanceGraphTests(unittest.TestCase):
                 },
             }
         )
-        from ag2c.tray_host import files_for_card, focus_card
+        from ag2c_gui.tray_host import files_for_card, focus_card
 
         leftover_node = next(node for node in graph["nodes"] if node["id"] == "knowledge.src")
         ag2c_node = next(node for node in graph["nodes"] if node["id"] == "knowledge.ag2c")

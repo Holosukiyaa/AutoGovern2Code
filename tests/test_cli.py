@@ -15,7 +15,7 @@ from ag2c.cli import main
 class CLITests(unittest.TestCase):
     def test_browser_viewer_command_is_removed(self) -> None:
         output = io.StringIO()
-        with patch("ag2c.desktop.serve_desktop") as serve, redirect_stdout(output):
+        with patch("ag2c_gui.desktop.serve_desktop") as serve, redirect_stdout(output):
             with self.assertRaises(SystemExit):
                 main(["viewer", "--open"])
         serve.assert_not_called()

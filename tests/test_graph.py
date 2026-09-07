@@ -4,7 +4,7 @@ import unittest
 
 import bootstrap  # noqa: F401
 
-from ag2c.graph import (
+from ag2c_gui.graph import (
     KNOWLEDGE_TITLE_LIMIT,
     LINEAGE_CARD_H,
     LINEAGE_CARD_MAX_W,

@@ -8,9 +8,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-from . import __version__
-from .errors import AG2CError
-from .management import (
+from ag2c import __version__
+from ag2c.errors import AG2CError
+from ag2c.management import (
     add_project,
     align_managed_projects,
     managed_projects,
@@ -171,7 +171,7 @@ class DesktopHandler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK, {"project": repair_and_check_project(self._request_path(body))})
                 return
             if path == "/api/household/span":
-                from .household_commands import set_household_span
+                from ag2c.household_commands import set_household_span
 
                 card_id = body.get("id")
                 tag = body.get("tag")
@@ -208,7 +208,7 @@ def serve_desktop(*, port: int, token: str, on_ready: Callable[[int], object] | 
         raise AG2CError("desktop port must be between 1 and 65535")
     if len(token) < 24:
         raise AG2CError("desktop session token is too short")
-    from .storage import ensure_portable_archive
+    from ag2c.storage import ensure_portable_archive
 
     ensure_portable_archive()
     server = DesktopServer(("127.0.0.1", port), token)

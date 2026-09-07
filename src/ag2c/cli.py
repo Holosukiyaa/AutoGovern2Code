@@ -547,7 +547,7 @@ def main(argv: list[str] | None = None) -> int:
             print(_json(stop_managing(args.path, remove_data=args.project_command == "uninstall" or bool(getattr(args, "remove_data", False)))))
             return 0
         if args.command == "desktop":
-            from .desktop import serve_desktop
+            from ag2c_gui.desktop import serve_desktop
 
             return serve_desktop(port=args.port, token=args.token)
         if args.command == "guard":

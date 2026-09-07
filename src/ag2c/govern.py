@@ -8,7 +8,7 @@ from typing import Any
 
 from .config import discover_manifest, load_manifest, load_policy
 from .errors import AG2CError, ConfigurationError
-from .graph import KNOWLEDGE_TITLE_LIMIT, clip_knowledge_title
+from ag2c_gui.graph import KNOWLEDGE_TITLE_LIMIT, clip_knowledge_title
 from .gitops import repository_root
 from .index import build_index, index_path
 from .knowledge import knowledge_status, sync_knowledge
@@ -640,7 +640,7 @@ def retrieve_guidance(start: Path, *, path_specs: list[str], contract_specs: lis
         ]
     except AG2CError:
         pass
-    from .graph import knowledge_lineage_index
+    from ag2c_gui.graph import knowledge_lineage_index
 
     card_dicts = [
         {

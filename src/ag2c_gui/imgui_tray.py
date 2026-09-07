@@ -1979,7 +1979,7 @@ def _gui_inspect(state: AppState) -> None:
         imgui.separator()
         imgui.text_wrapped("AI 入口只有两件事：通用 MCP 连接说明（占位符，不绑厂商），以及检测 MCP 是否在工作。Skill 全文在 MCP 里；检测会连 Git hook 一起看。")
         if imgui.button("检测 MCP"):
-            from .mcp_server import install_mcp_clients, mcp_health
+            from ag2c.mcp_server import install_mcp_clients, mcp_health
 
             try:
                 install_mcp_clients()

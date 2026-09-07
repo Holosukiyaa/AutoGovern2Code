@@ -1021,6 +1021,93 @@ def unregister_app() -> None:
     apply_startup(False, "")
 
 
+_JOB_HANDLES: list[int] = []  # keep job handles alive for the process lifetime
+
+
+def _bind_kill_on_close(process) -> None:
+    """Assign the child to a kill-on-close Job so Windows ends it when this process dies.
+
+    Without this, a crashed or force-killed tray leaves `ag2c desktop serve` running
+    as an orphan. Best-effort: any failure leaves the child as-is.
+    """
+    if os.name != "nt":
+        return
+    pid = getattr(process, "pid", None)
+    if not isinstance(pid, int):  # mocked Popen in tests
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ("PerProcessUserTimeLimit", wintypes.LARGE_INTEGER),
+                ("PerJobUserTimeLimit", wintypes.LARGE_INTEGER),
+                ("LimitFlags", wintypes.DWORD),
+                ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t),
+                ("ActiveProcessLimit", wintypes.DWORD),
+                ("Affinity", ctypes.c_size_t),
+                ("PriorityClass", wintypes.DWORD),
+                ("SchedulingClass", wintypes.DWORD),
+            ]
+
+        class IO_COUNTERS(ctypes.Structure):
+            _fields_ = [
+                (name, ctypes.c_uint64)
+                for name in (
+                    "ReadOperationCount",
+                    "WriteOperationCount",
+                    "OtherOperationCount",
+                    "ReadTransferCount",
+                    "WriteTransferCount",
+                    "OtherTransferCount",
+                )
+            ]
+
+        class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+                ("IoInfo", IO_COUNTERS),
+                ("ProcessMemoryLimit", ctypes.c_size_t),
+                ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed", ctypes.c_size_t),
+            ]
+
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+        JobObjectExtendedLimitInformation = 9
+        PROCESS_SET_QUOTA = 0x0100
+        PROCESS_TERMINATE = 0x0001
+
+        kernel32 = ctypes.windll.kernel32
+        kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        job = kernel32.CreateJobObjectW(None, None)
+        if not job:
+            return
+        info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not kernel32.SetInformationJobObject(
+            job, JobObjectExtendedLimitInformation, ctypes.byref(info), ctypes.sizeof(info)
+        ):
+            kernel32.CloseHandle(job)
+            return
+        child = kernel32.OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, False, pid)
+        if not child:
+            kernel32.CloseHandle(job)
+            return
+        try:
+            if kernel32.AssignProcessToJobObject(job, child):
+                _JOB_HANDLES.append(job)  # closing the handle would kill the child now
+            else:
+                kernel32.CloseHandle(job)
+        finally:
+            kernel32.CloseHandle(child)
+    except Exception:
+        return
+
+
 def start_desktop_server(command: list[str], port: int, token: str, extra_env: dict[str, str] | None = None):
     import subprocess
 
@@ -1037,7 +1124,9 @@ def start_desktop_server(command: list[str], port: int, token: str, extra_env: d
     }
     if os.name == "nt" and len(command) == 1 and command[0].lower().endswith("ag2c.exe"):
         kwargs["cwd"] = str(Path(command[0]).parent)
-    return subprocess.Popen(**kwargs)
+    process = subprocess.Popen(**kwargs)
+    _bind_kill_on_close(process)
+    return process
 
 
 def stop_desktop_server(api: DesktopApi | None, process) -> None:

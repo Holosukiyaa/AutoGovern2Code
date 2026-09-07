@@ -261,7 +261,7 @@ def _index_card_entry(card: Mapping[str, Any]) -> dict[str, Any]:
     paths = _scope_paths(card)
     return {
         "id": _text(card.get("id")),
-        "title": _text(card.get("title")) or _text(card.get("id")),
+        "title": knowledge_title(card),
         "summary": _text(card.get("summary")),
         "path": paths[0] if len(paths) == 1 else "",
         "include": paths,
@@ -527,7 +527,7 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
         nodes[card_id] = _node(
             card_id,
             kind=kind if kind in KIND_LABELS else "knowledge",
-            title=_text(card.get("title")) or card_id,
+            title=knowledge_title(card, fallback=card_id) if kind == "knowledge" else (_text(card.get("title")) or card_id),
             summary=_text(card.get("summary")),
             flags=flags,
             path="、".join(paths[:4]),
@@ -745,7 +745,7 @@ def build_governance_graph(details: Mapping[str, Any] | None) -> dict[str, Any]:
         file_card = file_card_by_path.get(rel)
         if file_card is None:
             continue
-        title = _text(file_card.get("title")) or _text(file_card.get("id"))
+        title = knowledge_title(file_card)
         node["coveredBy"] = [title]
         node["coverageLabel"] = title
         node["parentCard"] = _text(file_card.get("id"))
@@ -836,9 +836,9 @@ LINEAGE_UNGROUPED_ID = "module:ungrouped"
 # G6 antv-dagre-combo analogue: LR ranks, combos wrap card nodes.
 LINEAGE_CARD_W = 220.0
 LINEAGE_CARD_MIN_W = 220.0
-LINEAGE_CARD_MAX_W = 320.0
+LINEAGE_CARD_MAX_W = 400.0
 LINEAGE_CARD_H = 40.0
-LINEAGE_DETAIL_CARD_H = 76.0
+KNOWLEDGE_TITLE_LIMIT = 20
 LINEAGE_CARD_GAP_X = 10.0
 LINEAGE_CARD_GAP_Y = 10.0
 LINEAGE_MODULE_PAD = 16.0
@@ -862,53 +862,23 @@ def _lineage_text_width(value: str) -> float:
     return width
 
 
-def lineage_card_width(node: Mapping[str, Any]) -> float:
-    """Elastic card width from title/status, clamped for one combo row."""
-    title = str(node.get("title") or "")
-    extra = str(node.get("replaced_by") or node.get("status") or node.get("abstract") or "")
-    if node.get("replaced_by"):
-        extra = "已被 " + extra + " 替换"
-    inner = max(_lineage_text_width(title), _lineage_text_width(extra[:24])) + 28.0
-    return min(LINEAGE_CARD_MAX_W, max(LINEAGE_CARD_MIN_W, inner))
+def title_is_abstract(card: Mapping[str, Any]) -> bool:
+    """File/document knowledge cards: the title is the 摘要. Households keep room names."""
+    kind = _text(card.get("type") or card.get("kind"))
+    if kind != "knowledge":
+        return False
+    return not bool(card.get("jurisdiction"))
 
 
-def card_abstract(source: Mapping[str, Any] | str, *, limit: int = 42) -> str:
-    """Short 摘要: explicit abstract, else the first sentence of summary."""
-    if isinstance(source, Mapping):
-        text = _text(source.get("abstract") or source.get("blurb")) or _text(source.get("summary"))
-    else:
-        text = str(source or "").strip()
-    text = " ".join(text.split())
-    if not text:
-        return ""
-    cut = len(text)
-    for marker in ("。", "！", "？", ". ", "!\n", "?\n"):
-        at = text.find(marker)
-        if 0 < at < cut:
-            cut = at + (0 if marker.startswith(".") else 1)
-    sentence = text[:cut].strip(" .")
-    if not sentence:
-        sentence = text
-    if len(sentence) > limit:
-        return sentence[:limit].rstrip() + "…"
-    return sentence
+def clip_knowledge_title(value: Any) -> str:
+    return _text(value)[:KNOWLEDGE_TITLE_LIMIT]
 
 
-def card_detail(source: Mapping[str, Any] | str) -> str:
-    """详细设计 body. Full summary, including the abstract sentence."""
-    if isinstance(source, Mapping):
-        return _text(source.get("summary"))
-    return str(source or "").strip()
-
-
-def lineage_leaf_card(node: Mapping[str, Any]) -> bool:
-    return str(node.get("kind") or "") == "knowledge" and not (node.get("nested") and node.get("cards"))
-
-
-def lineage_card_height(node: Mapping[str, Any]) -> float:
-    if lineage_leaf_card(node) and (node.get("abstract") or node.get("summary")):
-        return LINEAGE_DETAIL_CARD_H
-    return LINEAGE_CARD_H
+def knowledge_title(card: Mapping[str, Any], *, fallback: str = "") -> str:
+    title = _text(card.get("title")) or fallback or _text(card.get("id"))
+    if title_is_abstract(card):
+        return clip_knowledge_title(title)
+    return title
 
 
 def lineage_ordinal(node: Mapping[str, Any]) -> int:
@@ -917,6 +887,22 @@ def lineage_ordinal(node: Mapping[str, Any]) -> int:
         return int(raw) + 1
     except (TypeError, ValueError):
         return 0
+
+
+def lineage_card_width(node: Mapping[str, Any]) -> float:
+    """Elastic card width from numbered title/status, clamped for one combo row."""
+    title = str(node.get("title") or "")
+    ordinal = lineage_ordinal(node)
+    heading = f"{ordinal}. {title}" if ordinal else title
+    extra = str(node.get("replaced_by") or node.get("status") or "")
+    if node.get("replaced_by"):
+        extra = "已被 " + extra + " 替换"
+    inner = max(_lineage_text_width(heading), _lineage_text_width(extra[:24])) + 28.0
+    return min(LINEAGE_CARD_MAX_W, max(LINEAGE_CARD_MIN_W, inner))
+
+
+def lineage_card_height(_node: Mapping[str, Any]) -> float:
+    return LINEAGE_CARD_H
 
 
 def lineage_uid(kind: str, key: str) -> int:
@@ -1062,10 +1048,8 @@ def build_lineage(details: Mapping[str, Any] | None, *, project_name: str = "") 
                     "id": knowledge_id,
                     "kind": "knowledge",
                     "kindLabel": "知识卡",
-                    "title": _text(card.get("title")) or knowledge_id,
+                    "title": knowledge_title(card, fallback=knowledge_id),
                     "summary": _text(card.get("summary")),
-                    "abstract": card_abstract(card),
-                    "detail": _text(card.get("summary")),
                     "status": _knowledge_status_label(card, graph_nodes, knowledge_id),
                     "statusTag": _knowledge_status_tag(card, graph_nodes, knowledge_id),
                     "path": _text(nodes[floor_id].get("path")),
@@ -1124,10 +1108,8 @@ def build_lineage(details: Mapping[str, Any] | None, *, project_name: str = "") 
                     "id": knowledge_id,
                     "kind": "knowledge",
                     "kindLabel": "知识卡",
-                    "title": _text(card.get("title")) or knowledge_id,
+                    "title": knowledge_title(card, fallback=knowledge_id),
                     "summary": _text(card.get("summary")),
-                    "abstract": card_abstract(card),
-                    "detail": _text(card.get("summary")),
                     "status": _knowledge_status_label(card, graph_nodes, knowledge_id),
                     "statusTag": _knowledge_status_tag(card, graph_nodes, knowledge_id),
                     "path": "",

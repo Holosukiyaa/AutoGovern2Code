@@ -54,8 +54,10 @@ If the tag is `整夹一张` and after reading the files they do not share one d
 
    **一文件一张** — each code file gets its own knowledge card bound to that file. The parent household summary is room identity, not 设计思路. Do not skip files. Do not reuse one parent sentence.
 
+   The card **title is the 摘要**: at most 20 characters, Chinese allowed. The file tree shows this name next to the file as its owner. Do not write a separate 摘要. `--summary` is 详细设计. The id (`knowledge.<english-slug>`) is the stable identifier, not the display name; it must stay an English slug.
+
    ```text
-   ag2c govern apply --action add --id knowledge.<file-slug> --type knowledge --title "<file or module>" --summary "<detailed 设计思路 for THIS file>" --include <relative-file> --actor <harness> --reason "<read this file>"
+   ag2c govern apply --action add --id knowledge.<file-slug> --type knowledge --title "<≤20-character 摘要>" --summary "<detailed 设计思路 for THIS file>" --include <relative-file> --actor <harness> --reason "<read this file>"
    ```
 
    Use `--action update` when that file card already exists. `--include` is exactly one file. Then the room may be named (`--meaning named`) only after every code file has a card.
@@ -81,3 +83,4 @@ If the tag is `整夹一张` and after reading the files they do not share one d
 - Do not name a `未打标` room.
 - Do not `census --record` a card you did not inspect.
 - Do not create a catch-all parent card to hide unread children.
+- Do not use an English filename, module path, or `python -m …` as the file-card title when a ≤20-character 摘要 can name it.

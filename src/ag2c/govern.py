@@ -8,6 +8,7 @@ from typing import Any
 
 from .config import discover_manifest, load_manifest, load_policy
 from .errors import AG2CError, ConfigurationError
+from .graph import KNOWLEDGE_TITLE_LIMIT, clip_knowledge_title
 from .gitops import repository_root
 from .index import build_index, index_path
 from .knowledge import knowledge_status, sync_knowledge
@@ -195,7 +196,7 @@ def compose_baseline_governance(root: Path, project_roots: list[str], checker_id
         if card_id in used:
             continue
         used.add(card_id)
-        title = Path(relative).name
+        title = clip_knowledge_title(Path(relative).name)
         cards.append(
             {
                 "id": card_id,
@@ -550,6 +551,13 @@ def apply_change(
         current["type"] = card_type if action == "add" else current.get("type") or card_type
         current["title"] = title.strip() or current.get("title") or card_id
         current["summary"] = summary.strip() or current.get("summary") or reason
+        if current.get("type") == "knowledge":
+            stored_title = str(current.get("title") or "").strip()
+            if len(stored_title) > KNOWLEDGE_TITLE_LIMIT:
+                raise AG2CError(
+                    f"knowledge card title is the 摘要 and must be at most {KNOWLEDGE_TITLE_LIMIT} characters; "
+                    "Chinese is allowed, the English id is not the display name"
+                )
         if not includes:
             raise AG2CError("card apply requires --include")
         current["scopes"] = [{"target": "app", "include": includes, "ownership": "primary" if current["type"] == "floor" else "reference"}]

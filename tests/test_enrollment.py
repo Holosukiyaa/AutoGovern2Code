@@ -313,6 +313,43 @@ class EnrollmentTests(unittest.TestCase):
                 self.assertEqual("Holds VALUE for the demo.", design_summary_for_file(policy, src, "src/value.py"))
                 self.assertNotEqual(src["summary"], design_summary_for_file(policy, src, "src/value.py"))
 
+    def test_knowledge_title_is_the_abstract_at_most_20_characters(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = git_project(base / "demo")
+            data = base / "ag2c-data"
+            with patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False):
+                enroll_project(root, skill_root=base / "skills", harnesses=("agents",))
+                apply_change(
+                    root,
+                    action="add",
+                    kind="card",
+                    card_id="knowledge.src-value",
+                    actor="codex",
+                    reason="Chinese title is the 摘要",
+                    card_type="knowledge",
+                    title="演示常量存放处",
+                    summary="Holds VALUE for the demo.",
+                    include=["src/value.py"],
+                )
+                manifest = load_manifest(discover_manifest(root), project_root=root)
+                policy = load_policy(manifest)
+                card = next(item for item in policy.cards if item.card_id == "knowledge.src-value")
+                self.assertEqual("演示常量存放处", card.title)
+                with self.assertRaises(AG2CError) as raised:
+                    apply_change(
+                        root,
+                        action="update",
+                        kind="card",
+                        card_id="knowledge.src-value",
+                        actor="codex",
+                        reason="title too long",
+                        card_type="knowledge",
+                        title="这是一个超过二十个字的知识卡摘要名字啊过长",
+                        include=["src/value.py"],
+                    )
+                self.assertIn("20", str(raised.exception))
+
     def test_python_and_pythonw_count_as_the_same_runtime(self) -> None:
         py = Path(r"C:\Users\Holo\AppData\Local\Programs\Python\Python312\python.exe")
         pyw = Path(r"C:\Users\Holo\AppData\Local\Programs\Python\Python312\pythonw.exe")

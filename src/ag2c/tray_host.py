@@ -670,18 +670,17 @@ def inspect_card(card: dict[str, Any], files: list[tuple[str, dict[str, Any]]]) 
     else:
         message = "这张卡还没有落到文件树上的代码文件"
     show_design = bool(text(card, "summary")) and (not household or span == "folder")
-    from .graph import card_abstract, card_detail, lineage_ordinal
+    from .graph import knowledge_title, lineage_ordinal
 
     summary = text(card, "summary") if show_design else ""
-    title = text(card, "title") or text(card, "id")
+    title = knowledge_title(card)
     ordinal = lineage_ordinal(card)
     return {
         "mode": "card",
         "title": f"{ordinal}. {title}" if ordinal else title,
         "status": card_problem_status(card),
         "summary": summary,
-        "abstract": card_abstract(card) if show_design else "",
-        "detail": card_detail(card) if show_design else "",
+        "detail": summary,
         "ordinal": ordinal,
         "claim": "",
         "path": "",

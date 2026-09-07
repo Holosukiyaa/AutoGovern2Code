@@ -211,9 +211,10 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertNotIn("##span-", ui)
         self.assertIn("layout_lineage_view", ui)
         self.assertIn("outward_hull", ui)
-        self.assertIn("摘要", ui)
+        self.assertIn("卡名就是摘要", ui)
         self.assertIn("详细设计", ui)
         self.assertIn("序号", ui)
+        self.assertNotIn('text_disabled("摘要")', ui)
         self.assertIn("outward_hull", (root / "src" / "ag2c" / "graph.py").read_text(encoding="utf-8"))
         self.assertIn("exp:", ui)
         self.assertIn("{LINEAGE_PROJECT_ID}", ui)
@@ -812,7 +813,7 @@ class TrayHostHelperTests(unittest.TestCase):
         file_card = {
             "kind": "knowledge",
             "id": "knowledge.ag2c-cli",
-            "title": "ag2c command surface",
+            "title": "命令面参数解析",
             "statusLabel": "在册",
             "flags": [],
         }
@@ -835,11 +836,11 @@ class TrayHostHelperTests(unittest.TestCase):
         }
         self.assertEqual("src/ag2c package  ·  一文件一张  ·  30 个文件", card_list_label("src/ag2c package", household, 30))
         self.assertEqual("src leftover parent  ·  占位", card_list_label("src leftover parent", leftover, 0))
-        self.assertEqual("ag2c command surface", card_list_label("ag2c command surface", file_card, 1))
-        self.assertEqual("2. ag2c command surface", card_list_label("ag2c command surface", file_card, 1, ordinal=2))
+        self.assertEqual("命令面参数解析", card_list_label("命令面参数解析", file_card, 1))
+        self.assertEqual("2. 命令面参数解析", card_list_label("命令面参数解析", file_card, 1, ordinal=2))
         numbered = inspect_card({**file_card, "index": 1, "summary": "命令面把参数交给 enrollment。真正的治理不在 cli.py。"}, [])
-        self.assertTrue(str(numbered.get("title") or "").startswith("2."))
-        self.assertTrue(str(numbered.get("abstract") or "").startswith("命令面把参数交给 enrollment"))
+        self.assertEqual("2. 命令面参数解析", numbered.get("title"))
+        self.assertNotIn("abstract", numbered)
         self.assertIn("真正的治理不在 cli.py", str(numbered.get("detail") or ""))
         self.assertEqual("README.md  ·  文档", card_list_label("README.md", readme, 0))
         self.assertEqual("product documentation  ·  整夹一张", card_list_label("product documentation", docs, 0))

@@ -13,7 +13,6 @@ from .graph import (
     LINEAGE_CARD_W,
     LINEAGE_PROJECT_ID,
     build_lineage,
-    card_abstract,
     layout_lineage_view,
     lineage_ordinal,
     lineage_related_ids,
@@ -1400,7 +1399,7 @@ def _gui_cards(state: AppState) -> None:
     if details is not None and not all_cards:
         imgui.text_disabled("还没有知识卡")
         return
-    imgui.text_disabled("每张卡有序号、摘要和详细设计。左侧搜索可按标题或摘要查找。")
+    imgui.text_disabled("每张卡有序号；卡名就是摘要（最多20字）。左侧搜索可按卡名查找。")
     imgui.push_style_var(imgui.StyleVar_.item_spacing, imgui.ImVec2(4.0, 1.0))
     imgui.push_text_wrap_pos(-1.0)
     children_of: dict[str, list[dict[str, Any]]] = {}
@@ -1426,9 +1425,6 @@ def _gui_cards(state: AppState) -> None:
         if _selectable(widget_id(label, key), marked):
             node["index"] = max(0, ordinal - 1)
             _focus_card(state, node)
-        blurb = card_abstract(node)
-        if blurb:
-            imgui.text_disabled(_lineage_label(blurb, 240.0 if indent else 260.0))
         if indent:
             imgui.unindent(16.0)
         if scroll_card and key == scroll_card:
@@ -1801,7 +1797,6 @@ def _gui_lineage(state: AppState) -> None:
                 heading = f"{ordinal}. {title}" if ordinal else title
                 imgui.text(_lineage_label(heading, card_w - (28.0 if node.get("nested") else 8.0)))
                 extra = lineage_subtitle(node)
-                blurb = str(node.get("abstract") or "")
                 if extra:
                     line = _lineage_label(extra, card_w - 8.0)
                     tag = str(node.get("statusTag") or "")
@@ -1813,11 +1808,6 @@ def _gui_lineage(state: AppState) -> None:
                         imgui.text_colored((0.90, 0.55, 0.38, 1.0), line)
                     else:
                         imgui.text_disabled(line)
-                elif blurb:
-                    wrap_at = imgui.get_cursor_pos_x() + card_w
-                    imgui.push_text_wrap_pos(wrap_at)
-                    imgui.text_disabled(blurb)
-                    imgui.pop_text_wrap_pos()
                 ed.end_node()
                 ed.pop_style_color(2)
             if project is not None:
@@ -2119,15 +2109,11 @@ def _gui_inspect(state: AppState) -> None:
             imgui.separator()
             imgui.text_disabled("覆盖")
             imgui.text(str(fields.get("span_label") or "未打标"))
-        if fields.get("abstract") or fields.get("detail") or fields.get("summary"):
+        detail = str(fields.get("detail") or fields.get("summary") or "")
+        if detail:
             imgui.separator()
-            imgui.text_disabled("摘要")
-            imgui.text_wrapped(str(fields.get("abstract") or fields.get("summary") or ""))
-            detail = str(fields.get("detail") or fields.get("summary") or "")
-            if detail:
-                imgui.separator()
-                imgui.text_disabled("详细设计")
-                imgui.text_wrapped(detail)
+            imgui.text_disabled("详细设计")
+            imgui.text_wrapped(detail)
         if fields.get("message"):
             imgui.separator()
             imgui.text_wrapped(str(fields.get("message")))

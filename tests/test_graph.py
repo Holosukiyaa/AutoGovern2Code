@@ -5,6 +5,7 @@ import unittest
 import bootstrap  # noqa: F401
 
 from ag2c.graph import (
+    KNOWLEDGE_TITLE_LIMIT,
     LINEAGE_CARD_H,
     LINEAGE_CARD_MAX_W,
     LINEAGE_CARD_MIN_W,
@@ -16,9 +17,9 @@ from ag2c.graph import (
     LINEAGE_PROJECT_ID,
     build_governance_graph,
     build_lineage,
-    card_abstract,
-    card_detail,
+    clip_knowledge_title,
     knowledge_lineage_index,
+    knowledge_title,
     layout_lineage_view,
     lineage_boxes_overlap,
     lineage_card_width,
@@ -290,9 +291,9 @@ class GovernanceGraphTests(unittest.TestCase):
         self.assertGreater(shown_cli["x"], src_box["x"] + src_box["width"])
         leftover_node = next(item for item in nodes if item["id"] == "knowledge.src")
         self.assertLess(leftover_node["x"] + leftover_node["width"], shown_cli["x"])
-        self.assertTrue(card_abstract("python -m ag2c 的入口：从 cli.main 取返回码并 sys.exit。真正的子命令解析在 cli.py。").startswith("python -m ag2c 的入口"))
-        self.assertIn("真正的子命令解析", card_detail({"summary": "python -m ag2c 的入口：从 cli.main 取返回码并 sys.exit。真正的子命令解析在 cli.py。"}))
         self.assertGreaterEqual(lineage_ordinal(shown_cli), 1)
+        self.assertEqual("cli", shown_cli["title"])
+        self.assertNotIn("abstract", shown_cli)
         hull = shown_house.get("outward_hull")
         self.assertIsInstance(hull, dict)
         self.assertGreater(float(hull["x"]), shown_house["x"] + shown_house["width"])
@@ -324,6 +325,78 @@ class GovernanceGraphTests(unittest.TestCase):
         self.assertEqual("file", household_lineage.get("span"))
         self.assertEqual("一文件一张", household_lineage.get("spanLabel"))
         self.assertEqual("folder", leftover_lineage.get("span"))
+
+    def test_file_card_title_is_the_abstract_in_chinese_and_clips_to_20(self) -> None:
+        long_title = "模块入口把 python -m ag2c 转给命令面解析"
+        self.assertGreater(len(long_title), KNOWLEDGE_TITLE_LIMIT)
+        clipped = clip_knowledge_title(long_title)
+        self.assertEqual(KNOWLEDGE_TITLE_LIMIT, len(clipped))
+        self.assertEqual(
+            "模块入口转交 CLI",
+            knowledge_title({"type": "knowledge", "title": "模块入口转交 CLI", "id": "knowledge.ag2c-dunder-main"}),
+        )
+        self.assertEqual(
+            "src leftover parent",
+            knowledge_title(
+                {
+                    "type": "knowledge",
+                    "title": "src leftover parent",
+                    "id": "knowledge.src",
+                    "jurisdiction": {"span": "folder"},
+                }
+            ),
+        )
+        cli = _card(
+            "knowledge.ag2c-cli",
+            "knowledge",
+            long_title,
+            include=["src/ag2c/cli.py"],
+            references=["src/ag2c/cli.py"],
+            summary="命令面把参数交给 enrollment。真正的治理不在 cli.py。",
+        )
+        graph = build_governance_graph(
+            {
+                "cards": [cli],
+                "knowledge": [],
+                "relations": [],
+                "index": {"findings": []},
+                "pending": [],
+                "worktrees": [],
+                "checkers": [],
+                "census": {
+                    "households": [],
+                    "directories": [
+                        {
+                            "target": "app",
+                            "path": "src/ag2c",
+                            "files": ["src/ag2c/cli.py"],
+                            "owners": ["knowledge.ag2c-cli"],
+                            "unowned": False,
+                        }
+                    ],
+                },
+            }
+        )
+        card_node = next(node for node in graph["nodes"] if node["id"] == "knowledge.ag2c-cli")
+        file_node = next(node for node in graph["nodes"] if node["id"] == "file:app:src/ag2c/cli.py")
+        self.assertEqual(clipped, card_node["title"])
+        self.assertEqual(clipped, file_node["coverageLabel"])
+        self.assertEqual([clipped], file_node["claimLabels"])
+        lineage = build_lineage(
+            {
+                "project": {"name": "AutoGovern2Code"},
+                "cards": [
+                    _card("constitution.project", "constitution", "宪章"),
+                    _card("floor.src", "floor", "src", include=["src/**"]),
+                    cli,
+                ],
+                "relations": [{"source": "knowledge.ag2c-cli", "type": "explains", "target": "floor.src"}],
+                "graph": {"nodes": []},
+            }
+        )
+        shown = next(node for node in lineage["nodes"] if node["id"] == "knowledge.ag2c-cli")
+        self.assertEqual(clipped, shown["title"])
+        self.assertNotIn("abstract", shown)
 
     def test_code_file_cards_are_not_document_tags(self) -> None:
         cli = _card("knowledge.ag2c-cli", "knowledge", "cli", include=["src/ag2c/cli.py"], references=["src/ag2c/cli.py"])

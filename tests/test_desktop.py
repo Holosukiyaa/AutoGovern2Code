@@ -174,6 +174,18 @@ class DesktopServerTests(unittest.TestCase):
         self.assertEqual(expected, json.loads(body))
         details.assert_called_once()
 
+    def test_project_digest_endpoint_returns_fingerprint(self) -> None:
+        with patch("ag2c_gui.desktop._project_digest", return_value={"digest": "abc123", "version": "0"}) as digest:
+            status, body, _ = self.request(
+                "POST",
+                "/api/project/digest",
+                body={"path": "C:/Project"},
+                token=True,
+            )
+        self.assertEqual(200, status)
+        self.assertEqual({"digest": "abc123", "version": "0"}, json.loads(body))
+        digest.assert_called_once()
+
     def test_serve_desktop_notifies_after_socket_is_bound(self) -> None:
         from ag2c_gui.desktop import serve_desktop
 
@@ -193,6 +205,44 @@ class DesktopServerTests(unittest.TestCase):
             )
         self.assertEqual(1, len(ready))
         self.assertGreater(ready[0], 0)
+
+
+class ProjectDigestTests(unittest.TestCase):
+    def test_digest_is_stable_then_tracks_state_and_head_changes(self) -> None:
+        from support import git_project
+
+        from ag2c.config import discover_manifest, load_manifest
+        from ag2c.enrollment import enroll_project
+        from ag2c.gitops import git
+        from ag2c_gui.desktop import _project_digest
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = git_project(base / "demo")
+            data = base / "ag2c-data"
+            with patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False):
+                enroll_project(root, skill_root=base / "skills", harnesses=("agents",))
+                first = _project_digest(root)["digest"]
+                self.assertEqual(first, _project_digest(root)["digest"])
+                manifest = load_manifest(discover_manifest(root), project_root=root)
+                os.utime(manifest.policy_path, ns=(1_000_000_000, 1_000_000_000))
+                touched = _project_digest(root)["digest"]
+                self.assertNotEqual(first, touched)
+                (root / "note.txt").write_text("hello\n", encoding="utf-8")
+                git(root, "add", "note.txt")
+                # The enrolled guard hooks canonical commits; the test only needs HEAD to move.
+                git(root, "commit", "--no-verify", "-m", "move HEAD")
+                self.assertNotEqual(touched, _project_digest(root)["digest"])
+
+    def test_tray_polls_digest_and_reloads_on_change(self) -> None:
+        ui = (Path(__file__).resolve().parents[1] / "src" / "ag2c_gui" / "imgui_tray.py").read_text(encoding="utf-8")
+        self.assertIn("AUTO_REFRESH_INTERVAL_S", ui)
+        self.assertIn("def _maybe_auto_refresh", ui)
+        self.assertIn("def _poll_digest", ui)
+        self.assertIn('"POST", "api/project/digest"', ui)
+        self.assertIn("state.digest", ui)
+        self.assertIn("检测到项目变更，已自动刷新", ui)
+        self.assertIn("_maybe_auto_refresh(state)", ui)
 
 
 class TrayHostSourceTests(unittest.TestCase):

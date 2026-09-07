@@ -161,6 +161,9 @@ class DesktopHandler(BaseHTTPRequestHandler):
                     project_details(self._request_path(body), refresh=bool(body.get("refresh"))),
                 )
                 return
+            if path == "/api/project/digest":
+                self._json(HTTPStatus.OK, _project_digest(self._request_path(body)))
+                return
             if path == "/api/projects/remove":
                 self._json(HTTPStatus.OK, stop_managing(self._request_path(body)))
                 return
@@ -201,6 +204,46 @@ class DesktopHandler(BaseHTTPRequestHandler):
             self._error(HTTPStatus.BAD_REQUEST, str(exc), code=getattr(exc, "code", None))
             return
         self._error(HTTPStatus.NOT_FOUND, "not found")
+
+
+def _project_digest(root: Path) -> dict[str, str]:
+    """Cheap fingerprint of everything the tray displays: git HEAD plus the
+    governance state files (policy, ledger, journal, census). File IO only —
+    no subprocess — so the tray can poll it every few seconds."""
+    import hashlib
+
+    from ag2c.config import discover_manifest, load_manifest
+    from ag2c.gitops import repository_root
+    from ag2c.households import census_path
+    from ag2c.journal import journal_path
+
+    root = repository_root(root)
+    parts: list[str] = []
+
+    def _file_part(path: Path) -> None:
+        try:
+            stat = path.stat()
+        except OSError:
+            parts.append(f"{path.name}:missing")
+            return
+        parts.append(f"{path.name}:{stat.st_mtime_ns}:{stat.st_size}")
+
+    git_dir = root / ".git"
+    head = git_dir / "HEAD"
+    if head.is_file():
+        ref = head.read_text(encoding="utf-8", errors="replace").strip()
+        parts.append(f"HEAD:{ref}")
+        if ref.startswith("ref:"):
+            ref_file = git_dir / ref[4:].strip()
+            if ref_file.is_file():
+                parts.append(f"ref:{ref_file.read_text(encoding='utf-8', errors='replace').strip()}")
+            else:
+                _file_part(git_dir / "packed-refs")
+    manifest = load_manifest(discover_manifest(root), project_root=root)
+    for path in (manifest.policy_path, manifest.ledger_path, journal_path(manifest), census_path(manifest)):
+        _file_part(path)
+    digest = hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()
+    return {"digest": digest, "version": __version__}
 
 
 def serve_desktop(*, port: int, token: str, on_ready: Callable[[int], object] | None = None) -> int:

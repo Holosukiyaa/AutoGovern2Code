@@ -92,6 +92,8 @@ class AppState:
         self.search = ""
         self.filter_index = 0
         self.busy = False
+        self.digest = ""
+        self.next_poll_at = 0.0
         self._worker: threading.Thread | None = None
         self._dialog_lock = False
         self.stopping = False
@@ -182,6 +184,7 @@ class AppState:
 
 
 AUDIT_LIMIT = 800
+AUTO_REFRESH_INTERVAL_S = 5.0
 
 # Shared warning amber for gate strips, tree claims, lineage status, and inspect notes.
 _WARN_COLOR = (0.92, 0.78, 0.35, 1.0)
@@ -333,6 +336,7 @@ def _before_frame(state: AppState) -> None:
     t0 = time.perf_counter()
     _apply_dark_caption()
     state.frame_ms["DWM"] = (time.perf_counter() - t0) * 1000.0
+    _maybe_auto_refresh(state)
 
 
 def _post_init(state: AppState) -> None:
@@ -854,6 +858,7 @@ def _gui_project_bar(state: AppState) -> None:
                     audit(state, "切换项目", "项目栏", root)
                     with state.lock:
                         state.selected_root = root
+                        state.digest = ""
                         state.clear_focus()
                     state.run_job(lambda path=root: _load_details(state, path))
                     selected = root
@@ -2201,6 +2206,39 @@ def _load_projects(state: AppState) -> None:
         roots = {text(row, "root") for row in projects}
         if not state.selected_root or state.selected_root not in roots:
             state.selected_root = preferred_project_root(projects)
+
+
+def _maybe_auto_refresh(state: AppState) -> None:
+    """Poll a cheap project digest every few seconds; reload when it changes."""
+    if state.api is None or state.stopping:
+        return
+    now = time.monotonic()
+    with state.lock:
+        if state.loading or state.busy or now < state.next_poll_at:
+            return
+        state.next_poll_at = now + AUTO_REFRESH_INTERVAL_S
+        root = state.selected_root
+    if not root:
+        return
+    state.run_job(lambda: _poll_digest(state, root))
+
+
+def _poll_digest(state: AppState, root: str) -> None:
+    if state.api is None:
+        return
+    payload = state.api.request("POST", "api/project/digest", {"path": root})
+    digest = str(payload.get("digest") or "")
+    with state.lock:
+        known = state.digest
+    if known and digest and digest != known:
+        audit(state, "自动刷新", "项目栏", root)
+        _load_projects(state)
+        _load_details(state, root, refresh=True)
+        with state.lock:
+            if not state.stopping:
+                state.status = "检测到项目变更，已自动刷新"
+    with state.lock:
+        state.digest = digest
 
 
 def _refresh(state: AppState) -> None:

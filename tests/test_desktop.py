@@ -210,6 +210,8 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("small_button", ui)
         self.assertNotIn("##span-", ui)
         self.assertIn("layout_lineage_view", ui)
+        self.assertIn("outward_hull", ui)
+        self.assertIn("outward_hull", (root / "src" / "ag2c" / "graph.py").read_text(encoding="utf-8"))
         self.assertIn("exp:", ui)
         self.assertIn("{LINEAGE_PROJECT_ID}", ui)
         self.assertIn("highlight_card_keys", ui)

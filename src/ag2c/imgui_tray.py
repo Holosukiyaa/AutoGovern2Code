@@ -1553,17 +1553,25 @@ def _lineage_view_pads(nodes: list[dict[str, Any]]) -> tuple[float, float, float
     """Padded canvas corners: extra left slack so the cluster sits right and is not full-pane wide."""
     box: list[float] | None = None
     for node in nodes:
-        x = float(node.get("x") or 0)
-        y = float(node.get("y") or 0)
-        w = float(node.get("width") or 0)
-        h = float(node.get("height") or 0)
-        if box is None:
-            box = [x, y, x + w, y + h]
-        else:
-            box[0] = min(box[0], x)
-            box[1] = min(box[1], y)
-            box[2] = max(box[2], x + w)
-            box[3] = max(box[3], y + h)
+        rects = [(float(node.get("x") or 0), float(node.get("y") or 0), float(node.get("width") or 0), float(node.get("height") or 0))]
+        hull = node.get("outward_hull") if isinstance(node.get("outward_hull"), dict) else None
+        if hull is not None:
+            rects.append(
+                (
+                    float(hull.get("x") or 0),
+                    float(hull.get("y") or 0),
+                    float(hull.get("width") or 0),
+                    float(hull.get("height") or 0),
+                )
+            )
+        for x, y, w, h in rects:
+            if box is None:
+                box = [x, y, x + w, y + h]
+            else:
+                box[0] = min(box[0], x)
+                box[1] = min(box[1], y)
+                box[2] = max(box[2], x + w)
+                box[3] = max(box[3], y + h)
     if box is None:
         return None
     gw = max(1.0, box[2] - box[0])
@@ -1680,6 +1688,29 @@ def _gui_lineage(state: AppState) -> None:
             tag_w = float(imgui.calc_text_size(tag).x) if tag and tag != "还没有知识卡" else 0.0
             label = _lineage_label(str(node.get("title") or visual_id), max(48.0, hw - 44.0 - tag_w))
             dl.add_text(imgui.ImVec2(hx + 28.0, hy + 10.0), title_col, label)
+            if tag_w:
+                tag_col = imgui.get_color_u32(_lineage_status_color(str(node.get("statusTag") or ""), imgui))
+                dl.add_text(imgui.ImVec2(hx + hw - tag_w - 10.0, hy + 10.0), tag_col, tag)
+        for node in cards:
+            hull = node.get("outward_hull") if isinstance(node.get("outward_hull"), dict) else None
+            if hull is None or node.get("hidden"):
+                continue
+            hx = float(hull.get("x") or 0)
+            hy = float(hull.get("y") or 0)
+            hw = float(hull.get("width") or 200)
+            hh = float(hull.get("height") or 48)
+            dl.add_rect_filled(imgui.ImVec2(hx, hy), imgui.ImVec2(hx + hw, hy + hh), hull_fill, 8.0)
+            dl.add_rect(
+                imgui.ImVec2(hx, hy),
+                imgui.ImVec2(hx + hw, hy + hh),
+                hull_line,
+                8.0,
+                2.0,
+            )
+            tag = str(hull.get("status") or "")
+            tag_w = float(imgui.calc_text_size(tag).x) if tag and tag != "还没有知识卡" else 0.0
+            label = _lineage_label(str(hull.get("title") or node.get("title") or ""), max(48.0, hw - 20.0 - tag_w))
+            dl.add_text(imgui.ImVec2(hx + 12.0, hy + 10.0), title_col, label)
             if tag_w:
                 tag_col = imgui.get_color_u32(_lineage_status_color(str(node.get("statusTag") or ""), imgui))
                 dl.add_text(imgui.ImVec2(hx + hw - tag_w - 10.0, hy + 10.0), tag_col, tag)
@@ -1810,14 +1841,29 @@ def _gui_lineage(state: AppState) -> None:
                 if hovered_uid and hovered_uid not in pad_uids:
                     pending_click = hovered_uid
                 else:
-                    for node in reversed(modules):
-                        x = float(node.get("x") or 0)
-                        y = float(node.get("y") or 0)
-                        w = float(node.get("width") or 0)
-                        h = float(node.get("height") or 0)
-                        if _point_in_rect(mx, my, x, y, w, h):
+                    for node in reversed(cards):
+                        hull = node.get("outward_hull") if isinstance(node.get("outward_hull"), dict) else None
+                        if hull is None or node.get("hidden"):
+                            continue
+                        if _point_in_rect(
+                            mx,
+                            my,
+                            float(hull.get("x") or 0),
+                            float(hull.get("y") or 0),
+                            float(hull.get("width") or 0),
+                            float(hull.get("height") or 0),
+                        ):
                             pending_click = lineage_uid("node", str(node.get("visual_id") or node["id"]))
                             break
+                    if not pending_click:
+                        for node in reversed(modules):
+                            x = float(node.get("x") or 0)
+                            y = float(node.get("y") or 0)
+                            w = float(node.get("width") or 0)
+                            h = float(node.get("height") or 0)
+                            if _point_in_rect(mx, my, x, y, w, h):
+                                pending_click = lineage_uid("node", str(node.get("visual_id") or node["id"]))
+                                break
     finally:
         ed.end()
     if not placed:

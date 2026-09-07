@@ -1139,6 +1139,7 @@ def lineage_boxes_overlap(left: Mapping[str, Any], right: Mapping[str, Any], *, 
 
 def _hide_lineage_branch(node: dict[str, Any], kids_of: dict[str, list[dict[str, Any]]]) -> None:
     node["hidden"] = True
+    node["outward_hull"] = None
     visual_id = str(node.get("visual_id") or node.get("id") or "")
     for child in kids_of.get(visual_id, []):
         _hide_lineage_branch(child, kids_of)
@@ -1177,6 +1178,7 @@ def _place_outward_column(
 ) -> None:
     visual_id = str(parent.get("visual_id") or parent.get("id") or "")
     nested = kids_of.get(visual_id, [])
+    parent["outward_hull"] = None
     if not nested:
         return
     if visual_id not in expanded or parent.get("hidden"):
@@ -1188,15 +1190,31 @@ def _place_outward_column(
     for child in nested:
         card_w = max(card_w, lineage_card_width(child))
     card_w = min(LINEAGE_CARD_MAX_W, card_w)
+    hull_w = max(LINEAGE_MODULE_MIN_W, card_w + LINEAGE_MODULE_PAD * 2)
+    inner_w = hull_w - LINEAGE_MODULE_PAD * 2
+    inner_x = column_x + LINEAGE_MODULE_PAD
     start_y = float(parent.get("y") or 0)
+    inner_y = start_y + LINEAGE_MODULE_HEADER
     for index, child in enumerate(nested):
         child["hidden"] = False
         child["group"] = bool(kids_of.get(str(child.get("visual_id") or child.get("id") or ""), []))
-        child["x"] = column_x
-        child["y"] = start_y + index * (LINEAGE_CARD_H + LINEAGE_CARD_GAP_Y)
-        child["width"] = card_w
+        child["x"] = inner_x
+        child["y"] = inner_y + index * (LINEAGE_CARD_H + LINEAGE_CARD_GAP_Y)
+        child["width"] = inner_w
         child["height"] = LINEAGE_CARD_H
         _place_outward_column(child, kids_of, expanded)
+    inner_h = len(nested) * LINEAGE_CARD_H + max(0, len(nested) - 1) * LINEAGE_CARD_GAP_Y
+    if not inner_h:
+        inner_h = LINEAGE_EMPTY_INNER_H
+    parent["outward_hull"] = {
+        "x": column_x,
+        "y": start_y,
+        "width": hull_w,
+        "height": LINEAGE_MODULE_HEADER + inner_h + LINEAGE_MODULE_PAD,
+        "title": str(parent.get("title") or ""),
+        "status": str(parent.get("status") or f"{len(nested)} 张文件卡"),
+        "owner": visual_id,
+    }
 
 
 def layout_lineage_view(nodes: list[dict[str, Any]], expanded: set[str]) -> None:

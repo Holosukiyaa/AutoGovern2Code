@@ -287,6 +287,17 @@ class GovernanceGraphTests(unittest.TestCase):
         self.assertGreater(shown_cli["x"], src_box["x"] + src_box["width"])
         leftover_node = next(item for item in nodes if item["id"] == "knowledge.src")
         self.assertLess(leftover_node["x"] + leftover_node["width"], shown_cli["x"])
+        hull = shown_house.get("outward_hull")
+        self.assertIsInstance(hull, dict)
+        self.assertGreater(float(hull["x"]), shown_house["x"] + shown_house["width"])
+        self.assertGreaterEqual(shown_cli["x"], float(hull["x"]))
+        self.assertLessEqual(shown_cli["x"] + shown_cli["width"], float(hull["x"]) + float(hull["width"]))
+        self.assertGreaterEqual(shown_cli["y"], float(hull["y"]))
+        self.assertLessEqual(shown_cli["y"] + shown_cli["height"], float(hull["y"]) + float(hull["height"]))
+        collapsed = [dict(item) for item in lineage["nodes"]]
+        layout_lineage_view(collapsed, {LINEAGE_PROJECT_ID, "floor.src"})
+        folded = next(item for item in collapsed if item["visual_id"] == "knowledge.ag2c@floor.src")
+        self.assertFalse(folded.get("outward_hull"))
         graph = build_governance_graph(
             {
                 "cards": [household, cli, tray],

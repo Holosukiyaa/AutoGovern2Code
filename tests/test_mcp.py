@@ -63,6 +63,29 @@ class McpServerTests(unittest.TestCase):
         self.assertIn("all", properties)
         self.assertEqual("boolean", properties["all"]["type"])
 
+    def test_household_tool_schema_exposes_entrypoint_checker_command(self) -> None:
+        household = next(item for item in tool_defs() if item["name"] == "ag2c_household")
+        properties = household["inputSchema"]["properties"]
+        for key in ("entrypoint", "checker", "command"):
+            self.assertIn(key, properties)
+            self.assertEqual("array", properties[key]["type"])
+
+    def test_tighten_tool_schema_and_dispatch(self) -> None:
+        tighten = next(item for item in tool_defs() if item["name"] == "ag2c_tighten")
+        schema = tighten["inputSchema"]
+        self.assertEqual(["id", "reason"], schema["required"])
+        self.assertIn("renew", schema["properties"])
+        with tempfile.TemporaryDirectory() as tmp:
+            response = handle_mcp_request(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 9,
+                    "method": "tools/call",
+                    "params": {"name": "ag2c_tighten", "arguments": {"cwd": tmp, "id": "knowledge.x", "reason": "probe"}},
+                }
+            )
+        self.assertTrue(response["result"]["isError"])
+
     def test_tools_list_covers_the_skill_routes(self) -> None:
         names = {item["name"] for item in tool_defs()}
         self.assertTrue(
@@ -75,6 +98,7 @@ class McpServerTests(unittest.TestCase):
                 "ag2c_census",
                 "ag2c_span",
                 "ag2c_household",
+                "ag2c_tighten",
                 "ag2c_apply",
                 "ag2c_skill",
                 "ag2c_mcp_health",

@@ -34,7 +34,7 @@ You already have the AG2C workflow through this MCP connection (instructions, re
 
 Route:
 - New session with work possibly in flight: ag2c_task_orient first. It returns the phase, checklist, and the exact next tool call (or the open-task queue when several tasks are open).
-- File-changing work: ag2c_guard_status → ag2c_task_start (read guidance.lineage as the knowledge-card index) → write only in worktree.path → ag2c_census / ag2c_span / ag2c_household / ag2c_apply as needed → ag2c_task_verify → ag2c_task_finish → ag2c_settle if pending → ag2c_evidence.
+- File-changing work: ag2c_guard_status → ag2c_task_start (read guidance.lineage as the knowledge-card index) → write only in worktree.path → ag2c_census / ag2c_span / ag2c_household / ag2c_tighten / ag2c_apply as needed → ag2c_task_verify → ag2c_task_finish → ag2c_settle if pending → ag2c_evidence.
 - Tree investigation and coverage tags (未打标 / 整夹一张 / 一文件一张): ag2c_census then ag2c_span. The user supervises tags; they do not click tray buttons.
 - Write 设计思路 from tags: ag2c_apply for per-file cards, ag2c_household for 整夹一张 rooms. Read the files first.
 - Named README/interface cards: ag2c_apply. Never edit Policy JSON by hand.
@@ -163,6 +163,13 @@ def _string_list(args: Mapping[str, Any], key: str) -> list[str]:
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
     return []
+
+
+def _optional_string_list(args: Mapping[str, Any], key: str) -> list[str] | None:
+    """None when the caller omitted the key, so the engine preserves existing values."""
+    if key not in args or args.get(key) is None:
+        return None
+    return _string_list(args, key)
 
 
 def _skill_resources() -> list[dict[str, str]]:
@@ -299,11 +306,30 @@ def tool_defs() -> list[dict[str, Any]]:
                 "implementation": {"type": "string"},
                 "span": {"type": "string"},
                 "meaning": {"type": "string"},
+                "entrypoint": {"type": "array", "items": {"type": "string"}, "description": "Entry files. Omit to keep existing; pass to replace."},
+                "checker": {"type": "array", "items": {"type": "string"}, "description": "Checker ids. Omit to keep existing; pass to replace."},
+                "command": {"type": "array", "items": {"type": "string"}, "description": "Scenario checker command (argv). Declares a product check for this household."},
                 "reason": {"type": "string"},
                 "actor": {"type": "string"},
                 "cwd": _cwd_prop(),
             },
             ["id", "title", "summary", "include", "floor", "capability", "implementation", "reason"],
+        ),
+        _tool(
+            "ag2c_tighten",
+            "Tighten a directory household strategy (grain/meaning/contract/decider), or renew an exploring household.",
+            {
+                "id": {"type": "string"},
+                "grain": {"type": "string", "enum": ["", "subtree", "directory", "module"]},
+                "meaning": {"type": "string", "enum": ["", "none", "named"]},
+                "contract": {"type": "string", "enum": ["", "none", "partial", "machine"]},
+                "decider": {"type": "string", "enum": ["", "none", "machine", "confirm"]},
+                "renew": {"type": "boolean", "description": "Renew an exploring household instead of tightening it."},
+                "reason": {"type": "string"},
+                "actor": {"type": "string"},
+                "cwd": _cwd_prop(),
+            },
+            ["id", "reason"],
         ),
         _tool(
             "ag2c_apply",
@@ -468,6 +494,26 @@ def _call_household(args: dict[str, Any]) -> Any:
         contract=str(args.get("contract") or ""),
         decider=str(args.get("decider") or ""),
         span=str(args.get("span") or ""),
+        entrypoints=_optional_string_list(args, "entrypoint"),
+        checkers=_optional_string_list(args, "checker"),
+        command=_optional_string_list(args, "command"),
+        actor=_actor(args),
+        reason=str(args.get("reason") or ""),
+    )
+
+
+def _call_tighten(args: dict[str, Any]) -> Any:
+    from .household_commands import renew_exploring, tighten_household
+
+    if args.get("renew"):
+        return renew_exploring(_cwd(args), card_id=str(args.get("id") or ""), actor=_actor(args), reason=str(args.get("reason") or ""))
+    return tighten_household(
+        _cwd(args),
+        card_id=str(args.get("id") or ""),
+        grain=str(args.get("grain") or ""),
+        meaning=str(args.get("meaning") or ""),
+        contract=str(args.get("contract") or ""),
+        decider=str(args.get("decider") or ""),
         actor=_actor(args),
         reason=str(args.get("reason") or ""),
     )
@@ -537,6 +583,7 @@ HANDLERS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "ag2c_census": _call_census,
     "ag2c_span": _call_span,
     "ag2c_household": _call_household,
+    "ag2c_tighten": _call_tighten,
     "ag2c_apply": _call_apply,
     "ag2c_settle": _call_settle,
     "ag2c_evidence": _call_evidence,

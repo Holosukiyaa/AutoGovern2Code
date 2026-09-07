@@ -99,15 +99,32 @@ def ensure_portable_archive() -> dict[str, Any]:
 
 
 def heal_portable_move(previous_home: str) -> dict[str, Any]:
-    """Re-point enrolled projects after the portable folder itself moved.
+    """Re-bind enrolled projects after the portable folder itself moved.
 
     The registry rebase in `_read_registry` fixes stored manifest paths, but the
-    enrolled projects still reference the old location: `core.hooksPath` is an
-    absolute path into the store, and live task worktrees record absolute paths
-    in both Git metadata and task JSON. Without this heal a moved portable
-    folder would silently drop the Git guard.
+    enrolled projects still reference the old location: `core.hooksPath` and the
+    `ag2c.manifest` pointer are absolute paths, the guard hook shims embed the
+    old runtime, and live task worktrees record absolute paths in both Git
+    metadata and task JSON. Without this heal a moved portable folder would
+    silently drop the Git guard.
     """
-    rebound = rebind_portable_git_enrollment()
+    from .enrollment import recover_relocated_enrollment  # lazy: enrollment imports storage
+
+    rebound: list[dict[str, str]] = []
+    for item in _read_registry().get("projects") or []:
+        if not isinstance(item, dict):
+            continue
+        root = Path(str(item.get("root") or ""))
+        if not root.is_dir():
+            continue
+        try:
+            binding = resolve_enrollment_binding(root)
+            if binding.get("state") != BINDING_RELOCATED:
+                continue
+            result = recover_relocated_enrollment(root, binding)
+            rebound.append({"root": str(root), "action": str(result.get("action") or "")})
+        except AG2CError as exc:
+            rebound.append({"root": str(root), "error": str(exc)})
     repaired = _repair_moved_worktrees((Path(previous_home) / "data").resolve())
     return {"git": rebound, "worktrees": repaired}
 

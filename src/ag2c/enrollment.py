@@ -31,7 +31,7 @@ from .storage import (
     resolve_enrollment_binding,
     unregister_project,
 )
-from .util import digest_file
+from .util import digest_file, portable_home
 
 ENROLLMENT_SCHEMA = "ag2c.enrollment.v1"
 ACTIVATION_SCHEMA = "ag2c.activation.v1"
@@ -1181,6 +1181,14 @@ def activation_status(start: Path) -> dict[str, Any]:
     canonical = canonical_worktree(root, root=root)
     issues: list[str] = []
     binding = resolve_enrollment_binding(canonical, root=canonical)
+    if binding["state"] == BINDING_RELOCATED and portable_home() is not None:
+        # A moved portable folder re-binds its projects on first contact instead
+        # of reporting them unmanaged until a manual repair.
+        try:
+            recover_relocated_enrollment(canonical, binding)
+        except AG2CError:
+            pass
+        binding = resolve_enrollment_binding(canonical, root=canonical)
     if binding["state"] == BINDING_STALE:
         issues.append(
             f"{STALE_EXTERNAL_STORE}: configured AG2C store is missing on this computer"

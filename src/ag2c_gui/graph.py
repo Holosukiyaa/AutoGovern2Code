@@ -1316,16 +1316,24 @@ def _place_outward_column(
     parent: dict[str, Any],
     kids_of: dict[str, list[dict[str, Any]]],
     expanded: set[str],
-) -> None:
+    *,
+    min_y: float = 0.0,
+) -> float:
+    """Place parent's children in a column right of it; returns the column bottom.
+
+    Sibling cards in one module share the same column x, so each expanded
+    sibling's column must start below the previous sibling's column (min_y);
+    otherwise two open combos draw their children on top of each other.
+    """
     visual_id = str(parent.get("visual_id") or parent.get("id") or "")
     nested = kids_of.get(visual_id, [])
     parent["outward_hull"] = None
     if not nested:
-        return
+        return min_y
     if visual_id not in expanded or parent.get("hidden"):
         for child in nested:
             _hide_lineage_branch(child, kids_of)
-        return
+        return min_y
     column_x = float(parent.get("x") or 0) + float(parent.get("width") or LINEAGE_CARD_W) + LINEAGE_RANK_SEP
     card_w = LINEAGE_CARD_MIN_W
     for child in nested:
@@ -1334,9 +1342,10 @@ def _place_outward_column(
     hull_w = max(LINEAGE_MODULE_MIN_W, card_w + LINEAGE_MODULE_PAD * 2)
     inner_w = hull_w - LINEAGE_MODULE_PAD * 2
     inner_x = column_x + LINEAGE_MODULE_PAD
-    start_y = float(parent.get("y") or 0)
+    start_y = max(float(parent.get("y") or 0), min_y)
     inner_y = start_y + LINEAGE_MODULE_HEADER
     cursor = inner_y
+    child_floor = 0.0
     for child in nested:
         height = lineage_card_height(child)
         child["hidden"] = False
@@ -1346,10 +1355,11 @@ def _place_outward_column(
         child["width"] = inner_w
         child["height"] = height
         cursor += height + LINEAGE_CARD_GAP_Y
-        _place_outward_column(child, kids_of, expanded)
+        child_floor = max(child_floor, _place_outward_column(child, kids_of, expanded, min_y=child_floor))
     inner_h = max(0.0, cursor - inner_y - LINEAGE_CARD_GAP_Y)
     if not inner_h:
         inner_h = LINEAGE_EMPTY_INNER_H
+    bottom = start_y + LINEAGE_MODULE_HEADER + inner_h + LINEAGE_MODULE_PAD
     parent["outward_hull"] = {
         "x": column_x,
         "y": start_y,
@@ -1359,6 +1369,7 @@ def _place_outward_column(
         "status": str(parent.get("status") or f"{len(nested)} 张文件卡"),
         "owner": visual_id,
     }
+    return max(bottom, child_floor)
 
 
 def layout_lineage_view(nodes: list[dict[str, Any]], expanded: set[str]) -> None:
@@ -1395,6 +1406,7 @@ def layout_lineage_view(nodes: list[dict[str, Any]], expanded: set[str]) -> None
         return
     module_x = LINEAGE_ORIGIN_X + LINEAGE_PROJECT_W + LINEAGE_RANK_SEP
     cursor_y = LINEAGE_ORIGIN_Y
+    outward_floor = 0.0
     for module in modules:
         visual_id = str(module.get("visual_id") or module.get("id") or "")
         children = kids_of.get(visual_id, [])
@@ -1439,7 +1451,10 @@ def layout_lineage_view(nodes: list[dict[str, Any]], expanded: set[str]) -> None
         module["height"] = height
         if visual_id in expanded:
             for child in children:
-                _place_outward_column(child, kids_of, expanded)
+                outward_floor = max(
+                    outward_floor,
+                    _place_outward_column(child, kids_of, expanded, min_y=outward_floor),
+                )
         cursor_y += height + LINEAGE_MODULE_GAP
     total_h = max(cursor_y - LINEAGE_MODULE_GAP - LINEAGE_ORIGIN_Y, LINEAGE_PROJECT_H)
     if project is not None:

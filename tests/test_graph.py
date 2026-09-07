@@ -811,6 +811,40 @@ class GovernanceGraphTests(unittest.TestCase):
         self.assertNotIn("knowledge.packaging", ids)
         self.assertIn("knowledge.packaging-windows", ids)
 
+    def test_two_expanded_sibling_combos_do_not_overlap(self) -> None:
+        def household(card_id, title, prefix):
+            card = _card(card_id, "knowledge", title, include=[f"{prefix}/**"])
+            card["jurisdiction"] = {"span": "file", "meaning": "named", "status": "current", "capability": card_id, "implementation": f"{card_id}.main"}
+            return card
+
+        cards = [
+            _card("constitution.project", "constitution", "宪章"),
+            _card("floor.src", "floor", "src", include=["src/**"]),
+            household("knowledge.aaa", "aaa package", "src/aaa"),
+            household("knowledge.bbb", "bbb package", "src/bbb"),
+        ]
+        relations = [
+            {"source": "knowledge.aaa", "type": "explains", "target": "floor.src"},
+            {"source": "knowledge.bbb", "type": "explains", "target": "floor.src"},
+        ]
+        for index in range(4):
+            card_id = f"knowledge.aaa-f{index}"
+            cards.append(_card(card_id, "knowledge", f"aaa f{index}", include=[f"src/aaa/f{index}.py"], references=[f"src/aaa/f{index}.py"]))
+            relations.append({"source": card_id, "type": "explains", "target": "floor.src"})
+        for index in range(2):
+            card_id = f"knowledge.bbb-f{index}"
+            cards.append(_card(card_id, "knowledge", f"bbb f{index}", include=[f"src/bbb/f{index}.py"], references=[f"src/bbb/f{index}.py"]))
+            relations.append({"source": card_id, "type": "explains", "target": "floor.src"})
+        lineage = build_lineage({"project": {"name": "Demo"}, "cards": cards, "relations": relations, "graph": {"nodes": []}})
+        expanded = {LINEAGE_PROJECT_ID, "floor.src", "knowledge.aaa@floor.src", "knowledge.bbb@floor.src"}
+        nodes = [dict(item) for item in lineage["nodes"]]
+        self.assertEqual([], lineage_step_overlaps(nodes, expanded))
+        # The second sibling's column starts below the first sibling's column bottom.
+        aaa = next(node for node in nodes if node.get("id") == "knowledge.aaa")
+        bbb_child = next(node for node in nodes if node.get("id") == "knowledge.bbb-f0")
+        aaa_hull = aaa.get("outward_hull") or {}
+        self.assertGreaterEqual(float(bbb_child["y"]), float(aaa_hull.get("y", 0)) + float(aaa_hull.get("height", 0)))
+
     def test_lineage_expand_steps_do_not_overlap(self) -> None:
         cards = [
             _card("constitution.project", "constitution", "宪章"),

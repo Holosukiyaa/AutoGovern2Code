@@ -902,7 +902,7 @@ GATE_BUTTON_LABELS = {"gate": "MCP 链接", "records": "实际记录", "worktree
 
 
 def _gui_gate_strip(state: AppState, project: dict[str, Any]) -> None:
-    """Always-visible operator pulse. Each row: a button that opens a floating panel + status text."""
+    """Always-visible operator pulse. Each row is a clickable text line toggling a floating panel."""
     from imgui_bundle import imgui
 
     with state.lock:
@@ -917,23 +917,18 @@ def _gui_gate_strip(state: AppState, project: dict[str, Any]) -> None:
         value = str(row.get("value") or "")
         kind = str(row.get("id") or "")
         warn = bool(row.get("warn"))
-        button_label = GATE_BUTTON_LABELS.get(kind, label)
+        name = GATE_BUTTON_LABELS.get(kind, label)
+        shown = f"{name} · {value}"
         pushed = 0
-        if panel_open.get(kind):
-            imgui.push_style_color(imgui.Col_.button, (0.28, 0.50, 0.78, 0.70))
-            imgui.push_style_color(imgui.Col_.button_hovered, (0.32, 0.56, 0.84, 0.85))
-            pushed += 2
-        clicked = imgui.small_button(widget_id(button_label, "gate:" + kind))
+        if warn:
+            imgui.push_style_color(imgui.Col_.text, _WARN_COLOR)
+            pushed += 1
+        clicked = _selectable(widget_id(shown, "gate:" + kind), panel_open.get(kind))
         if pushed:
             imgui.pop_style_color(pushed)
-        imgui.same_line()
-        if warn:
-            imgui.text_colored(_WARN_COLOR, value)
-        else:
-            imgui.text_disabled(value)
         if clicked:
             opening = not panel_open.get(kind)
-            audit(state, ("打开" if opening else "关闭") + button_label, "项目栏", value)
+            audit(state, ("打开" if opening else "关闭") + name, "项目栏", value)
             with state.lock:
                 state.panel_open[kind] = opening
             if opening:

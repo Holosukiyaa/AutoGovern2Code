@@ -526,13 +526,59 @@ def _windows(state: AppState):
     ]
 
 
-def _scan_overlay(message: str) -> None:
+def _gui_splash(state: AppState) -> None:
+    """Full-window animated splash while loading; replaces per-pane progress bars."""
     from imgui_bundle import imgui
 
-    imgui.spacing()
-    imgui.text_disabled(message)
-    width = imgui.get_content_region_avail()[0]
-    imgui.progress_bar(-0.35 * imgui.get_time(), (max(width, 8.0), 8.0), "")
+    with state.lock:
+        loading = state.loading
+        status = state.status
+    if not loading:
+        return
+    viewport = imgui.get_main_viewport()
+    imgui.set_next_window_pos(viewport.pos)
+    imgui.set_next_window_size(viewport.size)
+    imgui.set_next_window_bg_alpha(0.94)
+    flags = (
+        imgui.WindowFlags_.no_title_bar
+        | imgui.WindowFlags_.no_resize
+        | imgui.WindowFlags_.no_move
+        | imgui.WindowFlags_.no_scrollbar
+        | imgui.WindowFlags_.no_collapse
+        | imgui.WindowFlags_.no_docking
+        | imgui.WindowFlags_.no_saved_settings
+        | imgui.WindowFlags_.no_inputs
+    )
+    imgui.begin("##splash", None, flags)
+    try:
+        import math
+
+        now = imgui.get_time()
+        width = float(viewport.size.x)
+        height = float(viewport.size.y)
+        imgui.set_cursor_pos_y(height * 0.36)
+        title = "AutoGovern2Code"
+        imgui.set_window_font_scale(2.0)
+        title_w = float(imgui.calc_text_size(title).x)
+        imgui.set_cursor_pos_x(max((width - title_w) / 2.0, 8.0))
+        pulse = 0.55 + 0.45 * math.sin(now * 2.2)
+        imgui.push_style_color(imgui.Col_.text, (0.62, 0.78, 1.0, pulse))
+        imgui.text(title)
+        imgui.pop_style_color()
+        imgui.set_window_font_scale(1.0)
+        imgui.spacing()
+        imgui.spacing()
+        subtitle = (status or "正在启动") + ("." * (int(now * 2.0) % 4)).ljust(3)
+        subtitle_w = float(imgui.calc_text_size(subtitle).x)
+        imgui.set_cursor_pos_x(max((width - subtitle_w) / 2.0, 8.0))
+        imgui.text_disabled(subtitle)
+        imgui.spacing()
+        imgui.spacing()
+        bar_w = min(280.0, width - 32.0)
+        imgui.set_cursor_pos_x(max((width - bar_w) / 2.0, 8.0))
+        imgui.progress_bar(-0.35 * now, (bar_w, 6.0), "")
+    finally:
+        imgui.end()
 
 
 def _status_bar(state: AppState) -> None:
@@ -584,9 +630,10 @@ def _status_bar(state: AppState) -> None:
 
 
 def _gui_overlays(state: AppState) -> None:
-    """Floating windows drawn after the dock panes: operation log + operator panels."""
+    """Floating windows drawn after the dock panes: operation log + operator panels + splash."""
     _gui_audit(state)
     _gui_panels(state)
+    _gui_splash(state)
 
 
 def _gui_audit(state: AppState) -> None:
@@ -852,8 +899,6 @@ def _gui_project_bar(state: AppState) -> None:
             audit(state, "卸载", "项目栏", text(project, "root"))
             state.run_job(lambda: _post(state, "api/projects/uninstall", text(project, "root")))
         _gui_gate_strip(state, project)
-    if busy or loading:
-        _scan_overlay("正在重新扫描项目…")
     imgui.separator()
 
 
@@ -1142,8 +1187,6 @@ def _gui_tree(state: AppState) -> None:
     changed, state.filter_index = imgui.combo("##filter", state.filter_index, labels)
     if changed:
         audit(state, "筛选", "文件树", labels[state.filter_index] if 0 <= state.filter_index < len(labels) else "")
-    if state.busy or state.loading:
-        _scan_overlay("正在重新扫描文件树…")
     with state.lock:
         details = state.details
         search = state.search
@@ -1897,8 +1940,6 @@ def _gui_lineage(state: AppState) -> None:
     if details is None:
         imgui.text_disabled("选择一个项目后，这里显示知识卡谱系。")
         return
-    if loading or busy:
-        _scan_overlay("正在重新扫描谱系…")
     show_placeholder = state.lineage_show_placeholder
     changed, show_placeholder = imgui.checkbox("显示占位父卡", show_placeholder)
     if changed:
@@ -2128,7 +2169,6 @@ def _start_backend(state: AppState) -> None:
     with state.lock:
         if state.stopping:
             return
-        state.loading = False
         state.status = "已连接"
     _load_projects(state)
     with state.lock:
@@ -2151,6 +2191,8 @@ def _start_backend(state: AppState) -> None:
         with state.lock:
             if not state.error:
                 state.error = str(exc)
+    with state.lock:
+        state.loading = False
 
 
 def _load_projects(state: AppState) -> None:

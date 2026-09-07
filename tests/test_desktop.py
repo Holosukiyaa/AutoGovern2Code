@@ -346,7 +346,11 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn('window("知识卡片", "CardSpace"', ui)
         self.assertNotIn('menu_item("添加项目", None', ui)
         self.assertIn("正在重新扫描", ui)
-        self.assertIn("_scan_overlay", ui)
+        self.assertIn("def _gui_splash(", ui)
+        self.assertIn("##splash", ui)
+        self.assertIn("set_window_font_scale", ui)
+        self.assertIn("WindowFlags_.no_inputs", ui)
+        self.assertNotIn("_scan_overlay", ui)
         self.assertIn("refresh=True", ui)
         self.assertIn("DwmSetWindowAttribute", caption)
         self.assertIn("set_next_item_open(True)", ui)
@@ -1189,7 +1193,7 @@ class TrayAuditTests(unittest.TestCase):
         self.assertIn("点击谱系节点", ui)
         self.assertIn('audit(state, "展开" if opening else "收起", "谱系", visual_id)', ui)
         self.assertIn('audit(state, "点击目录", "文件树", prefix)', ui)
-        windows_block = ui[ui.index("def _windows"): ui.index("def _scan_overlay")]
+        windows_block = ui[ui.index("def _windows"): ui.index("def _gui_splash")]
         self.assertNotIn("审计", windows_block)
 
 

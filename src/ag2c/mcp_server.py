@@ -41,6 +41,13 @@ Route:
 
 Delivery is the Git hook, not this MCP. Connecting MCP does not replace pre-commit. AG2C uses its own Git binary on the project's existing `.git` and history.
 
+Hard rules learned in production:
+- Governance writes (ag2c_census record, ag2c_span, ag2c_household, ag2c_apply, ag2c_settle) require a reason; pass actor to name yourself.
+- After editing files, verify blocks on census-stale: record the census first (ag2c_census with record=true, all=true).
+- A knowledge-card title is the 摘要: 20 characters max, Chinese allowed; the English id is not the display name.
+- ag2c_task_verify runs the full suite and can exceed the MCP timeout; on timeout rerun `ag2c task verify` via CLI inside the worktree — it counts the same.
+- ag2c_task_finish runs from the canonical checkout, never from the worktree.
+
 Fail closed: dirty canonical blocks start; writes outside the worktree block verify; leftover deletion needs retire then a dedicated task. Full Skill text is in resources ag2c://skill/<name>. The generic connect prompt is ag2c://connect.
 """
 
@@ -259,6 +266,7 @@ def tool_defs() -> list[dict[str, Any]]:
             "Observe directory households, or record a review after inspecting a room. Never bulk-record unread rooms.",
             {
                 "record": {"type": "boolean"},
+                "all": {"type": "boolean", "description": "With record: review every known household and floor. Required when no card ids are given."},
                 "card": {"type": "array", "items": {"type": "string"}},
                 "reason": {"type": "string"},
                 "actor": {"type": "string"},

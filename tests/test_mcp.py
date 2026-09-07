@@ -50,6 +50,18 @@ class McpServerTests(unittest.TestCase):
         self.assertIn("guidance.lineage", result["instructions"])
         self.assertIn("Do not ask the user to paste a copy-prompt", result["instructions"])
         self.assertIn(MCP_INSTRUCTIONS.strip()[:40], result["instructions"])
+        # Hard rules learned in production must ship in the auto-injected instructions.
+        self.assertIn("census-stale", result["instructions"])
+        self.assertIn("20 characters max", result["instructions"])
+        self.assertIn("exceed the MCP timeout", result["instructions"])
+        self.assertIn("canonical checkout", result["instructions"])
+
+    def test_census_tool_schema_exposes_record_all(self) -> None:
+        census = next(item for item in tool_defs() if item["name"] == "ag2c_census")
+        properties = census["inputSchema"]["properties"]
+        self.assertIn("record", properties)
+        self.assertIn("all", properties)
+        self.assertEqual("boolean", properties["all"]["type"])
 
     def test_tools_list_covers_the_skill_routes(self) -> None:
         names = {item["name"] for item in tool_defs()}

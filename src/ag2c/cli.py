@@ -278,8 +278,11 @@ def build_parser() -> argparse.ArgumentParser:
     household = govern_commands.add_parser("household", help="register a directory jurisdiction, never a README proxy")
     for field in ("id", "title", "summary", "capability", "implementation", "actor", "reason"):
         household.add_argument("--" + field, required=True)
-    for field in ("include", "exclude", "floor", "entrypoint", "checker"):
+    for field in ("include", "exclude", "floor"):
         household.add_argument("--" + field, action="append", default=[])
+    # None means "keep the existing values"; an explicit flag replaces them.
+    household.add_argument("--entrypoint", action="append", default=None)
+    household.add_argument("--checker", action="append", default=None)
     household.add_argument("--status", choices=("current", "legacy", "retired"), default="current")
     household.add_argument("--grain", choices=("subtree", "directory", "module"), default="")
     household.add_argument("--meaning", choices=("none", "named"), default="")

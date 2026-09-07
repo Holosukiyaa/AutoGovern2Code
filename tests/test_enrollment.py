@@ -216,6 +216,68 @@ class EnrollmentTests(unittest.TestCase):
             self.assertIn("src/frontend/**", src_excludes)
             self.assertEqual(0, report["counts"]["ambiguous"])
 
+    def test_household_update_preserves_entrypoints_and_checkers_when_omitted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = git_project(base / "demo")
+            (root / "src" / "frontend").mkdir()
+            (root / "src" / "frontend" / "app.ts").write_text("export {}\n", encoding="utf-8")
+            data = base / "ag2c-data"
+            with patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False):
+                enroll_project(root, skill_root=base / "skills", harnesses=("agents",))
+                register_household(
+                    root,
+                    card_id="knowledge.frontend",
+                    title="frontend",
+                    summary="shipped UI",
+                    includes=["src/frontend/**"],
+                    excludes=[],
+                    floors=["floor.src"],
+                    capability="frontend",
+                    implementation="frontend.main",
+                    status="current",
+                    meaning="named",
+                    span="folder",
+                    entrypoints=["src/frontend/app.ts"],
+                    checkers=["check.python"],
+                    actor="codex",
+                    reason="traced the UI subtree",
+                )
+                updated = register_household(
+                    root,
+                    card_id="knowledge.frontend",
+                    title="frontend",
+                    summary="shipped UI, revised",
+                    includes=["src/frontend/**"],
+                    excludes=[],
+                    floors=["floor.src"],
+                    capability="frontend",
+                    implementation="frontend.main",
+                    status="current",
+                    actor="codex",
+                    reason="revise the summary only",
+                )
+                replaced = register_household(
+                    root,
+                    card_id="knowledge.frontend",
+                    title="frontend",
+                    summary="shipped UI, rerouted",
+                    includes=["src/frontend/**"],
+                    excludes=[],
+                    floors=["floor.src"],
+                    capability="frontend",
+                    implementation="frontend.main",
+                    status="current",
+                    entrypoints=["src/frontend/main.ts"],
+                    checkers=[],
+                    actor="codex",
+                    reason="explicitly replace entrypoints and clear checkers",
+                )
+            self.assertEqual(["src/frontend/app.ts"], updated["jurisdiction"]["entrypoints"])
+            self.assertEqual(["check.python"], updated["checkers"])
+            self.assertEqual(["src/frontend/main.ts"], replaced["jurisdiction"]["entrypoints"])
+            self.assertEqual([], replaced["checkers"])
+
     def test_unlabeled_household_does_not_supply_file_design(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)

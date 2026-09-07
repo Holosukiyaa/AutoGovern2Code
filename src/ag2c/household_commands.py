@@ -158,7 +158,17 @@ def register_household(start: Path, *, card_id: str, title: str, summary: str, i
         raise AG2CError("cannot silently convert a document or floor into a directory household")
     if not floors or any(floor not in known or known[floor].card_type != "floor" for floor in floors):
         raise AG2CError("household requires existing floor links")
-    selected_checkers = list(dict.fromkeys(checkers or []))
+    previous = known.get(card_id)
+    previous_span = ""
+    previous_entrypoints: list[str] = []
+    previous_checkers: list[str] = []
+    if previous is not None:
+        previous_checkers = [str(item) for item in previous.checkers if str(item)]
+        if previous.jurisdiction is not None:
+            previous_jurisdiction = coerce_jurisdiction(previous.jurisdiction) or {}
+            previous_span = str(previous_jurisdiction.get("span") or "none")
+            previous_entrypoints = [str(item) for item in previous_jurisdiction.get("entrypoints") or [] if str(item)]
+    selected_checkers = list(dict.fromkeys(checkers if checkers is not None else previous_checkers))
     if command is not None:
         if not command or any(not isinstance(item, str) or not item for item in command):
             raise AG2CError("checker command must be a nonempty JSON array of strings")
@@ -169,12 +179,8 @@ def register_household(start: Path, *, card_id: str, title: str, summary: str, i
         checker = {"id": checker_id, "stage": "scenario", "target": "app", "cwd": ".", "command": command, "timeout": 600, "implementation": implementation}
         raw["checkers"] = [item for item in raw.get("checkers", []) if item["id"] != checker_id] + [checker]
         selected_checkers.append(checker_id)
-    previous = known.get(card_id)
-    previous_span = ""
-    if previous is not None and previous.jurisdiction is not None:
-        previous_span = str((coerce_jurisdiction(previous.jurisdiction) or {}).get("span") or "none")
     _carve_exploring_placeholders(raw, card_id, includes)
-    card = {"id": card_id, "type": "knowledge", "title": title.strip(), "summary": summary.strip(), "scopes": [{"target": "app", "include": includes, "exclude": excludes, "ownership": "reference"}], "references": [], "checkers": list(dict.fromkeys(selected_checkers)), "jurisdiction": {"capability": capability, "implementation": implementation, "status": status, "entrypoints": list(entrypoints or []), "grain": grain or "subtree", "meaning": meaning or "none", "contract": contract or "none", "decider": decider or "none", "span": normalize_span(span or previous_span or "none")}}
+    card = {"id": card_id, "type": "knowledge", "title": title.strip(), "summary": summary.strip(), "scopes": [{"target": "app", "include": includes, "exclude": excludes, "ownership": "reference"}], "references": [], "checkers": list(dict.fromkeys(selected_checkers)), "jurisdiction": {"capability": capability, "implementation": implementation, "status": status, "entrypoints": list(entrypoints if entrypoints is not None else previous_entrypoints), "grain": grain or "subtree", "meaning": meaning or "none", "contract": contract or "none", "decider": decider or "none", "span": normalize_span(span or previous_span or "none")}}
     raw["cards"] = [item for item in raw.get("cards", []) if item["id"] != card_id] + [card]
     coverage = raw.get("coverage")
     if isinstance(coverage, dict) and coverage.get("level") == "baseline":
@@ -189,7 +195,7 @@ def register_household(start: Path, *, card_id: str, title: str, summary: str, i
         actor,
         reason,
         "household-registered",
-        {"id": card_id, "summary": summary, "jurisdiction": card["jurisdiction"], "scopes": card["scopes"]},
+        {"id": card_id, "summary": summary, "jurisdiction": card["jurisdiction"], "scopes": card["scopes"], "checkers": card["checkers"]},
         after_load=_refuse_household_write(card_id, "cannot-name-undecomposed-household"),
     )
 

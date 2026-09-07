@@ -51,7 +51,8 @@ def mcp_stdio_command() -> list[str]:
 
 def mcp_launch_spec() -> dict[str, Any]:
     command = mcp_stdio_command()
-    return {"command": command[0], "args": command[1:]}
+    src = str(Path(__file__).resolve().parents[1])
+    return {"command": command[0], "args": command[1:], "env": {"PYTHONPATH": src}}
 
 
 def _text_result(payload: Any, *, is_error: bool = False) -> dict[str, Any]:
@@ -519,6 +520,7 @@ def mcp_config_snippet() -> dict[str, Any]:
             MCP_CONFIG_KEY: {
                 "command": spec["command"],
                 "args": spec["args"],
+                "env": spec.get("env") or {},
             }
         }
     }
@@ -527,10 +529,14 @@ def mcp_config_snippet() -> dict[str, Any]:
 def mcp_toml_block() -> str:
     spec = mcp_launch_spec()
     args = ", ".join(json.dumps(item) for item in spec["args"])
+    env = spec.get("env") or {}
+    env_inline = ", ".join(f"{key} = {json.dumps(value)}" for key, value in env.items())
+    env_line = f"env = {{ {env_inline} }}\n" if env_inline else ""
     return (
         f"[mcp_servers.{MCP_CONFIG_KEY}]\n"
         f"command = {json.dumps(spec['command'])}\n"
         f"args = [{args}]\n"
+        f"{env_line}"
         "enabled = true\n"
     )
 
@@ -561,7 +567,7 @@ def _upsert_json_server(path: Path, key: str = "mcpServers") -> None:
     servers = data.get(key)
     if not isinstance(servers, dict):
         servers = {}
-    servers[MCP_CONFIG_KEY] = {"command": spec["command"], "args": spec["args"]}
+    servers[MCP_CONFIG_KEY] = {"command": spec["command"], "args": spec["args"], "env": spec.get("env") or {}}
     data[key] = servers
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -589,7 +595,10 @@ def install_mcp_clients(*, home: Path | None = None, create_missing: bool = True
         if kind == "toml":
             spec = mcp_launch_spec()
             args = ", ".join(json.dumps(item) for item in spec["args"])
-            body = f"command = {json.dumps(spec['command'])}\nargs = [{args}]\nenabled = true\n"
+            env = spec.get("env") or {}
+            env_inline = ", ".join(f"{key} = {json.dumps(value)}" for key, value in env.items())
+            env_line = f"env = {{ {env_inline} }}\n" if env_inline else ""
+            body = f"command = {json.dumps(spec['command'])}\nargs = [{args}]\n{env_line}enabled = true\n"
             _upsert_toml_table(path, f"mcp_servers.{MCP_CONFIG_KEY}", body)
         else:
             _upsert_json_server(path)

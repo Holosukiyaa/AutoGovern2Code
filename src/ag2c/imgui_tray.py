@@ -13,7 +13,9 @@ from .graph import (
     LINEAGE_CARD_W,
     LINEAGE_PROJECT_ID,
     build_lineage,
+    card_abstract,
     layout_lineage_view,
+    lineage_ordinal,
     lineage_related_ids,
     lineage_uid,
 )
@@ -1398,6 +1400,7 @@ def _gui_cards(state: AppState) -> None:
     if details is not None and not all_cards:
         imgui.text_disabled("还没有知识卡")
         return
+    imgui.text_disabled("每张卡有序号、摘要和详细设计。左侧搜索可按标题或摘要查找。")
     imgui.push_style_var(imgui.StyleVar_.item_spacing, imgui.ImVec2(4.0, 1.0))
     imgui.push_text_wrap_pos(-1.0)
     children_of: dict[str, list[dict[str, Any]]] = {}
@@ -1409,19 +1412,23 @@ def _gui_cards(state: AppState) -> None:
         else:
             roots.append(node)
 
-    def _draw_card_row(node: dict[str, Any], *, indent: bool) -> None:
+    def _draw_card_row(node: dict[str, Any], *, indent: bool, ordinal: int) -> None:
         title = text(node, "title") or text(node, "id")
         key = node_key(node, title)
         count = state.card_file_counts.get(key)
         if count is None:
             count = len(files_for_card(all_files, node))
-        short = _lineage_label(title, 200.0 if indent else 220.0)
-        label = card_list_label(short, node, count)
+        short = _lineage_label(title, 188.0 if indent else 208.0)
+        label = card_list_label(short, node, count, ordinal=ordinal)
         marked = selected_card == key or key in highlight_cards
         if indent:
             imgui.indent(16.0)
         if _selectable(widget_id(label, key), marked):
+            node["index"] = max(0, ordinal - 1)
             _focus_card(state, node)
+        blurb = card_abstract(node)
+        if blurb:
+            imgui.text_disabled(_lineage_label(blurb, 240.0 if indent else 260.0))
         if indent:
             imgui.unindent(16.0)
         if scroll_card and key == scroll_card:
@@ -1429,10 +1436,11 @@ def _gui_cards(state: AppState) -> None:
             with state.lock:
                 state.scroll_card_key = ""
 
-    for node in roots:
-        _draw_card_row(node, indent=False)
-        for child in children_of.get(text(node, "id"), []):
-            _draw_card_row(child, indent=True)
+    for index, node in enumerate(roots, 1):
+        _draw_card_row(node, indent=False, ordinal=index)
+        kids = children_of.get(text(node, "id"), [])
+        for child_index, child in enumerate(kids, 1):
+            _draw_card_row(child, indent=True, ordinal=child_index)
     imgui.pop_text_wrap_pos()
     imgui.pop_style_var()
 
@@ -1788,8 +1796,12 @@ def _gui_lineage(state: AppState) -> None:
                 imgui.dummy((card_w, 1.0))
                 if node.get("nested") and node.get("cards"):
                     _toggle(visual_id, visual_id in expanded)
-                imgui.text(_lineage_label(str(node.get("title") or visual_id), card_w - (28.0 if node.get("nested") else 8.0)))
+                ordinal = lineage_ordinal(node)
+                title = str(node.get("title") or visual_id)
+                heading = f"{ordinal}. {title}" if ordinal else title
+                imgui.text(_lineage_label(heading, card_w - (28.0 if node.get("nested") else 8.0)))
                 extra = lineage_subtitle(node)
+                blurb = str(node.get("abstract") or "")
                 if extra:
                     line = _lineage_label(extra, card_w - 8.0)
                     tag = str(node.get("statusTag") or "")
@@ -1801,6 +1813,11 @@ def _gui_lineage(state: AppState) -> None:
                         imgui.text_colored((0.90, 0.55, 0.38, 1.0), line)
                     else:
                         imgui.text_disabled(line)
+                elif blurb:
+                    wrap_at = imgui.get_cursor_pos_x() + card_w
+                    imgui.push_text_wrap_pos(wrap_at)
+                    imgui.text_disabled(blurb)
+                    imgui.pop_text_wrap_pos()
                 ed.end_node()
                 ed.pop_style_color(2)
             if project is not None:
@@ -2102,10 +2119,15 @@ def _gui_inspect(state: AppState) -> None:
             imgui.separator()
             imgui.text_disabled("覆盖")
             imgui.text(str(fields.get("span_label") or "未打标"))
-        if fields.get("summary"):
+        if fields.get("abstract") or fields.get("detail") or fields.get("summary"):
             imgui.separator()
-            imgui.text_disabled("设计思路")
-            imgui.text_wrapped(str(fields.get("summary")))
+            imgui.text_disabled("摘要")
+            imgui.text_wrapped(str(fields.get("abstract") or fields.get("summary") or ""))
+            detail = str(fields.get("detail") or fields.get("summary") or "")
+            if detail:
+                imgui.separator()
+                imgui.text_disabled("详细设计")
+                imgui.text_wrapped(detail)
         if fields.get("message"):
             imgui.separator()
             imgui.text_wrapped(str(fields.get("message")))

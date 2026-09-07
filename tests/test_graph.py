@@ -16,10 +16,13 @@ from ag2c.graph import (
     LINEAGE_PROJECT_ID,
     build_governance_graph,
     build_lineage,
+    card_abstract,
+    card_detail,
     knowledge_lineage_index,
     layout_lineage_view,
     lineage_boxes_overlap,
     lineage_card_width,
+    lineage_ordinal,
     lineage_related_ids,
     lineage_step_overlaps,
 )
@@ -287,6 +290,9 @@ class GovernanceGraphTests(unittest.TestCase):
         self.assertGreater(shown_cli["x"], src_box["x"] + src_box["width"])
         leftover_node = next(item for item in nodes if item["id"] == "knowledge.src")
         self.assertLess(leftover_node["x"] + leftover_node["width"], shown_cli["x"])
+        self.assertTrue(card_abstract("python -m ag2c 的入口：从 cli.main 取返回码并 sys.exit。真正的子命令解析在 cli.py。").startswith("python -m ag2c 的入口"))
+        self.assertIn("真正的子命令解析", card_detail({"summary": "python -m ag2c 的入口：从 cli.main 取返回码并 sys.exit。真正的子命令解析在 cli.py。"}))
+        self.assertGreaterEqual(lineage_ordinal(shown_cli), 1)
         hull = shown_house.get("outward_hull")
         self.assertIsInstance(hull, dict)
         self.assertGreater(float(hull["x"]), shown_house["x"] + shown_house["width"])

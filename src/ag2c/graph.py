@@ -838,6 +838,7 @@ LINEAGE_CARD_W = 220.0
 LINEAGE_CARD_MIN_W = 220.0
 LINEAGE_CARD_MAX_W = 320.0
 LINEAGE_CARD_H = 40.0
+LINEAGE_DETAIL_CARD_H = 76.0
 LINEAGE_CARD_GAP_X = 10.0
 LINEAGE_CARD_GAP_Y = 10.0
 LINEAGE_MODULE_PAD = 16.0
@@ -864,11 +865,58 @@ def _lineage_text_width(value: str) -> float:
 def lineage_card_width(node: Mapping[str, Any]) -> float:
     """Elastic card width from title/status, clamped for one combo row."""
     title = str(node.get("title") or "")
-    extra = str(node.get("replaced_by") or node.get("status") or "")
+    extra = str(node.get("replaced_by") or node.get("status") or node.get("abstract") or "")
     if node.get("replaced_by"):
         extra = "已被 " + extra + " 替换"
-    inner = max(_lineage_text_width(title), _lineage_text_width(extra)) + 28.0
+    inner = max(_lineage_text_width(title), _lineage_text_width(extra[:24])) + 28.0
     return min(LINEAGE_CARD_MAX_W, max(LINEAGE_CARD_MIN_W, inner))
+
+
+def card_abstract(source: Mapping[str, Any] | str, *, limit: int = 42) -> str:
+    """Short 摘要: explicit abstract, else the first sentence of summary."""
+    if isinstance(source, Mapping):
+        text = _text(source.get("abstract") or source.get("blurb")) or _text(source.get("summary"))
+    else:
+        text = str(source or "").strip()
+    text = " ".join(text.split())
+    if not text:
+        return ""
+    cut = len(text)
+    for marker in ("。", "！", "？", ". ", "!\n", "?\n"):
+        at = text.find(marker)
+        if 0 < at < cut:
+            cut = at + (0 if marker.startswith(".") else 1)
+    sentence = text[:cut].strip(" .")
+    if not sentence:
+        sentence = text
+    if len(sentence) > limit:
+        return sentence[:limit].rstrip() + "…"
+    return sentence
+
+
+def card_detail(source: Mapping[str, Any] | str) -> str:
+    """详细设计 body. Full summary, including the abstract sentence."""
+    if isinstance(source, Mapping):
+        return _text(source.get("summary"))
+    return str(source or "").strip()
+
+
+def lineage_leaf_card(node: Mapping[str, Any]) -> bool:
+    return str(node.get("kind") or "") == "knowledge" and not (node.get("nested") and node.get("cards"))
+
+
+def lineage_card_height(node: Mapping[str, Any]) -> float:
+    if lineage_leaf_card(node) and (node.get("abstract") or node.get("summary")):
+        return LINEAGE_DETAIL_CARD_H
+    return LINEAGE_CARD_H
+
+
+def lineage_ordinal(node: Mapping[str, Any]) -> int:
+    raw = node.get("index")
+    try:
+        return int(raw) + 1
+    except (TypeError, ValueError):
+        return 0
 
 
 def lineage_uid(kind: str, key: str) -> int:
@@ -1016,6 +1064,8 @@ def build_lineage(details: Mapping[str, Any] | None, *, project_name: str = "") 
                     "kindLabel": "知识卡",
                     "title": _text(card.get("title")) or knowledge_id,
                     "summary": _text(card.get("summary")),
+                    "abstract": card_abstract(card),
+                    "detail": _text(card.get("summary")),
                     "status": _knowledge_status_label(card, graph_nodes, knowledge_id),
                     "statusTag": _knowledge_status_tag(card, graph_nodes, knowledge_id),
                     "path": _text(nodes[floor_id].get("path")),
@@ -1076,6 +1126,8 @@ def build_lineage(details: Mapping[str, Any] | None, *, project_name: str = "") 
                     "kindLabel": "知识卡",
                     "title": _text(card.get("title")) or knowledge_id,
                     "summary": _text(card.get("summary")),
+                    "abstract": card_abstract(card),
+                    "detail": _text(card.get("summary")),
                     "status": _knowledge_status_label(card, graph_nodes, knowledge_id),
                     "statusTag": _knowledge_status_tag(card, graph_nodes, knowledge_id),
                     "path": "",
@@ -1088,6 +1140,15 @@ def build_lineage(details: Mapping[str, Any] | None, *, project_name: str = "") 
                 },
             )
             edges.append({"source": LINEAGE_UNGROUPED_ID, "target": visual_id, "type": "card"})
+    siblings: dict[str, list[dict[str, Any]]] = {}
+    for node in nodes.values():
+        if node.get("kind") != "knowledge":
+            continue
+        siblings.setdefault(str(node.get("parent") or ""), []).append(node)
+    for kids in siblings.values():
+        kids.sort(key=lambda item: (int(item.get("index") or 0), str(item.get("title") or "")))
+        for index, child in enumerate(kids):
+            child["index"] = index
     for _floor_id, node in list(nodes.items()):
         if node.get("kind") == "module" and node.get("empty") and not node.get("status"):
             node["status"] = "还没有知识卡"
@@ -1158,13 +1219,14 @@ def _pack_lineage_children(
     for child in children:
         visual_id = str(child.get("visual_id") or child.get("id") or "")
         nested = kids_of.get(visual_id, [])
+        height = lineage_card_height(child)
         child["hidden"] = False
         child["x"] = x
         child["y"] = cursor
         child["width"] = width
-        child["height"] = LINEAGE_CARD_H
+        child["height"] = height
         child["group"] = bool(nested)
-        cursor += LINEAGE_CARD_H + LINEAGE_CARD_GAP_Y
+        cursor += height + LINEAGE_CARD_GAP_Y
         if not (nested and visual_id in expanded):
             for grand in nested:
                 _hide_lineage_branch(grand, kids_of)
@@ -1195,15 +1257,18 @@ def _place_outward_column(
     inner_x = column_x + LINEAGE_MODULE_PAD
     start_y = float(parent.get("y") or 0)
     inner_y = start_y + LINEAGE_MODULE_HEADER
-    for index, child in enumerate(nested):
+    cursor = inner_y
+    for child in nested:
+        height = lineage_card_height(child)
         child["hidden"] = False
         child["group"] = bool(kids_of.get(str(child.get("visual_id") or child.get("id") or ""), []))
         child["x"] = inner_x
-        child["y"] = inner_y + index * (LINEAGE_CARD_H + LINEAGE_CARD_GAP_Y)
+        child["y"] = cursor
         child["width"] = inner_w
-        child["height"] = LINEAGE_CARD_H
+        child["height"] = height
+        cursor += height + LINEAGE_CARD_GAP_Y
         _place_outward_column(child, kids_of, expanded)
-    inner_h = len(nested) * LINEAGE_CARD_H + max(0, len(nested) - 1) * LINEAGE_CARD_GAP_Y
+    inner_h = max(0.0, cursor - inner_y - LINEAGE_CARD_GAP_Y)
     if not inner_h:
         inner_h = LINEAGE_EMPTY_INNER_H
     parent["outward_hull"] = {

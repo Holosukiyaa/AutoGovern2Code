@@ -12,6 +12,7 @@ from typing import Any, Callable
 from .graph import (
     LINEAGE_CARD_W,
     LINEAGE_PROJECT_ID,
+    _lineage_text_width,
     build_lineage,
     layout_lineage_view,
     lineage_heading,
@@ -26,7 +27,6 @@ from .tray_host import (
     acquire_mutex,
     ancestor_prefixes,
     app_directory,
-    apply_startup,
     card_for_owner,
     card_list_label,
     card_matching_lineage,
@@ -47,12 +47,12 @@ from .tray_host import (
     portable_env,
     project_gate_rows,
     register_app,
+    row_key,
     runtime_command,
     session_token,
     start_desktop_server,
     state_label,
     stop_desktop_server,
-    startup_enabled,
     string_list,
     text,
     wait_for_status,
@@ -92,7 +92,6 @@ class AppState:
         self.filter_index = 0
         self.busy = False
         self._worker: threading.Thread | None = None
-        self.really_exit = False
         self._dialog_lock = False
         self.stopping = False
         self.lineage_editor = None
@@ -177,6 +176,9 @@ class AppState:
 
 
 AUDIT_LIMIT = 800
+
+# Shared warning amber for gate strips, tree claims, lineage status, and inspect notes.
+_WARN_COLOR = (0.92, 0.78, 0.35, 1.0)
 
 
 def _audit_log_path() -> Path:
@@ -544,8 +546,7 @@ def _guarded(state: AppState, label: str, fn: Callable[[], None]) -> None:
         state.frame_ms[label] = (time.perf_counter() - t0) * 1000.0
 
 
-def node_key(node: dict[str, Any], fallback: str = "") -> str:
-    return text(node, "id") or text(node, "path") or fallback
+node_key = row_key  # Backward-compatible alias; the canonical helper lives in tray_host.
 
 
 def cjk_font_path() -> Path | None:
@@ -660,16 +661,6 @@ def _windows(state: AppState):
         window("详情", "InspectorSpace", lambda: _guarded(state, "详情", lambda: _gui_inspect(state))),
         window("知识卡片", "CardSpace", lambda: _guarded(state, "知识卡片", lambda: _gui_cards(state))),
     ]
-
-
-def _menu_item(label: str, selected: bool = False, enabled: bool = True) -> tuple[bool, bool]:
-    from imgui_bundle import imgui
-
-    clicked, checked = imgui.menu_item(label, "", selected, enabled)
-    return bool(clicked), bool(checked)
-
-
-FILETREE_MIN_W = 320.0
 
 
 def _caption_place(item_h: float) -> None:
@@ -1050,7 +1041,7 @@ def _gui_gate_strip(state: AppState, project: dict[str, Any]) -> None:
         shown = f"{label}    {value}"
         pushed = 0
         if warn:
-            imgui.push_style_color(imgui.Col_.text, (0.92, 0.78, 0.35, 1.0))
+            imgui.push_style_color(imgui.Col_.text, _WARN_COLOR)
             pushed += 1
         picked = _selectable(widget_id(shown, "gate:" + kind), inspect_mode == kind)
         if pushed:
@@ -1340,7 +1331,7 @@ def _gui_tree(state: AppState) -> None:
                 imgui.push_style_color(imgui.Col_.text, (0.90, 0.55, 0.38, 1.0))
                 pushed += 1
             elif claim == "重复认领":
-                imgui.push_style_color(imgui.Col_.text, (0.92, 0.78, 0.35, 1.0))
+                imgui.push_style_color(imgui.Col_.text, _WARN_COLOR)
                 pushed += 1
             opened = imgui.tree_node_ex(widget_id(visible, prefix), flags)
             if pushed:
@@ -1511,13 +1502,13 @@ def _lineage_snapshot(state: AppState, details: dict[str, Any]) -> dict[str, Any
 
 def _lineage_label(value: str, max_px: float) -> str:
     text_value = str(value or "").replace("\n", " ")
-    width = 0.0
-    out: list[str] = []
+    if _lineage_text_width(text_value) <= max_px:
+        return text_value
+    out = ""
     for char in text_value:
-        width += 16.0 if ord(char) > 127 else 8.5
-        if width > max_px:
-            return "".join(out) + "…"
-        out.append(char)
+        if _lineage_text_width(out + char) > max_px:
+            return out + "…"
+        out += char
     return text_value
 
 
@@ -1542,7 +1533,7 @@ def _cubic_arrow(dl: Any, imgui: Any, x0: float, y0: float, x1: float, y1: float
 
 def _lineage_status_color(tag: str, imgui: Any) -> Any:
     if tag == "placeholder":
-        return imgui.ImVec4(0.92, 0.78, 0.35, 1.0)
+        return imgui.ImVec4(*_WARN_COLOR)
     if tag == "opaque":
         return imgui.ImVec4(0.90, 0.55, 0.38, 1.0)
     if tag == "writing":
@@ -1806,7 +1797,7 @@ def _gui_lineage(state: AppState) -> None:
                     if node.get("replaced_by"):
                         imgui.text_disabled(line)
                     elif tag == "placeholder":
-                        imgui.text_colored((0.92, 0.78, 0.35, 1.0), line)
+                        imgui.text_colored(_WARN_COLOR, line)
                     elif tag == "opaque":
                         imgui.text_colored((0.90, 0.55, 0.38, 1.0), line)
                     else:
@@ -1972,7 +1963,7 @@ def _gui_inspect(state: AppState) -> None:
     if fields.get("status") and str(fields["status"]) not in {"", "在册"}:
         status = str(fields["status"])
         if status == "占位":
-            imgui.text_colored((0.92, 0.78, 0.35, 1.0), status)
+            imgui.text_colored(_WARN_COLOR, status)
         else:
             imgui.text_disabled(status)
     if mode == "gate":
@@ -2047,7 +2038,7 @@ def _gui_inspect(state: AppState) -> None:
             goal = str(item.get("goal") or item.get("id") or "")
             warn = life in {"diverged", "missing", "verified-unmerged", "verified-stale"} or str(item.get("state") or "") == "verified"
             if warn:
-                imgui.text_colored((0.92, 0.78, 0.35, 1.0), f"{label}  ·  {goal}")
+                imgui.text_colored(_WARN_COLOR, f"{label}  ·  {goal}")
             else:
                 imgui.text(f"{label}  ·  {goal}")
         return
@@ -2290,18 +2281,6 @@ def _post(state: AppState, route: str, root: str) -> None:
         return
     state.api.request("POST", route, {"path": root})
     _refresh(state)
-
-
-def _set_span(state: AppState, card_id: str, tag: str) -> None:
-    if state.api is None or not card_id:
-        return
-    root = ""
-    with state.lock:
-        root = state.selected_root
-    if not root:
-        return
-    state.api.request("POST", "api/household/span", {"path": root, "id": card_id, "tag": tag})
-    _load_details(state, root, refresh=True)
 
 
 def _open_folder(state: AppState, root: str) -> None:

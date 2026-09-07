@@ -260,7 +260,6 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("begin_combo", ui)
         self.assertIn('layout_name = "tray-v14"', ui)
         self.assertIn('split("MainDockSpace", "FileTreeSpace", imgui.Dir.left, 0.26, tree_lock)', ui)
-        self.assertIn("FILETREE_MIN_W = 320.0", ui)
         self.assertIn("_caption_place", ui)
         self.assertNotIn('begin_menu("项目")', ui)
         self.assertIn('split("MainDockSpace", "InspectorSpace", imgui.Dir.right, 0.38)', ui)
@@ -330,7 +329,6 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertNotIn("imguizmo", ui)
         self.assertNotIn("immvision", ui)
         self.assertIn('window("知识卡片", "CardSpace"', ui)
-        self.assertIn("def _menu_item(", ui)
         self.assertNotIn('menu_item("添加项目", None', ui)
         self.assertIn("正在重新扫描", ui)
         self.assertIn("_scan_overlay", ui)
@@ -1153,7 +1151,7 @@ class TrayAuditTests(unittest.TestCase):
         self.assertIn("点击谱系节点", ui)
         self.assertIn('audit(state, "展开" if opening else "收起", "谱系", visual_id)', ui)
         self.assertIn('audit(state, "点击目录", "文件树", prefix)', ui)
-        windows_block = ui[ui.index("def _windows"): ui.index("def _menu_item")]
+        windows_block = ui[ui.index("def _windows"): ui.index("def _caption_place")]
         self.assertNotIn("审计", windows_block)
 
 

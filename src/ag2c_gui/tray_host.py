@@ -14,7 +14,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .util import hidden_process_kwargs
+from ag2c.util import hidden_process_kwargs
 
 FILTERS = (
     ("", "全部"),
@@ -282,13 +282,13 @@ def _open_worktrees(details: dict[str, Any] | None) -> list[dict[str, Any]]:
 
 
 def skill_prompt_text(project_root: str = "") -> str:
-    from .harnesses import skill_entry_prompt
+    from ag2c.harnesses import skill_entry_prompt
 
     return skill_entry_prompt(project=Path(project_root) if project_root else Path.cwd())
 
 
 def mcp_entry_text(project_root: str = "") -> str:
-    from .mcp_server import mcp_connect_prompt
+    from ag2c.mcp_server import mcp_connect_prompt
 
     del project_root
     text = mcp_connect_prompt()
@@ -302,7 +302,7 @@ def mcp_health_snapshot(
     cwd: str | Path | None = None,
     managed: bool | None = None,
 ) -> dict[str, Any]:
-    from .mcp_server import mcp_health
+    from ag2c.mcp_server import mcp_health
 
     return mcp_health(handshake=handshake, home=home, cwd=cwd, managed=managed)
 

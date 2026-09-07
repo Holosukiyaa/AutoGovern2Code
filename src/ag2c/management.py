@@ -443,7 +443,7 @@ def _compute_project_details(root: Path) -> dict[str, Any]:
         result["journals"] = list_journals(root)
     except (AG2CError, OSError, ValueError):
         result["journals"] = []
-    from .graph import build_governance_graph
+    from ag2c_gui.graph import build_governance_graph
 
     from .households import census_report, file_latest_commits
 

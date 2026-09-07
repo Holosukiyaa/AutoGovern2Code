@@ -16,8 +16,8 @@ from unittest.mock import MagicMock, patch
 
 import bootstrap
 
-import ag2c.desktop
-from ag2c.desktop import DesktopServer
+import ag2c_gui.desktop
+from ag2c_gui.desktop import DesktopServer
 
 
 class DesktopServerTests(unittest.TestCase):
@@ -67,8 +67,8 @@ class DesktopServerTests(unittest.TestCase):
         self.assertEqual(401, status)
         status, _, _ = self.request("GET", "/api/projects", token=True, origin="http://example.com")
         self.assertEqual(403, status)
-        with patch("ag2c.desktop.managed_projects", return_value=[{"name": "Project", "root": "C:/Project"}]) as listed, patch(
-            "ag2c.desktop.align_managed_projects"
+        with patch("ag2c_gui.desktop.managed_projects", return_value=[{"name": "Project", "root": "C:/Project"}]) as listed, patch(
+            "ag2c_gui.desktop.align_managed_projects"
         ) as align:
             status, body, _ = self.request("GET", "/api/projects", token=True)
         self.assertEqual(200, status)
@@ -96,7 +96,7 @@ class DesktopServerTests(unittest.TestCase):
 
     def test_add_project_endpoint_returns_management_snapshot(self) -> None:
         expected = {"name": "Project", "root": "C:/Project", "state": "protected"}
-        with patch("ag2c.desktop.add_project", return_value=expected) as add:
+        with patch("ag2c_gui.desktop.add_project", return_value=expected) as add:
             status, body, _ = self.request(
                 "POST",
                 "/api/projects/add",
@@ -120,8 +120,8 @@ class DesktopServerTests(unittest.TestCase):
         self.assertEqual(404, status)
 
     def test_align_endpoint_runs_separately_from_the_project_list(self) -> None:
-        with patch("ag2c.desktop.align_managed_projects", return_value=[{"action": "aligned"}]) as align, patch(
-            "ag2c.desktop.managed_projects", return_value=[{"name": "Project", "root": "C:/Project"}]
+        with patch("ag2c_gui.desktop.align_managed_projects", return_value=[{"action": "aligned"}]) as align, patch(
+            "ag2c_gui.desktop.managed_projects", return_value=[{"name": "Project", "root": "C:/Project"}]
         ):
             status, body, _ = self.request("POST", "/api/projects/align", body={}, token=True)
         self.assertEqual(200, status)
@@ -132,7 +132,7 @@ class DesktopServerTests(unittest.TestCase):
 
     def test_recheck_repairs_activation_before_returning_status(self) -> None:
         expected = {"name": "Project", "root": "C:/Project", "state": "protected"}
-        with patch("ag2c.desktop.repair_and_check_project", return_value=expected) as repair:
+        with patch("ag2c_gui.desktop.repair_and_check_project", return_value=expected) as repair:
             status, body, _ = self.request(
                 "POST",
                 "/api/projects/check",
@@ -150,7 +150,7 @@ class DesktopServerTests(unittest.TestCase):
             "cards": [{"id": "floor.app", "type": "floor"}],
             "knowledge": [],
         }
-        with patch("ag2c.desktop.project_details", return_value=expected) as details:
+        with patch("ag2c_gui.desktop.project_details", return_value=expected) as details:
             status, body, _ = self.request(
                 "POST",
                 "/api/project/details",
@@ -162,7 +162,7 @@ class DesktopServerTests(unittest.TestCase):
         details.assert_called_once()
 
     def test_serve_desktop_notifies_after_socket_is_bound(self) -> None:
-        from ag2c.desktop import serve_desktop
+        from ag2c_gui.desktop import serve_desktop
 
         ready = []
 
@@ -173,7 +173,7 @@ class DesktopServerTests(unittest.TestCase):
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
         probe.close()
-        with patch("ag2c.desktop.DesktopServer.serve_forever", side_effect=KeyboardInterrupt):
+        with patch("ag2c_gui.desktop.DesktopServer.serve_forever", side_effect=KeyboardInterrupt):
             self.assertEqual(
                 0,
                 serve_desktop(port=port, token="test-token-with-at-least-24-characters", on_ready=stop),

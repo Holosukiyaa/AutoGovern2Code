@@ -252,7 +252,7 @@ def is_code_file_knowledge(card: Mapping[str, Any]) -> bool:
     paths = _scope_paths(card) or [_normalize_path(str(item)) for item in _items(card.get("references"))]
     if len(paths) != 1:
         return False
-    from .households import CODE_SUFFIXES
+    from ag2c.households import CODE_SUFFIXES
 
     return _path_suffix(paths[0]) in CODE_SUFFIXES
 

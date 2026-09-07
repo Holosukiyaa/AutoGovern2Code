@@ -111,7 +111,8 @@ try {
         throw "AG2C guard hook did not fire after the portable folder was moved: $commitOutput"
     }
 
-    & $portableGit -C $projectRoot checkout -- . 2>&1 | Out-Null
+    # The blocked commit leaves the change staged; reset both index and tree.
+    & $portableGit -C $projectRoot reset --hard HEAD 2>&1 | Out-Null
     if ((& $portableGit -C $projectRoot status --porcelain | Out-String).Trim()) {
         throw 'Enrollment changed files in the user project.'
     }

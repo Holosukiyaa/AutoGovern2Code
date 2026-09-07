@@ -103,8 +103,8 @@ $trayDist = Join-Path $buildRoot 'tray'
     --onedir `
     --name AutoGovern2Code `
     --paths (Join-Path $repoRoot 'src') `
-    --hidden-import ag2c.imgui_tray `
-    --hidden-import ag2c.tray_host `
+    --hidden-import ag2c_gui.imgui_tray `
+    --hidden-import ag2c_gui.tray_host `
     --exclude-module imgui_bundle.imguizmo `
     --exclude-module imgui_bundle.immvision `
     --exclude-module imgui_bundle.implot3d `

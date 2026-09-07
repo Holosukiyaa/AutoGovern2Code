@@ -54,29 +54,26 @@ jobs:
       - run: ag2c setup --skill-destination .tmp-skills
       - run: test -f .tmp-skills/ag2c-governed-development/SKILL.md
 
-  windows-installer:
+  windows-portable:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      - name: Install installer build tools
+      - name: Install portable build tools
         shell: pwsh
         run: |
           python -m pip install --upgrade pip pyinstaller
-          if (-not (Get-Command iscc.exe -ErrorAction SilentlyContinue)) {
-            choco install innosetup --no-progress -y
-          }
-      - name: Build Windows installer
+      - name: Build the no-install Windows portable zip
         shell: pwsh
         run: |
           $version = python -c "import sys; sys.path.insert(0, 'src'); import ag2c; print(ag2c.__version__)"
-          ./scripts/build_windows_installer.ps1 -Version $version
-      - name: Smoke-test one-click install, enrollment, guard, and uninstall
+          ./scripts/build_windows_portable.ps1 -Version $version
+      - name: Smoke-test portable enrollment, guard, and folder relocation
         shell: pwsh
         run: |
           $version = python -c "import sys; sys.path.insert(0, 'src'); import ag2c; print(ag2c.__version__)"
-          ./scripts/test_windows_installer.ps1 `
-            -InstallerPath build/windows/installer/AutoGovern2Code-Setup-Windows-x64.exe `
+          ./scripts/test_windows_portable.ps1 `
+            -ZipPath build/windows/portable/AutoGovern2Code-Portable-Windows-x64.zip `
             -Version $version

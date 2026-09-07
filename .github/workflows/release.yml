@@ -27,35 +27,32 @@ jobs:
       - run: python -m pip install --force-reinstall --no-deps dist/*.whl
       - run: ag2c --version
 
-  windows-installer:
+  windows-portable:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      - name: Install installer build tools
+      - name: Install portable build tools
         shell: pwsh
         run: |
           python -m pip install --upgrade pip pyinstaller
-          if (-not (Get-Command iscc.exe -ErrorAction SilentlyContinue)) {
-            choco install innosetup --no-progress -y
-          }
-      - name: Build and smoke-test Windows installer
+      - name: Build and smoke-test the no-install Windows portable zip
         shell: pwsh
         run: |
           $version = $env:GITHUB_REF_NAME.TrimStart('v')
-          ./scripts/build_windows_installer.ps1 -Version $version
-          ./scripts/test_windows_installer.ps1 `
-            -InstallerPath build/windows/installer/AutoGovern2Code-Setup-Windows-x64.exe `
+          ./scripts/build_windows_portable.ps1 -Version $version
+          ./scripts/test_windows_portable.ps1 `
+            -ZipPath build/windows/portable/AutoGovern2Code-Portable-Windows-x64.zip `
             -Version $version
       - uses: actions/upload-artifact@v6
         with:
-          name: windows-installer
-          path: build/windows/installer/AutoGovern2Code-Setup-Windows-x64.exe
+          name: windows-portable
+          path: build/windows/portable/AutoGovern2Code-Portable-Windows-x64.zip
 
   release:
-    needs: [python-distributions, windows-installer]
+    needs: [python-distributions, windows-portable]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

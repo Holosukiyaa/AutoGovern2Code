@@ -13,18 +13,18 @@ AutoGovern2Code is a local open-source governance layer for AI coding. Add a Git
 
 The project never receives an `.ag2c` directory, AG2C-generated `AGENTS.md` or `CLAUDE.md`, or evidence files. Product build and runtime never depend on AG2C.
 
-## Install on Windows
+## Use on Windows (no-install portable)
 
-Requirements: Windows 10 or 11 x64. Python is not required. The tray is a Dear ImGui window (Hello ImGui docking shell) and does not embed a browser or Qt. A portable copy is a folder with `AutoGovern2Code.exe`, `git\`, and `data\`; drop `portable.ini` beside the exe (or pass `--portable`) and it will not write PATH, Start Menu, or login startup. Shipped MinGit is used even if another Git is on PATH.
+Requirements: Windows 10 or 11 x64. Python is not required. The tray is a Dear ImGui window (Hello ImGui docking shell) and does not embed a browser or Qt. The download is a single folder: `AutoGovern2Code.exe`, `ag2c\`, `git\`, `data\`, and `portable.ini`. It never writes PATH, the registry, the Start Menu, or login startup. Put the folder anywhere — a USB drive works — and move it freely; the first command after a move re-points the project registry and the Git guard hooks to the new location automatically. Shipped MinGit is used even if another Git is on PATH.
 
-1. Download `AutoGovern2Code-Setup-Windows-x64.exe` from the [latest GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest).
-2. Double-click the installer. It installs for the current user, puts AG2C in the Start Menu, and starts the tray app.
-3. Open AG2C from the tray or Start Menu, click **Add project**, and choose a non-empty Git repository.
-4. In the tray click **检测 MCP** once (or run `ag2c mcp health`). Copy the generic connect prompt if your agent needs it. Start a new agent session, then keep working in that repository as usual.
+1. Download `AutoGovern2Code-Portable-Windows-x64.zip` from the [latest GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest).
+2. Extract it anywhere and double-click `AutoGovern2Code.exe`.
+3. Click **Add project** and choose a non-empty Git repository.
+4. Click **检测 MCP** once (or run `ag2c mcp health`). Copy the generic connect prompt if your agent needs it. Start a new agent session, then keep working in that repository as usual.
 
-The tray starts with Windows. Closing the window hides it; Git delivery guards on enrolled projects stay active.
+Closing the window hides it to the tray; Git delivery guards on enrolled projects stay active. The portable build does not register login startup; if you want that, drop a shortcut to `AutoGovern2Code.exe` into `shell:startup`.
 
-The community installer is unsigned, so Windows SmartScreen may warn. Download it only from this repository, compare the file with `SHA256SUMS.txt`, then choose **More info > Run anyway**. A downloaded Git remains a separate GPL-2.0 program under `%LOCALAPPDATA%\AutoGovern2Code\runtime\git`. AG2C uses that bundled MinGit for its operations; the project's `.git` and history stay put.
+The package is unsigned, so Windows SmartScreen may warn. Download it only from this repository, compare the file with `SHA256SUMS.txt`, then choose **More info > Run anyway**. The bundled Git remains a separate GPL-2.0 program inside the folder at `git\`. AG2C uses that bundled MinGit for its operations; the project's `.git` and history stay put.
 
 ## What you see after adding a project
 

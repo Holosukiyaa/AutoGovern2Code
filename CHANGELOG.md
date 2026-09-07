@@ -2,6 +2,7 @@
 
 ## 0.9.0 - 2026-09-07
 
+- The Windows release is now a no-install portable zip (`AutoGovern2Code-Portable-Windows-x64.zip`): extract anywhere and run — no PATH, registry, Start Menu, or login-startup writes. Moving the whole folder self-heals on the next command: the project registry rebases to the new location and enrolled projects get their Git guard hooks re-pointed, so a moved or copied folder never drops the guard. The Inno Setup installer is retired.
 - The MCP server ships production hard rules in its initialize instructions: record the census before verify, knowledge-card titles are 20 characters max, rerun verify through the CLI when the MCP call times out, and finish tasks from the canonical checkout. `ag2c_census` exposes `all`.
 - Household updates preserve entrypoints and checker bindings unless the caller passes new values; `ag2c_household` can now set entrypoints, checkers, and a scenario `command` over MCP, and the new `ag2c_tighten` tool tightens or renews a directory household without dropping to the CLI.
 - First product acceptance check: `scripts/check_desktop_boot.py` boots the desktop backend, waits for `/api/status`, and shuts it down through the token API. It is attached to `knowledge.ag2c-gui` as a scenario checker and pinned in unittest, so a tray that cannot boot fails verification.

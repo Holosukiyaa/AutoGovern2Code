@@ -13,18 +13,18 @@ AutoGovern2Code 是一层本地、开源的 AI 编程治理工具。把 Git 工�
 
 用户工程里不会出现 `.ag2c` 目录，不会由 AG2C 生成 `AGENTS.md` 或 `CLAUDE.md`，也不会混入治理凭证。产品的构建和运行永远不依赖 AG2C。
 
-## Windows 怎么安装
+## Windows 怎么用（免安装便携版）
 
-需要 Windows 10/11 x64，不需要 Python。托盘是 Dear ImGui 窗口（Hello ImGui 停靠壳），不嵌入 Edge，也不再用 PySide/Qt。便携版是一个文件夹：exe、`git\`、`data\`。旁边放 `portable.ini`（或加 `--portable`）就不会写 PATH、开始菜单、开机启动。自带的 MinGit 优先于系统 Git。
+需要 Windows 10/11 x64，不需要 Python。托盘是 Dear ImGui 窗口（Hello ImGui 停靠壳），不嵌入 Edge，也不再用 PySide/Qt。发行物就是一个文件夹：`AutoGovern2Code.exe`、`ag2c\`、`git\`、`data\` 加 `portable.ini`。不写 PATH、不写注册表、不加开机启动；整个文件夹随便放、随便搬，拷到别的机器也能直接用——搬迁后第一条命令会自动把登记册和 Git 门禁钩子指到新位置。
 
-1. 从[最新 GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)下载 `AutoGovern2Code-Setup-Windows-x64.exe`。
-2. 双击安装。安装器只写入当前用户，会加入开始菜单，并启动托盘程序。
-3. 从托盘或开始菜单打开 AG2C，点击「添加项目」，选择一个非空的 Git 工程。
-4. 在托盘点一次「检测 MCP」（或运行 `ag2c mcp health`）。需要时复制通用连接说明。新开一轮对话后，继续像以前一样提开发需求。
+1. 从[最新 GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)下载 `AutoGovern2Code-Portable-Windows-x64.zip`。
+2. 解压到任意位置（U 盘也行），双击 `AutoGovern2Code.exe`。
+3. 在窗口里点击「添加项目」，选择一个非空的 Git 工程。
+4. 点一次「检测 MCP」（或运行 `ag2c mcp health`）。需要时复制通用连接说明。新开一轮对话后，继续像以前一样提开发需求。
 
-托盘程序会随 Windows 启动。关掉窗口只是缩回托盘；已经纳管工程的 Git 交付门禁仍然生效。
+关掉窗口只是缩回托盘；已经纳管工程的 Git 交付门禁仍然生效。便携版不写开机启动；需要的话把 `AutoGovern2Code.exe` 的快捷方式放进 `shell:startup` 即可。
 
-社区安装器目前没有代码签名，Windows SmartScreen 可能会警告。请只从本仓库下载，先按 `SHA256SUMS.txt` 核对文件，再选择「更多信息 > 仍要运行」。下载的 Git 仍是独立的 GPL-2.0 程序，放在 `%LOCALAPPDATA%\AutoGovern2Code\runtime\git`。AG2C 操作用这份 MinGit；工程自己的 `.git` 和历史不动。
+发行包没有代码签名，Windows SmartScreen 可能会警告。请只从本仓库下载，先按 `SHA256SUMS.txt` 核对文件，再选择「更多信息 > 仍要运行」。自带的 Git 仍是独立的 GPL-2.0 程序，就在文件夹里的 `git\`。AG2C 操作用这份 MinGit；工程自己的 `.git` 和历史不动。
 
 ## 加入工程之后能看到什么
 

@@ -4,12 +4,12 @@ AG2C adoption has one user-facing action: choose a Git project in the tray appli
 
 ## Windows installation
 
-Download `AutoGovern2Code-Setup-Windows-x64.exe` from the [latest GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest) and double-click it. The per-user installer:
+Download `AutoGovern2Code-Portable-Windows-x64.zip` from the [latest GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest), extract it anywhere, and double-click `AutoGovern2Code.exe`. The no-install portable folder:
 
-- installs a self-contained AG2C runtime without requiring Python, administrator rights, or Edge WebView2; the tray is a Dear ImGui window (Hello ImGui) and the package ships MinGit next to the app;
-- writes this AG2C into local MCP configs (`ag2c mcp install`); the operator AI entry is a generic MCP connect prompt plus **检测 MCP**;
-- adds the runtime to the user PATH for agent use;
-- starts the tray application and registers it for user startup.
+- is a self-contained AG2C runtime without requiring Python, administrator rights, or Edge WebView2; the tray is a Dear ImGui window (Hello ImGui) and the package ships MinGit next to the app;
+- never writes PATH, the registry, the Start Menu, or login startup — every byte it owns stays in its own `data\` folder;
+- can be moved or copied to another machine as-is; the first command after a move re-points the project registry and the Git guard hooks to the new location;
+- can write itself into local MCP configs on demand (`ag2c mcp install`); the operator AI entry is a generic MCP connect prompt plus **检测 MCP**.
 
 The tray is a local desktop application, not a browser dashboard and not a Windows service. Closing its window hides it to the tray. Governance hooks continue to protect already managed repositories even when the window is hidden.
 

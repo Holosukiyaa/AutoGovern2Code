@@ -98,6 +98,55 @@ def ensure_portable_archive() -> dict[str, Any]:
     return result
 
 
+def heal_portable_move(previous_home: str) -> dict[str, Any]:
+    """Re-point enrolled projects after the portable folder itself moved.
+
+    The registry rebase in `_read_registry` fixes stored manifest paths, but the
+    enrolled projects still reference the old location: `core.hooksPath` is an
+    absolute path into the store, and live task worktrees record absolute paths
+    in both Git metadata and task JSON. Without this heal a moved portable
+    folder would silently drop the Git guard.
+    """
+    rebound = rebind_portable_git_enrollment()
+    repaired = _repair_moved_worktrees((Path(previous_home) / "data").resolve())
+    return {"git": rebound, "worktrees": repaired}
+
+
+def _repair_moved_worktrees(old_data: Path) -> list[dict[str, str]]:
+    """Repair Git worktree metadata for worktrees that moved with the portable pack."""
+    pack = portable_archive_root()
+    if pack is None or old_data == pack:
+        return []
+    repaired: list[dict[str, str]] = []
+    for item in _read_registry().get("projects") or []:
+        if not isinstance(item, dict):
+            continue
+        root = Path(str(item.get("root") or ""))
+        if not root.is_dir():
+            continue
+        try:
+            listing = str(git(root, "worktree", "list", "--porcelain", check=False))
+        except AG2CError:
+            continue
+        for old in _porcelain_worktrees(listing):
+            try:
+                if old.resolve() == root.resolve():
+                    continue
+                relative = old.resolve().relative_to(old_data)
+            except (ValueError, OSError):
+                continue
+            if not relative.parts or relative.parts[0] != "projects":
+                continue
+            new = (pack / relative).resolve()
+            if not new.is_dir():
+                continue
+            git(root, "worktree", "repair", str(new), check=False)
+            store_key = relative.parts[1] if len(relative.parts) > 1 else str(item.get("key") or "")
+            _rewrite_task_worktree_paths(pack / "projects" / store_key, old, new)
+            repaired.append({"from": str(old), "to": str(new)})
+    return repaired
+
+
 def rebind_portable_git_enrollment() -> list[dict[str, Any]]:
     """Point each registered clone at the portable store so new worktrees land in data\\."""
     bound: list[dict[str, Any]] = []
@@ -422,8 +471,11 @@ def _read_registry() -> dict[str, Any]:
     projects = value.get("projects")
     if not isinstance(projects, list):
         raise AG2CError(f"AG2C project registry has an invalid project list: {path}")
+    previous_home = str(value.get("home") or "")
     if _rebase_portable_paths(value):
         _write_registry(value)
+        if previous_home and Path(previous_home) != portable_home():
+            heal_portable_move(previous_home)
     return value
 
 

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -199,21 +202,50 @@ def project_status(start: Path, *, agents: list[dict[str, Any]] | None = None) -
     )
 
 
+# Each project card costs several git subprocesses; the tray asks for the list
+# twice at startup (projects, then align) and after every action. A short TTL
+# makes the second read free while mutations invalidate explicitly.
+_MANAGED_CACHE: tuple[float, list[dict[str, Any]]] | None = None
+_MANAGED_LOCK = threading.Lock()
+MANAGED_CACHE_TTL_SECONDS = 5.0
+
+
+def invalidate_managed_cache() -> None:
+    global _MANAGED_CACHE
+    with _MANAGED_LOCK:
+        _MANAGED_CACHE = None
+
+
 def managed_projects() -> list[dict[str, Any]]:
-    result: list[dict[str, Any]] = []
+    global _MANAGED_CACHE
+    with _MANAGED_LOCK:
+        cached = _MANAGED_CACHE
+    if cached is not None and time.monotonic() - cached[0] < MANAGED_CACHE_TTL_SECONDS:
+        return [dict(item) for item in cached[1]]
     agents = harness_status()
-    for record in project_records():
+    records = project_records()
+
+    def build(record: dict[str, Any]) -> dict[str, Any]:
         root = Path(str(record.get("root", "")))
         if not root.is_dir():
-            result.append(_unavailable_project(record, agents, issue="project folder is unavailable", state="missing"))
-            continue
+            return _unavailable_project(record, agents, issue="project folder is unavailable", state="missing")
         try:
             current = project_list_item(root, agents=agents)
         except (AG2CError, OSError, ValueError) as exc:
             current = _unavailable_project(record, agents, issue=str(exc), state="inactive")
-        result.append({**record, **current})
+        return {**record, **current}
+
+    if len(records) > 1:
+        # git subprocess waits release the GIL, so projects build in parallel.
+        with ThreadPoolExecutor(max_workers=min(4, len(records))) as pool:
+            result = list(pool.map(build, records))
+    else:
+        result = [build(record) for record in records]
     order = {"attention": 0, "protected": 1, "stopped": 2, "inactive": 3, "missing": 4}
-    return sorted(result, key=lambda item: (order.get(str(item.get("state")), 9), str(item.get("name", "")).lower()))
+    result = sorted(result, key=lambda item: (order.get(str(item.get("state")), 9), str(item.get("name", "")).lower()))
+    with _MANAGED_LOCK:
+        _MANAGED_CACHE = (time.monotonic(), result)
+    return [dict(item) for item in result]
 
 
 def align_managed_projects() -> list[dict[str, Any]]:
@@ -240,11 +272,14 @@ def align_managed_projects() -> list[dict[str, Any]]:
                     "error": str(exc),
                 }
             )
+    if result:
+        invalidate_managed_cache()
     return result
 
 
 def add_project(path: Path) -> dict[str, Any]:
     setup_project(path)
+    invalidate_managed_cache()
     return project_status(path)
 
 
@@ -466,6 +501,7 @@ def _compute_project_details(root: Path) -> dict[str, Any]:
 
 def repair_and_check_project(path: Path) -> dict[str, Any]:
     setup_project(path)
+    invalidate_managed_cache()
     return project_status(path)
 
 
@@ -491,6 +527,7 @@ def _detach_enforcement(root: Path) -> None:
 def stop_managing(path: Path, *, remove_data: bool = False) -> dict[str, Any]:
     root = repository_root(path)
     _detach_enforcement(root)
+    invalidate_managed_cache()
     if remove_data:
         result = unregister_project(root, remove_data=True)
         result["previous_evidence_kept"] = False

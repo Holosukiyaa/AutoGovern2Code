@@ -7,6 +7,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -537,11 +538,27 @@ def git(
     return output
 
 
+# A path's toplevel never changes within a process, and management code asks for
+# the same root many times per snapshot (activation, manifest, tasks, status...).
+# Only successes are cached: a directory that becomes a repo later must still work.
+_REPO_ROOT_CACHE: dict[str, Path] = {}
+_REPO_ROOT_LOCK = threading.Lock()
+
+
 def repository_root(start: Path) -> Path:
+    key = str(start.resolve())
+    with _REPO_ROOT_LOCK:
+        cached = _REPO_ROOT_CACHE.get(key)
+    if cached is not None:
+        return cached
     value = str(git(start.resolve(), "rev-parse", "--show-toplevel")).strip()
     if not value:
         raise AG2CError(f"not a Git worktree: {start}")
-    return Path(value).resolve()
+    root = Path(value).resolve()
+    with _REPO_ROOT_LOCK:
+        _REPO_ROOT_CACHE[key] = root
+        _REPO_ROOT_CACHE.setdefault(str(root), root)
+    return root
 
 
 def canonical_worktree(start: Path, *, root: Path | None = None) -> Path:

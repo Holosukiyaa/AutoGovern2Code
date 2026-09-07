@@ -105,6 +105,31 @@ class GitExecutableTests(unittest.TestCase):
         # A different PATH must not reuse the empty-PATH result.
         self.assertIsNotNone(gitops.system_git_executable())
 
+    def test_repository_root_is_memoized_per_path(self) -> None:
+        gitops._REPO_ROOT_CACHE.clear()
+        self.addCleanup(gitops._REPO_ROOT_CACHE.clear)
+        calls = []
+
+        def fake_git(root, *args, **kwargs):
+            calls.append(args)
+            return str(root) + "\n"
+
+        with patch("ag2c.gitops.git", side_effect=fake_git):
+            first = gitops.repository_root(Path("C:/Demo/Sub"))
+            second = gitops.repository_root(Path("C:/Demo/Sub"))
+        self.assertEqual(first, second)
+        self.assertEqual(len(calls), 1)
+
+    def test_repository_root_failure_is_not_cached(self) -> None:
+        gitops._REPO_ROOT_CACHE.clear()
+        self.addCleanup(gitops._REPO_ROOT_CACHE.clear)
+        with patch("ag2c.gitops.git", return_value="  \n"):
+            with self.assertRaises(AG2CError):
+                gitops.repository_root(Path("C:/Nope"))
+        # The failed lookup must not poison the cache: a later success works.
+        with patch("ag2c.gitops.git", return_value="C:/Nope\n"):
+            self.assertEqual(gitops.repository_root(Path("C:/Nope")), Path("C:/Nope").resolve())
+
     def test_portable_git_wins_over_system_git(self) -> None:
         real = shutil.which("git")
         self.assertIsNotNone(real)

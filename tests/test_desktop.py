@@ -971,6 +971,8 @@ class TrayHostHelperTests(unittest.TestCase):
     def test_managed_projects_sorts_missing_last_and_skips_git(self) -> None:
         from ag2c import management
 
+        management.invalidate_managed_cache()
+        self.addCleanup(management.invalidate_managed_cache)
         gone = Path(tempfile.mkdtemp()) / "demo"
         live_root = Path(tempfile.mkdtemp())
         live_card = {"name": "live", "root": str(live_root), "state": "protected"}
@@ -987,6 +989,27 @@ class TrayHostHelperTests(unittest.TestCase):
         listed.assert_called_once()
         repo.assert_not_called()
         self.assertEqual(["protected", "missing"], [row["state"] for row in rows])
+
+    def test_managed_projects_uses_short_ttl_cache(self) -> None:
+        from ag2c import management
+
+        management.invalidate_managed_cache()
+        self.addCleanup(management.invalidate_managed_cache)
+        live_root = Path(tempfile.mkdtemp())
+        live_card = {"name": "live", "root": str(live_root), "state": "protected"}
+        with patch(
+            "ag2c.management.project_records",
+            return_value=[{"name": "live", "root": str(live_root), "governance": "active"}],
+        ), patch("ag2c.management.harness_status", return_value=[]), patch(
+            "ag2c.management.project_list_item", return_value=live_card
+        ) as listed:
+            management.managed_projects()
+            management.managed_projects()
+            # The second read inside the TTL window is served from the cache.
+            self.assertEqual(listed.call_count, 1)
+            management.invalidate_managed_cache()
+            management.managed_projects()
+            self.assertEqual(listed.call_count, 2)
 
 
 class TrayGateTests(unittest.TestCase):

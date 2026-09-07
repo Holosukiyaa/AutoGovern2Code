@@ -1385,283 +1385,319 @@ def _view_pad_node(ed: Any, imgui: Any, x: float, y: float, key: str) -> None:
     ed.pop_style_color(2)
 
 
-def _gui_lineage(state: AppState) -> None:
-    from imgui_bundle import imgui
-    from imgui_bundle import imgui_node_editor as ed
+def _lineage_place_node(ed: Any, imgui: Any, node: dict[str, Any]) -> None:
+    ed.set_node_position(
+        ed.NodeId(_cached_uid(node)),
+        imgui.ImVec2(float(node.get("x") or 0), float(node.get("y") or 0)),
+    )
 
-    _ensure_lineage_editor(state)
-    if state.lineage_editor is None:
-        imgui.text_disabled("谱系画布未就绪")
-        return
-    with state.lock:
-        details = state.details
-        selected = state.selected_card_key
-        highlight = set(state.highlight_card_keys)
-        inspect_key = state.inspect_key
-        loading = state.loading
-        busy = state.busy
-        fit = state.lineage_fit
-        nav_id = state.lineage_nav_id
-        nav_ids = list(state.lineage_nav_ids)
-        placed = state.lineage_placed
-    if details is None:
-        imgui.text_disabled("选择一个项目后，这里显示知识卡谱系。")
-        return
-    if loading or busy:
-        _scan_overlay("正在重新扫描谱系…")
-    lineage = _lineage_snapshot(state, details)
-    if not lineage["nodes"]:
-        imgui.text_disabled("还没有可画的知识卡谱系")
-        return
-    imgui.text_disabled("点 + / − 展开或收起。每一层向右一列；点文件树哪一层就映射哪一层。")
-    avail = imgui.get_content_region_avail()
-    if float(getattr(avail, "x", 0) or 0) < 40.0 or float(getattr(avail, "y", 0) or 0) < 40.0:
-        return
-    with state.lock:
-        expanded = set(state.lineage_expanded)
-        layout_key = frozenset(expanded)
-        if state.lineage_view is None or state.lineage_layout_key != layout_key:
-            view = [dict(node) for node in lineage["nodes"]]
-            layout_lineage_view(view, expanded)
-            state.lineage_view = view
-            state.lineage_layout_key = layout_key
-            state.lineage_placed = False
-        else:
-            view = state.lineage_view
-        placed = state.lineage_placed
-    visible = [node for node in view if not node.get("hidden")]
-    project = next((node for node in visible if node.get("kind") == "project"), None)
-    modules = [node for node in visible if node.get("kind") == "module"]
-    cards = [node for node in visible if node.get("kind") == "knowledge"]
-    has_modules = any(node.get("kind") == "module" for node in lineage["nodes"])
-    toggles: list[str] = []
-    pending_click = 0
-    canvas_nodes = visible
 
-    def _place(node: dict[str, Any]) -> None:
-        ed.set_node_position(
-            ed.NodeId(_cached_uid(node)),
-            imgui.ImVec2(float(node.get("x") or 0), float(node.get("y") or 0)),
+def _lineage_toggle(imgui: Any, visual_id: str, opened: bool, toggles: list[str]) -> None:
+    mark = "-" if opened else "+"
+    if imgui.small_button(widget_id(mark, "exp:" + visual_id)):
+        toggles.append(visual_id)
+    imgui.same_line()
+
+
+def _draw_lineage_hull(
+    dl: Any,
+    imgui: Any,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    *,
+    fill: int,
+    line: int,
+    title_col: int,
+    title: str,
+    title_pad: float,
+    label_pad: float,
+    tag: str,
+    status_tag: str,
+) -> None:
+    dl.add_rect_filled(imgui.ImVec2(x, y), imgui.ImVec2(x + w, y + h), fill, 8.0)
+    # imgui-bundle: rounding, thickness, flags (not Dear ImGui's rounding, flags, thickness).
+    dl.add_rect(
+        imgui.ImVec2(x, y),
+        imgui.ImVec2(x + w, y + h),
+        line,
+        8.0,
+        2.0,
+    )
+    tag_w = float(imgui.calc_text_size(tag).x) if tag and tag != "还没有知识卡" else 0.0
+    label = _lineage_label(title, max(48.0, w - label_pad - tag_w))
+    dl.add_text(imgui.ImVec2(x + title_pad, y + 10.0), title_col, label)
+    if tag_w:
+        tag_col = imgui.get_color_u32(_lineage_status_color(status_tag, imgui))
+        dl.add_text(imgui.ImVec2(x + w - tag_w - 10.0, y + 10.0), tag_col, tag)
+
+
+def _lineage_draw_hulls(
+    dl: Any,
+    imgui: Any,
+    modules: list[dict[str, Any]],
+    cards: list[dict[str, Any]],
+    expanded: set[str],
+    marker_hits: list[tuple[str, float, float, float, float]],
+) -> None:
+    hull_fill = imgui.get_color_u32(imgui.ImVec4(0.18, 0.22, 0.28, 0.82))
+    hull_line = imgui.get_color_u32(imgui.ImVec4(0.50, 0.64, 0.84, 1.00))
+    title_col = imgui.get_color_u32(imgui.ImVec4(0.90, 0.93, 0.97, 1.00))
+    for node in modules:
+        visual_id = str(node.get("visual_id") or node["id"])
+        if visual_id not in expanded:
+            continue
+        hx = float(node.get("x") or 0)
+        hy = float(node.get("y") or 0)
+        hw = float(node.get("width") or 200)
+        hh = float(node.get("height") or 48)
+        _draw_lineage_hull(
+            dl,
+            imgui,
+            hx,
+            hy,
+            hw,
+            hh,
+            fill=hull_fill,
+            line=hull_line,
+            title_col=title_col,
+            title=lineage_heading(node),
+            title_pad=28.0,
+            label_pad=44.0,
+            tag=str(node.get("status") or ""),
+            status_tag=str(node.get("statusTag") or ""),
+        )
+        if bool(node.get("cards")) and not node.get("empty"):
+            mx, my, mw, mh = _combo_marker_hit(hx, hy)
+            marker_hits.append((visual_id, mx, my, mw, mh))
+    for node in cards:
+        hull = node.get("outward_hull") if isinstance(node.get("outward_hull"), dict) else None
+        if hull is None or node.get("hidden"):
+            continue
+        hx = float(hull.get("x") or 0)
+        hy = float(hull.get("y") or 0)
+        hw = float(hull.get("width") or 200)
+        hh = float(hull.get("height") or 48)
+        _draw_lineage_hull(
+            dl,
+            imgui,
+            hx,
+            hy,
+            hw,
+            hh,
+            fill=hull_fill,
+            line=hull_line,
+            title_col=title_col,
+            title=str(hull.get("title") or node.get("title") or ""),
+            title_pad=12.0,
+            label_pad=20.0,
+            tag=str(hull.get("status") or ""),
+            status_tag=str(node.get("statusTag") or ""),
         )
 
-    def _toggle(visual_id: str, opened: bool) -> None:
-        mark = "-" if opened else "+"
-        if imgui.small_button(widget_id(mark, "exp:" + visual_id)):
-            toggles.append(visual_id)
-        imgui.same_line()
 
-    ed.set_current_editor(state.lineage_editor)
-    ed.begin("谱系", imgui.ImVec2(0.0, 0.0))
-    try:
-        dl = imgui.get_window_draw_list()
-        hull_fill = imgui.get_color_u32(imgui.ImVec4(0.18, 0.22, 0.28, 0.82))
-        hull_line = imgui.get_color_u32(imgui.ImVec4(0.50, 0.64, 0.84, 1.00))
-        title_col = imgui.get_color_u32(imgui.ImVec4(0.90, 0.93, 0.97, 1.00))
-        link_color = imgui.get_color_u32(imgui.ImVec4(0.46, 0.62, 0.88, 0.90))
-        marker_hits: list[tuple[str, float, float, float, float]] = []
-        for node in modules:
-            visual_id = str(node.get("visual_id") or node["id"])
-            if visual_id not in expanded:
-                continue
-            hx = float(node.get("x") or 0)
-            hy = float(node.get("y") or 0)
-            hw = float(node.get("width") or 200)
-            hh = float(node.get("height") or 48)
-            dl.add_rect_filled(imgui.ImVec2(hx, hy), imgui.ImVec2(hx + hw, hy + hh), hull_fill, 8.0)
-            # imgui-bundle: rounding, thickness, flags (not Dear ImGui's rounding, flags, thickness).
-            dl.add_rect(
-                imgui.ImVec2(hx, hy),
-                imgui.ImVec2(hx + hw, hy + hh),
-                hull_line,
-                8.0,
-                2.0,
-            )
-            if bool(node.get("cards")) and not node.get("empty"):
-                mx, my, mw, mh = _combo_marker_hit(hx, hy)
-                marker_hits.append((visual_id, mx, my, mw, mh))
-            tag = str(node.get("status") or "")
-            tag_w = float(imgui.calc_text_size(tag).x) if tag and tag != "还没有知识卡" else 0.0
-            label = _lineage_label(lineage_heading(node), max(48.0, hw - 44.0 - tag_w))
-            dl.add_text(imgui.ImVec2(hx + 28.0, hy + 10.0), title_col, label)
-            if tag_w:
-                tag_col = imgui.get_color_u32(_lineage_status_color(str(node.get("statusTag") or ""), imgui))
-                dl.add_text(imgui.ImVec2(hx + hw - tag_w - 10.0, hy + 10.0), tag_col, tag)
-        for node in cards:
-            hull = node.get("outward_hull") if isinstance(node.get("outward_hull"), dict) else None
-            if hull is None or node.get("hidden"):
-                continue
-            hx = float(hull.get("x") or 0)
-            hy = float(hull.get("y") or 0)
-            hw = float(hull.get("width") or 200)
-            hh = float(hull.get("height") or 48)
-            dl.add_rect_filled(imgui.ImVec2(hx, hy), imgui.ImVec2(hx + hw, hy + hh), hull_fill, 8.0)
-            dl.add_rect(
-                imgui.ImVec2(hx, hy),
-                imgui.ImVec2(hx + hw, hy + hh),
-                hull_line,
-                8.0,
-                2.0,
-            )
-            tag = str(hull.get("status") or "")
-            tag_w = float(imgui.calc_text_size(tag).x) if tag and tag != "还没有知识卡" else 0.0
-            label = _lineage_label(str(hull.get("title") or node.get("title") or ""), max(48.0, hw - 20.0 - tag_w))
-            dl.add_text(imgui.ImVec2(hx + 12.0, hy + 10.0), title_col, label)
-            if tag_w:
-                tag_col = imgui.get_color_u32(_lineage_status_color(str(node.get("statusTag") or ""), imgui))
-                dl.add_text(imgui.ImVec2(hx + hw - tag_w - 10.0, hy + 10.0), tag_col, tag)
-        if project is not None and str(project.get("visual_id") or project["id"]) in expanded:
-            px = float(project.get("x") or 0)
-            py = float(project.get("y") or 0)
-            pw = float(project.get("width") or 200)
-            ph = float(project.get("height") or 48)
-            x0, y0 = px + pw, py + ph * 0.5
-            cards_by_parent: dict[str, list[dict[str, Any]]] = {}
-            for child in cards:
-                cards_by_parent.setdefault(str(child.get("parent") or ""), []).append(child)
-            for node in modules:
-                mid = str(node.get("visual_id") or node["id"])
-                kids = cards_by_parent.get(mid, [])
-                if kids:
-                    for child in kids:
-                        cx = float(child.get("x") or 0)
-                        cy = float(child.get("y") or 0) + float(child.get("height") or 40) * 0.5
-                        _cubic_arrow(dl, imgui, x0, y0, cx, cy, link_color)
-                else:
-                    mx = float(node.get("x") or 0)
-                    my = float(node.get("y") or 0) + float(node.get("height") or 48) * 0.5
-                    _cubic_arrow(dl, imgui, x0, y0, mx, my, link_color)
-            by_visual = {str(item.get("visual_id") or item.get("id") or ""): item for item in visible}
-            for child in cards:
-                parent = by_visual.get(str(child.get("parent") or ""))
-                if parent is None or parent.get("kind") != "knowledge":
-                    continue
-                px1 = float(parent.get("x") or 0) + float(parent.get("width") or 0)
-                py1 = float(parent.get("y") or 0) + float(parent.get("height") or 40) * 0.5
+def _lineage_draw_links(
+    dl: Any,
+    imgui: Any,
+    project: dict[str, Any] | None,
+    modules: list[dict[str, Any]],
+    cards: list[dict[str, Any]],
+    visible: list[dict[str, Any]],
+    expanded: set[str],
+    link_color: int,
+) -> None:
+    if project is None or str(project.get("visual_id") or project["id"]) not in expanded:
+        return
+    px = float(project.get("x") or 0)
+    py = float(project.get("y") or 0)
+    pw = float(project.get("width") or 200)
+    ph = float(project.get("height") or 48)
+    x0, y0 = px + pw, py + ph * 0.5
+    cards_by_parent: dict[str, list[dict[str, Any]]] = {}
+    for child in cards:
+        cards_by_parent.setdefault(str(child.get("parent") or ""), []).append(child)
+    for node in modules:
+        mid = str(node.get("visual_id") or node["id"])
+        kids = cards_by_parent.get(mid, [])
+        if kids:
+            for child in kids:
                 cx = float(child.get("x") or 0)
                 cy = float(child.get("y") or 0) + float(child.get("height") or 40) * 0.5
-                _cubic_arrow(dl, imgui, px1, py1, cx, cy, link_color)
-        imgui.push_style_var(imgui.StyleVar_.item_spacing, imgui.ImVec2(4.0, 1.0))
-        try:
-            for node in modules:
-                visual_id = str(node.get("visual_id") or node["id"])
-                opened = visual_id in expanded
-                can_expand = bool(node.get("cards")) and not node.get("empty")
-                if opened:
-                    nid = ed.NodeId(_cached_uid(node))
-                    ed.set_node_position(
-                        nid,
-                        imgui.ImVec2(float(node.get("x") or 0) + 4.0, float(node.get("y") or 0) + 6.0),
-                    )
-                    ed.push_style_color(ed.StyleColor.node_bg, imgui.ImVec4(0.18, 0.22, 0.28, 0.0))
-                    ed.push_style_color(ed.StyleColor.node_border, imgui.ImVec4(0.50, 0.64, 0.84, 0.0))
-                    ed.begin_node(nid)
-                    if can_expand:
-                        _toggle(visual_id, True)
-                    ed.end_node()
-                    ed.pop_style_color(2)
-                    continue
-                _place(node)
-                content_w = max(80.0, float(node.get("width") or 200) - 12.0)
-                ed.push_style_color(ed.StyleColor.node_bg, imgui.ImVec4(0.16, 0.18, 0.22, 0.96))
-                ed.push_style_color(ed.StyleColor.node_border, imgui.ImVec4(0.38, 0.48, 0.62, 0.90))
-                ed.begin_node(ed.NodeId(_cached_uid(node)))
-                imgui.dummy((content_w, 1.0))
+                _cubic_arrow(dl, imgui, x0, y0, cx, cy, link_color)
+        else:
+            mx = float(node.get("x") or 0)
+            my = float(node.get("y") or 0) + float(node.get("height") or 48) * 0.5
+            _cubic_arrow(dl, imgui, x0, y0, mx, my, link_color)
+    by_visual = {str(item.get("visual_id") or item.get("id") or ""): item for item in visible}
+    for child in cards:
+        parent = by_visual.get(str(child.get("parent") or ""))
+        if parent is None or parent.get("kind") != "knowledge":
+            continue
+        px1 = float(parent.get("x") or 0) + float(parent.get("width") or 0)
+        py1 = float(parent.get("y") or 0) + float(parent.get("height") or 40) * 0.5
+        cx = float(child.get("x") or 0)
+        cy = float(child.get("y") or 0) + float(child.get("height") or 40) * 0.5
+        _cubic_arrow(dl, imgui, px1, py1, cx, cy, link_color)
+
+
+def _lineage_draw_nodes(
+    ed: Any,
+    imgui: Any,
+    *,
+    project: dict[str, Any] | None,
+    modules: list[dict[str, Any]],
+    cards: list[dict[str, Any]],
+    visible: list[dict[str, Any]],
+    expanded: set[str],
+    selected: str,
+    highlight: set[str],
+    inspect_key: str,
+    has_modules: bool,
+    toggles: list[str],
+) -> None:
+    imgui.push_style_var(imgui.StyleVar_.item_spacing, imgui.ImVec2(4.0, 1.0))
+    try:
+        for node in modules:
+            visual_id = str(node.get("visual_id") or node["id"])
+            opened = visual_id in expanded
+            can_expand = bool(node.get("cards")) and not node.get("empty")
+            if opened:
+                nid = ed.NodeId(_cached_uid(node))
+                ed.set_node_position(
+                    nid,
+                    imgui.ImVec2(float(node.get("x") or 0) + 4.0, float(node.get("y") or 0) + 6.0),
+                )
+                ed.push_style_color(ed.StyleColor.node_bg, imgui.ImVec4(0.18, 0.22, 0.28, 0.0))
+                ed.push_style_color(ed.StyleColor.node_border, imgui.ImVec4(0.50, 0.64, 0.84, 0.0))
+                ed.begin_node(nid)
                 if can_expand:
-                    _toggle(visual_id, opened)
-                imgui.text(_lineage_label(lineage_heading(node) or str(visual_id), content_w - 28))
-                imgui.text_disabled(str(node.get("status") or "还没有知识卡"))
+                    _lineage_toggle(imgui, visual_id, True, toggles)
                 ed.end_node()
                 ed.pop_style_color(2)
-            for node in cards:
-                visual_id = str(node.get("visual_id") or node["id"])
-                _place(node)
-                card_w = max(80.0, float(node.get("width") or LINEAGE_CARD_W) - 12.0)
-                bg, border = _lineage_card_colors(_lineage_is_marked(node, selected, highlight, inspect_key))
-                ed.push_style_color(ed.StyleColor.node_bg, imgui.ImVec4(*bg))
-                ed.push_style_color(ed.StyleColor.node_border, imgui.ImVec4(*border))
-                ed.begin_node(ed.NodeId(_cached_uid(node)))
-                imgui.dummy((card_w, 1.0))
-                if node.get("nested") and node.get("cards"):
-                    _toggle(visual_id, visual_id in expanded)
-                heading = lineage_heading(node) or str(visual_id)
-                imgui.text(_lineage_label(heading, card_w - (28.0 if node.get("nested") else 8.0)))
-                extra = lineage_subtitle(node)
-                if extra:
-                    line = _lineage_label(extra, card_w - 8.0)
-                    tag = str(node.get("statusTag") or "")
-                    if node.get("replaced_by"):
-                        imgui.text_disabled(line)
-                    elif tag == "placeholder":
-                        imgui.text_colored(_WARN_COLOR, line)
-                    elif tag == "opaque":
-                        imgui.text_colored((0.90, 0.55, 0.38, 1.0), line)
-                    else:
-                        imgui.text_disabled(line)
-                ed.end_node()
-                ed.pop_style_color(2)
-            if project is not None:
-                _place(project)
-                visual_id = str(project.get("visual_id") or project["id"])
-                content_w = max(80.0, float(project.get("width") or 200) - 12.0)
-                ed.push_style_color(ed.StyleColor.node_bg, imgui.ImVec4(0.16, 0.18, 0.22, 0.96))
-                ed.push_style_color(ed.StyleColor.node_border, imgui.ImVec4(0.38, 0.48, 0.62, 0.90))
-                ed.begin_node(ed.NodeId(_cached_uid(project)))
-                imgui.dummy((content_w, 1.0))
-                if has_modules:
-                    _toggle(visual_id, visual_id in expanded)
-                imgui.text(_lineage_label(str(project.get("title") or visual_id), content_w - 28))
-                ed.end_node()
-                ed.pop_style_color(2)
-            pads = _lineage_view_pads(visible)
-            if pads is not None:
-                _view_pad_node(ed, imgui, pads[0], pads[1], "viewpad:tl")
-                _view_pad_node(ed, imgui, pads[2], pads[3], "viewpad:br")
-        finally:
-            imgui.pop_style_var()
-        hovered = ed.get_hovered_node()
-        hovered_uid = hovered.id() if hovered is not None else 0
-        dragging = False
-        try:
-            dragging = bool(imgui.is_mouse_dragging(0, 4.0))
-        except Exception:
-            dragging = False
-        if not toggles and imgui.is_mouse_released(0) and not dragging:
-            mouse = ed.screen_to_canvas(imgui.get_mouse_pos())
-            mx, my = float(mouse.x), float(mouse.y)
-            for visual_id, x, y, w, h in marker_hits:
-                if _point_in_rect(mx, my, x, y, w, h):
-                    toggles.append(visual_id)
-                    break
-            if not toggles:
-                pad_uids = {lineage_uid("node", "viewpad:tl"), lineage_uid("node", "viewpad:br")}
-                if hovered_uid and hovered_uid not in pad_uids:
-                    pending_click = hovered_uid
+                continue
+            _lineage_place_node(ed, imgui, node)
+            content_w = max(80.0, float(node.get("width") or 200) - 12.0)
+            ed.push_style_color(ed.StyleColor.node_bg, imgui.ImVec4(0.16, 0.18, 0.22, 0.96))
+            ed.push_style_color(ed.StyleColor.node_border, imgui.ImVec4(0.38, 0.48, 0.62, 0.90))
+            ed.begin_node(ed.NodeId(_cached_uid(node)))
+            imgui.dummy((content_w, 1.0))
+            if can_expand:
+                _lineage_toggle(imgui, visual_id, opened, toggles)
+            imgui.text(_lineage_label(lineage_heading(node) or str(visual_id), content_w - 28))
+            imgui.text_disabled(str(node.get("status") or "还没有知识卡"))
+            ed.end_node()
+            ed.pop_style_color(2)
+        for node in cards:
+            visual_id = str(node.get("visual_id") or node["id"])
+            _lineage_place_node(ed, imgui, node)
+            card_w = max(80.0, float(node.get("width") or LINEAGE_CARD_W) - 12.0)
+            bg, border = _lineage_card_colors(_lineage_is_marked(node, selected, highlight, inspect_key))
+            ed.push_style_color(ed.StyleColor.node_bg, imgui.ImVec4(*bg))
+            ed.push_style_color(ed.StyleColor.node_border, imgui.ImVec4(*border))
+            ed.begin_node(ed.NodeId(_cached_uid(node)))
+            imgui.dummy((card_w, 1.0))
+            if node.get("nested") and node.get("cards"):
+                _lineage_toggle(imgui, visual_id, visual_id in expanded, toggles)
+            heading = lineage_heading(node) or str(visual_id)
+            imgui.text(_lineage_label(heading, card_w - (28.0 if node.get("nested") else 8.0)))
+            extra = lineage_subtitle(node)
+            if extra:
+                line = _lineage_label(extra, card_w - 8.0)
+                tag = str(node.get("statusTag") or "")
+                if node.get("replaced_by"):
+                    imgui.text_disabled(line)
+                elif tag == "placeholder":
+                    imgui.text_colored(_WARN_COLOR, line)
+                elif tag == "opaque":
+                    imgui.text_colored((0.90, 0.55, 0.38, 1.0), line)
                 else:
-                    for node in reversed(cards):
-                        hull = node.get("outward_hull") if isinstance(node.get("outward_hull"), dict) else None
-                        if hull is None or node.get("hidden"):
-                            continue
-                        if _point_in_rect(
-                            mx,
-                            my,
-                            float(hull.get("x") or 0),
-                            float(hull.get("y") or 0),
-                            float(hull.get("width") or 0),
-                            float(hull.get("height") or 0),
-                        ):
+                    imgui.text_disabled(line)
+            ed.end_node()
+            ed.pop_style_color(2)
+        if project is not None:
+            _lineage_place_node(ed, imgui, project)
+            visual_id = str(project.get("visual_id") or project["id"])
+            content_w = max(80.0, float(project.get("width") or 200) - 12.0)
+            ed.push_style_color(ed.StyleColor.node_bg, imgui.ImVec4(0.16, 0.18, 0.22, 0.96))
+            ed.push_style_color(ed.StyleColor.node_border, imgui.ImVec4(0.38, 0.48, 0.62, 0.90))
+            ed.begin_node(ed.NodeId(_cached_uid(project)))
+            imgui.dummy((content_w, 1.0))
+            if has_modules:
+                _lineage_toggle(imgui, visual_id, visual_id in expanded, toggles)
+            imgui.text(_lineage_label(str(project.get("title") or visual_id), content_w - 28))
+            ed.end_node()
+            ed.pop_style_color(2)
+        pads = _lineage_view_pads(visible)
+        if pads is not None:
+            _view_pad_node(ed, imgui, pads[0], pads[1], "viewpad:tl")
+            _view_pad_node(ed, imgui, pads[2], pads[3], "viewpad:br")
+    finally:
+        imgui.pop_style_var()
+
+
+def _lineage_handle_input(
+    ed: Any,
+    imgui: Any,
+    modules: list[dict[str, Any]],
+    cards: list[dict[str, Any]],
+    marker_hits: list[tuple[str, float, float, float, float]],
+    toggles: list[str],
+) -> int:
+    hovered = ed.get_hovered_node()
+    hovered_uid = hovered.id() if hovered is not None else 0
+    dragging = False
+    try:
+        dragging = bool(imgui.is_mouse_dragging(0, 4.0))
+    except Exception:
+        dragging = False
+    pending_click = 0
+    if not toggles and imgui.is_mouse_released(0) and not dragging:
+        mouse = ed.screen_to_canvas(imgui.get_mouse_pos())
+        mx, my = float(mouse.x), float(mouse.y)
+        for visual_id, x, y, w, h in marker_hits:
+            if _point_in_rect(mx, my, x, y, w, h):
+                toggles.append(visual_id)
+                break
+        if not toggles:
+            pad_uids = {lineage_uid("node", "viewpad:tl"), lineage_uid("node", "viewpad:br")}
+            if hovered_uid and hovered_uid not in pad_uids:
+                pending_click = hovered_uid
+            else:
+                for node in reversed(cards):
+                    hull = node.get("outward_hull") if isinstance(node.get("outward_hull"), dict) else None
+                    if hull is None or node.get("hidden"):
+                        continue
+                    if _point_in_rect(
+                        mx,
+                        my,
+                        float(hull.get("x") or 0),
+                        float(hull.get("y") or 0),
+                        float(hull.get("width") or 0),
+                        float(hull.get("height") or 0),
+                    ):
+                        pending_click = lineage_uid("node", str(node.get("visual_id") or node["id"]))
+                        break
+                if not pending_click:
+                    for node in reversed(modules):
+                        x = float(node.get("x") or 0)
+                        y = float(node.get("y") or 0)
+                        w = float(node.get("width") or 0)
+                        h = float(node.get("height") or 0)
+                        if _point_in_rect(mx, my, x, y, w, h):
                             pending_click = lineage_uid("node", str(node.get("visual_id") or node["id"]))
                             break
-                    if not pending_click:
-                        for node in reversed(modules):
-                            x = float(node.get("x") or 0)
-                            y = float(node.get("y") or 0)
-                            w = float(node.get("width") or 0)
-                            h = float(node.get("height") or 0)
-                            if _point_in_rect(mx, my, x, y, w, h):
-                                pending_click = lineage_uid("node", str(node.get("visual_id") or node["id"]))
-                                break
-    finally:
-        ed.end()
+    return pending_click
+
+
+def _lineage_apply_results(
+    state: AppState,
+    toggles: list[str],
+    pending_click: int,
+    canvas_nodes: list[dict[str, Any]],
+    selected: str,
+    placed: bool,
+) -> None:
     if not placed:
         with state.lock:
             state.lineage_placed = True
@@ -1685,6 +1721,17 @@ def _gui_lineage(state: AppState) -> None:
             if visual_id != selected and str(node.get("id") or "") != selected:
                 _focus_lineage_node(state, node)
             break
+
+
+def _lineage_navigate(
+    state: AppState,
+    ed: Any,
+    lineage: dict[str, Any],
+    canvas_nodes: list[dict[str, Any]],
+    nav_id: str,
+    nav_ids: list[str],
+    fit: bool,
+) -> None:
     submitted = {str(node.get("visual_id") or node["id"]) for node in canvas_nodes}
     seek = [str(item) for item in nav_ids if str(item)]
     if nav_id and nav_id not in seek:
@@ -1738,6 +1785,86 @@ def _gui_lineage(state: AppState) -> None:
             if state.lineage_fit_frames <= 0:
                 state.lineage_fit = False
                 state.lineage_fit_frames = 0
+
+
+def _gui_lineage(state: AppState) -> None:
+    from imgui_bundle import imgui
+    from imgui_bundle import imgui_node_editor as ed
+
+    _ensure_lineage_editor(state)
+    if state.lineage_editor is None:
+        imgui.text_disabled("谱系画布未就绪")
+        return
+    with state.lock:
+        details = state.details
+        selected = state.selected_card_key
+        highlight = set(state.highlight_card_keys)
+        inspect_key = state.inspect_key
+        loading = state.loading
+        busy = state.busy
+        fit = state.lineage_fit
+        nav_id = state.lineage_nav_id
+        nav_ids = list(state.lineage_nav_ids)
+    if details is None:
+        imgui.text_disabled("选择一个项目后，这里显示知识卡谱系。")
+        return
+    if loading or busy:
+        _scan_overlay("正在重新扫描谱系…")
+    lineage = _lineage_snapshot(state, details)
+    if not lineage["nodes"]:
+        imgui.text_disabled("还没有可画的知识卡谱系")
+        return
+    imgui.text_disabled("点 + / − 展开或收起。每一层向右一列；点文件树哪一层就映射哪一层。")
+    avail = imgui.get_content_region_avail()
+    if float(getattr(avail, "x", 0) or 0) < 40.0 or float(getattr(avail, "y", 0) or 0) < 40.0:
+        return
+    with state.lock:
+        expanded = set(state.lineage_expanded)
+        layout_key = frozenset(expanded)
+        if state.lineage_view is None or state.lineage_layout_key != layout_key:
+            view = [dict(node) for node in lineage["nodes"]]
+            layout_lineage_view(view, expanded)
+            state.lineage_view = view
+            state.lineage_layout_key = layout_key
+            state.lineage_placed = False
+        else:
+            view = state.lineage_view
+        placed = state.lineage_placed
+    visible = [node for node in view if not node.get("hidden")]
+    project = next((node for node in visible if node.get("kind") == "project"), None)
+    modules = [node for node in visible if node.get("kind") == "module"]
+    cards = [node for node in visible if node.get("kind") == "knowledge"]
+    has_modules = any(node.get("kind") == "module" for node in lineage["nodes"])
+    toggles: list[str] = []
+    canvas_nodes = visible
+
+    ed.set_current_editor(state.lineage_editor)
+    ed.begin("谱系", imgui.ImVec2(0.0, 0.0))
+    try:
+        dl = imgui.get_window_draw_list()
+        link_color = imgui.get_color_u32(imgui.ImVec4(0.46, 0.62, 0.88, 0.90))
+        marker_hits: list[tuple[str, float, float, float, float]] = []
+        _lineage_draw_hulls(dl, imgui, modules, cards, expanded, marker_hits)
+        _lineage_draw_links(dl, imgui, project, modules, cards, visible, expanded, link_color)
+        _lineage_draw_nodes(
+            ed,
+            imgui,
+            project=project,
+            modules=modules,
+            cards=cards,
+            visible=visible,
+            expanded=expanded,
+            selected=selected,
+            highlight=highlight,
+            inspect_key=inspect_key,
+            has_modules=has_modules,
+            toggles=toggles,
+        )
+        pending_click = _lineage_handle_input(ed, imgui, modules, cards, marker_hits, toggles)
+    finally:
+        ed.end()
+    _lineage_apply_results(state, toggles, pending_click, canvas_nodes, selected, placed)
+    _lineage_navigate(state, ed, lineage, canvas_nodes, nav_id, nav_ids, fit)
 
 
 def _gui_inspect(state: AppState) -> None:

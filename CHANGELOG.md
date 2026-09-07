@@ -1,7 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 - 2026-09-07
 
+- The MCP server ships production hard rules in its initialize instructions: record the census before verify, knowledge-card titles are 20 characters max, rerun verify through the CLI when the MCP call times out, and finish tasks from the canonical checkout. `ag2c_census` exposes `all`.
+- Household updates preserve entrypoints and checker bindings unless the caller passes new values; `ag2c_household` can now set entrypoints, checkers, and a scenario `command` over MCP, and the new `ag2c_tighten` tool tightens or renews a directory household without dropping to the CLI.
+- First product acceptance check: `scripts/check_desktop_boot.py` boots the desktop backend, waits for `/api/status`, and shuts it down through the token API. It is attached to `knowledge.ag2c-gui` as a scenario checker and pinned in unittest, so a tray that cannot boot fails verification.
+- The tray hot-reloads: every 5 seconds it polls `/api/project/digest` (git HEAD plus policy/ledger/journal/census mtimes, pure file IO) and reloads projects, details, and open panels when the fingerprint changes.
+- Tray startup is faster: memoized repository roots, parallel project cards, and a short project-list cache; a full-window splash covers the remaining initial load.
+- 审计 / 施工 / 实际记录 / AI 入口 moved out of the details pane into draggable floating windows; 审计 is renamed 操作日志, and 实际记录 shows the governance journal history.
+- Restored the native Windows title bar (the custom caption layer is gone), fixed file-tree selection flicker, fixed lineage column overlap, and hid zero-file placeholder parents from the lineage graph by default.
+- The tray backend server joins a Windows Job Object so the OS kills it when the tray exits; no more orphaned `ag2c desktop serve` processes holding worktree locks.
 - The tray no longer shows **交付 / 已控制**. Git-hook status is inside MCP health. AI entry stays a generic connect prompt plus **检测 MCP**.
 - AI entry is only a generic MCP connect prompt (placeholders `<python>` / `<ag2c-src>`, no vendor names, no user paths) plus MCP health (`ag2c mcp health` / tray **检测 MCP**). Skill text stays inside MCP. Enrollment keeps the project's `.git` and forces bundled MinGit for AG2C operations. The Git hook remains the delivery gate.
 - AG2C is a local stdio MCP server. Packaged Skills ship as initialize `instructions` and `ag2c://skill/*` resources. `ag2c mcp install` writes local client configs when those files exist. Copy-prompt is no longer the tray AI entry.

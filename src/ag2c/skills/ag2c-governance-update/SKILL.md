@@ -1,6 +1,6 @@
 ---
 name: ag2c-governance-update
-version: 0.8.4
+version: 0.9.0
 description: Update AutoGovern2Code project knowledge, floors, and public-interface cards through the dedicated `ag2c govern` commands. Use after enrollment ingest, after `ag2c task finish` reports pending governance items, or when the user asks to add, change, or retire project knowledge or contracts. Always require a reason. Never edit Policy JSON by hand.
 ---
 

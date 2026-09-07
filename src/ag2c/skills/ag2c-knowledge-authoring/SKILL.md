@@ -1,6 +1,6 @@
 ---
 name: ag2c-knowledge-authoring
-version: 0.8.4
+version: 0.9.0
 description: Write detailed AutoGovern2Code knowledge cards from directory coverage tags. Use after ag2c-directory-census has tagged rooms, or when the user asks to 写知识卡, 整理知识卡片, 设计思路, or fill cards from 未打标/整夹一张/一文件一张. Read the files, then store 设计思路 through `ag2c govern` only. Do not invent unread files, do not use a parent sentence to cover many files under 一文件一张, and do not leave a tagged room with routing-only prose.
 ---
 

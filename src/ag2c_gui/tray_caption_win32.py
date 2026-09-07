@@ -1,7 +1,9 @@
-"""Win32 caption layer for the tray: ctypes API loading, HWND discovery, dark caption, maximize/drag.
+"""Win32 caption layer for the tray: ctypes API loading, HWND discovery, dark caption.
 
-Kept separate from imgui_tray so the main program only deals with ImGui panels;
-everything here is native window chrome and only does work on Windows.
+The tray uses the native Windows caption (borderless=False): custom-drawn chrome
+could not match native hit targets, snap, or the system menu. What remains here is
+only what the native caption cannot do itself — painting it dark via DWM attributes
+so it stays on-theme instead of following the Windows accent color.
 """
 
 from __future__ import annotations
@@ -45,13 +47,6 @@ def _caption_api():
         ctypes.c_uint,
     ]
     user32.SetWindowPos.restype = ctypes.c_int
-    user32.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
-    user32.ShowWindow.restype = ctypes.c_int
-    user32.IsZoomed.argtypes = [ctypes.c_void_p]
-    user32.IsZoomed.restype = ctypes.c_int
-    user32.ReleaseCapture.restype = ctypes.c_int
-    user32.SendMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_size_t]
-    user32.SendMessageW.restype = ctypes.c_ssize_t
     dwmapi.DwmSetWindowAttribute.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint]
     dwmapi.DwmSetWindowAttribute.restype = ctypes.c_long
     kernel32.GetCurrentProcessId.restype = ctypes.c_ulong
@@ -68,10 +63,6 @@ def _glfw_dll(ctypes_mod):
     dll = ctypes_mod.WinDLL(str(Path(imgui_bundle.__file__).resolve().parent / "glfw3.dll"))
     dll.glfwGetWin32Window.argtypes = [ctypes_mod.c_void_p]
     dll.glfwGetWin32Window.restype = ctypes_mod.c_void_p
-    dll.glfwMaximizeWindow.argtypes = [ctypes_mod.c_void_p]
-    dll.glfwRestoreWindow.argtypes = [ctypes_mod.c_void_p]
-    dll.glfwGetWindowAttrib.argtypes = [ctypes_mod.c_void_p, ctypes_mod.c_int]
-    dll.glfwGetWindowAttrib.restype = ctypes_mod.c_int
     _GLFW_DLL = dll
     return dll
 
@@ -135,7 +126,11 @@ def _tray_hwnd(ctypes_mod, user32, kernel32) -> int:
 
 
 def _apply_dark_caption() -> None:
-    """Paint the native caption the same dark as the tray, not the Windows accent green."""
+    """Paint the native caption the same dark as the tray, not the Windows accent green.
+
+    Attribute 20 (immersive dark mode) works on Windows 10 20H1+; the color
+    attributes (34/35/36/38) are Windows 11 only and fail harmlessly elsewhere.
+    """
     if os.name != "nt":
         return
     try:
@@ -162,59 +157,3 @@ def _apply_dark_caption() -> None:
             _CAPTION_HWND = hwnd
     except OSError:
         return
-
-
-def _window_chrome():
-    if os.name != "nt":
-        return 0, None
-    try:
-        ctypes_mod, user32, _dwmapi, kernel32 = _caption_api()
-        return _tray_hwnd(ctypes_mod, user32, kernel32), user32
-    except OSError:
-        return 0, None
-
-
-def _window_is_maximized(hwnd: int, user32) -> bool:
-    if hwnd and user32 is not None and user32.IsZoomed(hwnd):
-        return True
-    try:
-        from imgui_bundle import hello_imgui
-
-        ctypes_mod, _u, _d, _k = _caption_api()
-        addr = int(hello_imgui.get_glfw_window_address() or 0)
-        if addr:
-            return bool(_glfw_dll(ctypes_mod).glfwGetWindowAttrib(addr, 0x00020008))
-    except Exception:
-        pass
-    return False
-
-
-def _caption_press(*, double: bool) -> None:
-    proof = os.environ.get("AG2C_CAPTION_PROOF") or str(Path(os.environ.get("TEMP", ".")) / "ag2c-caption-proof.txt")
-    try:
-        Path(proof).write_text("double" if double else "drag", encoding="utf-8")
-    except OSError:
-        pass
-    hwnd, user32 = _window_chrome()
-    if not hwnd or user32 is None:
-        return
-    if double:
-        try:
-            from imgui_bundle import hello_imgui
-
-            ctypes_mod, _user32, _dwmapi, _kernel32 = _caption_api()
-            addr = int(hello_imgui.get_glfw_window_address() or 0)
-            dll = _glfw_dll(ctypes_mod)
-            maximized = bool(addr and dll.glfwGetWindowAttrib(addr, 0x00020008)) or bool(user32.IsZoomed(hwnd))
-            if addr:
-                if maximized:
-                    dll.glfwRestoreWindow(addr)
-                else:
-                    dll.glfwMaximizeWindow(addr)
-            else:
-                user32.ShowWindow(hwnd, 9 if maximized else 3)
-        except Exception:
-            user32.ShowWindow(hwnd, 9 if user32.IsZoomed(hwnd) else 3)
-        return
-    user32.ReleaseCapture()
-    user32.SendMessageW(hwnd, 0x00A1, 2, 0)

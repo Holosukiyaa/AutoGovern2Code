@@ -58,12 +58,7 @@ from .tray_host import (
     wait_for_status,
     free_port,
 )
-from .tray_caption_win32 import (
-    _apply_dark_caption,
-    _caption_press,
-    _window_chrome,
-    _window_is_maximized,
-)
+from .tray_caption_win32 import _apply_dark_caption
 
 # 3D / vision add-ons are not imported.
 
@@ -247,11 +242,9 @@ def main(argv: list[str] | None = None) -> int:
     runner.app_window_params.window_title = "AutoGovern2Code"
     runner.app_window_params.resizable = True
     runner.app_window_params.restore_previous_geometry = False
-    runner.app_window_params.borderless = True
-    runner.app_window_params.borderless_movable = False
-    runner.app_window_params.borderless_resizable = True
-    runner.app_window_params.borderless_closable = False
-    runner.app_window_params.borderless_highlight_color = (0.13, 0.14, 0.16, 1.0)
+    # Native Windows caption: custom-drawn chrome could not match it (tiny hit
+    # targets, no snap/system menu). DWM dark-mode keeps the caption on-theme.
+    runner.app_window_params.borderless = False
     runner.app_window_params.window_geometry.size = (1280, 860)
     runner.app_window_params.window_geometry.size_auto = False
     runner.app_window_params.window_geometry.window_size_state = hello_imgui.WindowSizeState.standard
@@ -264,7 +257,8 @@ def main(argv: list[str] | None = None) -> int:
     runner.imgui_window_params.default_imgui_window_type = (
         hello_imgui.DefaultImGuiWindowType.provide_full_screen_dock_space
     )
-    runner.imgui_window_params.show_menu_bar = True
+    # The menu bar only held the custom caption; the native caption replaces it.
+    runner.imgui_window_params.show_menu_bar = False
     runner.imgui_window_params.show_menu_app = False
     runner.imgui_window_params.show_menu_view = False
     runner.imgui_window_params.show_menu_view_themes = False
@@ -280,7 +274,6 @@ def main(argv: list[str] | None = None) -> int:
     runner.renderer_backend_options.open_gl_options = gl_opts
     runner.callbacks.setup_imgui_style = _setup_theme
     runner.callbacks.load_additional_fonts = _load_fonts
-    runner.callbacks.show_menus = lambda: _guarded(state, "菜单", lambda: _menus(state))
     runner.callbacks.show_status = lambda: _status_bar(state)
     runner.callbacks.post_render_dockable_windows = lambda: _gui_audit(state)
     runner.callbacks.post_init = lambda: _post_init(state)
@@ -530,140 +523,6 @@ def _windows(state: AppState):
     ]
 
 
-def _caption_place(item_h: float) -> None:
-    """Menu-bar layout ignores SetCursorPosY; pin the item to the bar's vertical center in screen space."""
-    from imgui_bundle import imgui
-
-    wp = imgui.get_window_pos()
-    wh = float(imgui.get_window_size().y)
-    cur = imgui.get_cursor_screen_pos()
-    imgui.set_cursor_screen_pos(imgui.ImVec2(float(cur.x), float(wp.y) + max(1.0, (wh - item_h) * 0.5)))
-
-
-def _menus(state: AppState) -> None:
-    from imgui_bundle import imgui
-
-    imgui.push_style_var(imgui.StyleVar_.item_spacing, imgui.ImVec2(8.0, 4.0))
-    imgui.push_style_var(imgui.StyleVar_.frame_padding, imgui.ImVec2(6.0, 3.0))
-    try:
-        label = "AutoGovern2Code"
-        ts = imgui.calc_text_size(label)
-        wp = imgui.get_window_pos()
-        wh = float(imgui.get_window_size().y)
-        tx = float(wp.x) + 12.0
-        ty = float(wp.y) + max(0.0, (wh - float(ts.y)) * 0.5)
-        imgui.set_cursor_screen_pos(imgui.ImVec2(tx, ty))
-        imgui.invisible_button("##title-hit", imgui.ImVec2(float(ts.x) + 8.0, float(ts.y)))
-        _caption_hit(state)
-        imgui.get_window_draw_list().add_text(
-            imgui.ImVec2(tx, ty),
-            imgui.get_color_u32(imgui.ImVec4(0.90, 0.93, 0.97, 1.0)),
-            label,
-        )
-        _title_bar_buttons(state, wh)
-    finally:
-        imgui.pop_style_var(2)
-
-
-def _chrome_button(kind: str, size: float, *, close: bool = False, restore: bool = False) -> bool:
-    """Vector caption icon, centered in a square hit target. Never uses missing Unicode glyphs."""
-    from imgui_bundle import imgui
-
-    pos = imgui.get_cursor_screen_pos()
-    clicked = imgui.invisible_button(widget_id(kind, "winchrome"), imgui.ImVec2(size, size))
-    hovered = imgui.is_item_hovered()
-    active = imgui.is_item_active()
-    dl = imgui.get_window_draw_list()
-    x0, y0 = float(pos.x), float(pos.y)
-    x1, y1 = x0 + size, y0 + size
-    if close and (hovered or active):
-        fill = imgui.get_color_u32(imgui.ImVec4(0.72, 0.22, 0.22, 1.0 if active else 0.92))
-        dl.add_rect_filled(imgui.ImVec2(x0, y0), imgui.ImVec2(x1, y1), fill)
-    elif hovered or active:
-        fill = imgui.get_color_u32(imgui.ImVec4(1.0, 1.0, 1.0, 0.14 if active else 0.10))
-        dl.add_rect_filled(imgui.ImVec2(x0, y0), imgui.ImVec2(x1, y1), fill)
-    ink = imgui.get_color_u32(imgui.ImVec4(0.92, 0.93, 0.95, 1.0))
-    cx = x0 + size * 0.5
-    cy = y0 + size * 0.5
-    pad = size * 0.28
-    thick = 1.4
-    if kind == "min":
-        dl.add_line(imgui.ImVec2(cx - pad, cy), imgui.ImVec2(cx + pad, cy), ink, thick)
-    elif kind == "max" and restore:
-        inner = pad * 0.55
-        dl.add_rect(
-            imgui.ImVec2(cx - pad + inner, cy - pad),
-            imgui.ImVec2(cx + pad, cy + pad - inner),
-            ink,
-            0.0,
-            thick,
-        )
-        dl.add_rect(
-            imgui.ImVec2(cx - pad, cy - pad + inner),
-            imgui.ImVec2(cx + pad - inner, cy + pad),
-            ink,
-            0.0,
-            thick,
-        )
-    elif kind == "max":
-        dl.add_rect(
-            imgui.ImVec2(cx - pad, cy - pad),
-            imgui.ImVec2(cx + pad, cy + pad),
-            ink,
-            0.0,
-            thick,
-        )
-    else:
-        dl.add_line(imgui.ImVec2(cx - pad, cy - pad), imgui.ImVec2(cx + pad, cy + pad), ink, thick)
-        dl.add_line(imgui.ImVec2(cx + pad, cy - pad), imgui.ImVec2(cx - pad, cy + pad), ink, thick)
-    return bool(clicked)
-
-
-def _title_bar_buttons(state: AppState, bar_h: float) -> None:
-    """Min/max/close on the dark menu bar. Native caption is off so Windows accent cannot paint it."""
-    from imgui_bundle import hello_imgui, imgui
-
-    win_h = float(imgui.get_window_size().y) or bar_h
-    size = max(12.0, min(14.0, win_h - 10.0))
-    spacing = float(imgui.get_style().item_spacing.x)
-    need = 3.0 * size + 2.0 * spacing
-    remain = float(imgui.get_content_region_avail().x)
-    imgui.push_style_color(imgui.Col_.button, (0.0, 0.0, 0.0, 0.0))
-    imgui.push_style_color(imgui.Col_.button_hovered, (0.0, 0.0, 0.0, 0.0))
-    imgui.push_style_color(imgui.Col_.button_active, (0.0, 0.0, 0.0, 0.0))
-    _caption_place(size)
-    imgui.invisible_button("##caption-drag", imgui.ImVec2(max(8.0, remain - need - spacing), size))
-    imgui.pop_style_color(3)
-    _caption_hit(state)
-    hwnd, user32 = _window_chrome()
-    zoomed = _window_is_maximized(hwnd, user32)
-    _caption_place(size)
-    if _chrome_button("min", size) and hwnd and user32 is not None:
-        audit(state, "最小化", "标题栏", "")
-        user32.ShowWindow(hwnd, 6)
-    _caption_place(size)
-    if _chrome_button("max", size, restore=zoomed):
-        audit(state, "还原" if zoomed else "最大化", "标题栏", "按钮")
-        _caption_press(double=True)
-    _caption_place(size)
-    if _chrome_button("close", size, close=True):
-        audit(state, "关闭", "标题栏", "")
-        hello_imgui.get_runner_params().app_shall_exit = True
-
-
-def _caption_hit(state: AppState) -> None:
-    """Title/blank caption: drag only after move, double-click maximize. Click must not start a drag."""
-    from imgui_bundle import imgui
-
-    if not imgui.is_item_hovered():
-        return
-    if imgui.is_mouse_double_clicked(0):
-        audit(state, "最大化/还原", "标题栏", "双击")
-        _caption_press(double=True)
-    elif imgui.is_mouse_dragging(0, 6.0):
-        _caption_press(double=False)
-
-
 def _scan_overlay(message: str) -> None:
     from imgui_bundle import imgui
 
@@ -689,7 +548,7 @@ def _status_bar(state: AppState) -> None:
     fps = float(getattr(io, "framerate", 0.0) or 0.0)
     dt = float(getattr(io, "delta_time", 0.0) or 0.0) * 1000.0
     parts = []
-    for key in ("文件树", "谱系", "详情", "知识卡片", "菜单", "DWM"):
+    for key in ("文件树", "谱系", "详情", "知识卡片", "DWM"):
         ms = state.frame_ms.get(key)
         if ms is not None:
             parts.append(f"{key} {ms:.1f}")

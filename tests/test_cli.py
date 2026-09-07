@@ -11,6 +11,7 @@ import bootstrap
 
 from ag2c import __version__, tasks
 from ag2c.cli import main
+from ag2c.tasks import _orient_next
 from ag2c.errors import AG2CError
 
 
@@ -75,3 +76,64 @@ class WorktreeLocationTests(unittest.TestCase):
         with patch("ag2c.tasks.git", return_value=""):
             with self.assertRaises(AG2CError):
                 tasks._ensure_worktree_location(Path("C:/repo"), Path("C:/repo/src/worktrees/task-1"))
+
+
+class OrientNextTests(unittest.TestCase):
+    def _next(self, lifecycle: str, **overrides):
+        options = {
+            "has_changes": False,
+            "canonical_dirty": False,
+            "pending_count": 0,
+            "task_id": "task-1",
+            "worktree_path": "C:/worktrees/task-1",
+        }
+        options.update(overrides)
+        return _orient_next(lifecycle, **options)
+
+    def test_missing_points_to_abandon(self) -> None:
+        action = self._next("missing")
+        self.assertEqual("ag2c_task_abandon", action["tool"])
+        self.assertEqual("task-1", action["args"]["task"])
+
+    def test_diverged_points_to_refresh(self) -> None:
+        action = self._next("diverged")
+        self.assertEqual("ag2c_task_refresh", action["tool"])
+        self.assertEqual("task-1", action["args"]["task"])
+
+    def test_verified_stale_reverifies_from_the_worktree(self) -> None:
+        action = self._next("verified-stale")
+        self.assertEqual("ag2c_task_verify", action["tool"])
+        self.assertEqual("C:/worktrees/task-1", action["args"]["cwd"])
+
+    def test_verified_unmerged_points_to_finish(self) -> None:
+        action = self._next("verified-unmerged")
+        self.assertEqual("ag2c_task_finish", action["tool"])
+        self.assertEqual("task-1", action["args"]["task"])
+        self.assertNotIn("dirty", action["note"])
+
+    def test_verified_unmerged_warns_when_canonical_dirty(self) -> None:
+        action = self._next("verified-unmerged", canonical_dirty=True)
+        self.assertIn("dirty", action["note"])
+
+    def test_completed_with_pending_items_points_to_settle(self) -> None:
+        action = self._next("completed", pending_count=2)
+        self.assertEqual("ag2c_settle", action["tool"])
+        self.assertIn("2", action["note"])
+
+    def test_completed_without_pending_items_is_done(self) -> None:
+        action = self._next("completed")
+        self.assertIsNone(action["tool"])
+
+    def test_abandoned_is_terminal(self) -> None:
+        action = self._next("abandoned")
+        self.assertIsNone(action["tool"])
+
+    def test_in_progress_without_changes_waits_for_edits(self) -> None:
+        action = self._next("in-progress")
+        self.assertIsNone(action["tool"])
+        self.assertIn("C:/worktrees/task-1", action["note"])
+
+    def test_in_progress_with_changes_verifies(self) -> None:
+        action = self._next("in-progress", has_changes=True)
+        self.assertEqual("ag2c_task_verify", action["tool"])
+        self.assertEqual("C:/worktrees/task-1", action["args"]["cwd"])

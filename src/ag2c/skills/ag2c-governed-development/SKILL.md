@@ -22,6 +22,8 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
 
    If status fails after a clone, interpreter move, Skill update, or missing hook, run `ag2c doctor --repair` and check status again. Do not ask the user to repair AG2C. Stop if management remains inactive.
 
+   When a session resumes with work possibly in flight, run `ag2c task orient` (optionally `--task <task-id>`) before deciding anything. It reports the task phase, the lifecycle checklist, blockers, and the exact next command; with several open tasks it returns the queue so the user can pick one.
+
 4. Inspect the canonical checkout read-only and run `ag2c coverage --format json`. Identify narrow expected paths and exact public contract keys. Baseline coverage is intentionally conservative: use exact paths when known and broaden uncertain or new areas. Do not edit, generate, build, install dependencies, or start a service in the canonical checkout.
 
    Tree investigation and coverage tags (彻查, 普查, 打标) use

@@ -185,6 +185,8 @@ def build_parser() -> argparse.ArgumentParser:
     task_commands.add_parser("verify")
     task_list = task_commands.add_parser("list")
     task_list.add_argument("--format", choices=("text", "json"), default="text")
+    task_orient = task_commands.add_parser("orient")
+    task_orient.add_argument("--task")
     task_refresh = task_commands.add_parser("refresh")
     task_refresh.add_argument("--task", required=True)
     task_abandon = task_commands.add_parser("abandon")
@@ -559,7 +561,7 @@ def main(argv: list[str] | None = None) -> int:
             print(_json(status))
             return 0 if status["managed"] else 1
         if args.command == "task":
-            from .tasks import abandon_task, finish_task, list_tasks, refresh_task, start_task, task_record, verify_task
+            from .tasks import abandon_task, finish_task, list_tasks, orient_task, refresh_task, start_task, task_record, verify_task
 
             if args.task_command == "start":
                 print(
@@ -600,6 +602,9 @@ def main(argv: list[str] | None = None) -> int:
                         lifecycle = str((item.get("worktree") or {}).get("lifecycle", item["state"]))
                         print(f"[{lifecycle}] {item['id']} - {item['goal']}")
                         print(f"  {labels.get(lifecycle, item['state'])}: {(item.get('worktree') or {}).get('path', '')}")
+                return 0
+            if args.task_command == "orient":
+                print(_json(orient_task(Path.cwd(), args.task)))
                 return 0
             if args.task_command == "refresh":
                 print(_json(refresh_task(Path.cwd(), args.task)))

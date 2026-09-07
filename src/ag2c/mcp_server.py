@@ -33,6 +33,7 @@ MCP_INSTRUCTIONS = """This workspace is governed by AutoGovern2Code (AG2C) when 
 You already have the AG2C workflow through this MCP connection (instructions, resources, tools). Do not ask the user to paste a copy-prompt, install Skill folders, or configure Git. Do not git commit on the canonical checkout.
 
 Route:
+- New session with work possibly in flight: ag2c_task_orient first. It returns the phase, checklist, and the exact next tool call (or the open-task queue when several tasks are open).
 - File-changing work: ag2c_guard_status → ag2c_task_start (read guidance.lineage as the knowledge-card index) → write only in worktree.path → ag2c_census / ag2c_span / ag2c_household / ag2c_apply as needed → ag2c_task_verify → ag2c_task_finish → ag2c_settle if pending → ag2c_evidence.
 - Tree investigation and coverage tags (未打标 / 整夹一张 / 一文件一张): ag2c_census then ag2c_span. The user supervises tags; they do not click tray buttons.
 - Write 设计思路 from tags: ag2c_apply for per-file cards, ag2c_household for 整夹一张 rooms. Read the files first.
@@ -232,6 +233,11 @@ def tool_defs() -> list[dict[str, Any]]:
             ["task", "message"],
         ),
         _tool("ag2c_task_list", "List governed tasks and worktree lifecycle.", {"cwd": _cwd_prop()}),
+        _tool(
+            "ag2c_task_orient",
+            "Orientation packet for a governed task: phase, lifecycle checklist, next action with prefilled args, blockers. Call first in a new session; without a task id it returns the open-task queue.",
+            {"task": {"type": "string"}, "cwd": _cwd_prop()},
+        ),
         _tool("ag2c_task_refresh", "Rebase an open task onto current canonical HEAD.", {"task": {"type": "string"}, "cwd": _cwd_prop()}, ["task"]),
         _tool(
             "ag2c_task_abandon",
@@ -369,6 +375,13 @@ def _call_list(args: dict[str, Any]) -> Any:
     from .tasks import list_tasks
 
     return list_tasks(_cwd(args))
+
+
+def _call_orient(args: dict[str, Any]) -> Any:
+    from .tasks import orient_task
+
+    task = str(args.get("task") or "").strip()
+    return orient_task(_cwd(args), task or None)
 
 
 def _call_refresh(args: dict[str, Any]) -> Any:
@@ -509,6 +522,7 @@ HANDLERS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "ag2c_task_verify": _call_verify,
     "ag2c_task_finish": _call_finish,
     "ag2c_task_list": _call_list,
+    "ag2c_task_orient": _call_orient,
     "ag2c_task_refresh": _call_refresh,
     "ag2c_task_abandon": _call_abandon,
     "ag2c_retrieve": _call_retrieve,

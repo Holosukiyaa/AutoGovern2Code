@@ -59,6 +59,7 @@ class McpServerTests(unittest.TestCase):
                 "ag2c_task_start",
                 "ag2c_task_verify",
                 "ag2c_task_finish",
+                "ag2c_task_orient",
                 "ag2c_census",
                 "ag2c_span",
                 "ag2c_household",
@@ -69,6 +70,20 @@ class McpServerTests(unittest.TestCase):
         )
         listed = _rpc("tools/list")["result"]["tools"]
         self.assertEqual(names, {item["name"] for item in listed})
+
+    def test_orient_dispatch_reaches_the_engine(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            response = handle_mcp_request(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 7,
+                    "method": "tools/call",
+                    "params": {"name": "ag2c_task_orient", "arguments": {"cwd": tmp}},
+                }
+            )
+        # Outside a registered repo the engine refuses; the wire still gets a
+        # structured isError result instead of a crashed stdio loop.
+        self.assertTrue(response["result"]["isError"])
 
     def test_resources_expose_packaged_skills(self) -> None:
         resources = _rpc("resources/list")["result"]["resources"]

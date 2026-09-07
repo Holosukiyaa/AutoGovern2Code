@@ -185,9 +185,11 @@ try {
         if ($LASTEXITCODE -ne 0) {
             throw 'The installed runtime could not enroll a Git project without system Git on PATH.'
         }
-        $downloadedGit = Join-Path $env:AG2C_DATA_ROOT 'runtime\git\cmd\git.exe'
-        if (-not (Test-Path -LiteralPath $downloadedGit)) {
-            throw 'AG2C did not download bundled Git after system Git was removed from PATH.'
+        # The installer bundles MinGit at {app}\git, so enrollment above must have
+        # used the shipped runtime instead of downloading one.
+        $shippedGit = Join-Path $installRoot 'git\cmd\git.exe'
+        if (-not (Test-Path -LiteralPath $shippedGit)) {
+            throw 'Installer did not ship the bundled Git runtime.'
         }
     }
     finally {

@@ -479,6 +479,7 @@ class TrayHostSourceTests(unittest.TestCase):
 
 
 class TrayFontTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Windows CJK fonts live under C:\\Windows\\Fonts")
     def test_windows_cjk_font_file_exists(self) -> None:
         from ag2c_gui.imgui_tray import cjk_font_path
 
@@ -488,6 +489,7 @@ class TrayFontTests(unittest.TestCase):
         self.assertTrue(found.is_file())
         self.assertEqual("C:\\Windows\\Fonts", str(found.parent))
 
+    @unittest.skipUnless(os.name == "nt", "Windows CJK fonts live under C:\\Windows\\Fonts")
     def test_load_fonts_uses_filesystem_cjk_as_default(self) -> None:
         from ag2c_gui.imgui_tray import _load_fonts, cjk_font_path
 

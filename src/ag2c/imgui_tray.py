@@ -27,19 +27,20 @@ from .tray_host import (
     app_directory,
     apply_startup,
     card_for_owner,
+    card_list_label,
     card_matching_lineage,
     claim_label,
     coverage_rows,
     empty_inspect,
     file_tree_children,
     files_for_card,
-    first_flag_label,
     focus_card,
     focus_file,
     inspect_fields,
     preferred_project_root,
     is_portable,
     issue_label,
+    lineage_subtitle,
     portable_env,
     project_gate_rows,
     register_app,
@@ -1403,13 +1404,12 @@ def _gui_cards(state: AppState) -> None:
 
     def _draw_card_row(node: dict[str, Any], *, indent: bool) -> None:
         title = text(node, "title") or text(node, "id")
-        status = first_flag_label(node) or text(node, "status")
         key = node_key(node, title)
         count = state.card_file_counts.get(key)
         if count is None:
             count = len(files_for_card(all_files, node))
         short = _lineage_label(title, 200.0 if indent else 220.0)
-        label = f"{short}  ·  {status} · {count} 个文件" if status else f"{short}  ·  {count} 个文件"
+        label = card_list_label(short, node, count)
         marked = selected_card == key or key in highlight_cards
         if indent:
             imgui.indent(16.0)
@@ -1751,10 +1751,9 @@ def _gui_lineage(state: AppState) -> None:
                 if node.get("nested") and node.get("cards"):
                     _toggle(visual_id, visual_id in expanded)
                 imgui.text(_lineage_label(str(node.get("title") or visual_id), card_w - (28.0 if node.get("nested") else 8.0)))
-                extra = str(node.get("replaced_by") or node.get("status") or "")
+                extra = lineage_subtitle(node)
                 if extra:
-                    line = extra if not node.get("replaced_by") else "已被 " + extra + " 替换"
-                    line = _lineage_label(line, card_w - 8.0)
+                    line = _lineage_label(extra, card_w - 8.0)
                     tag = str(node.get("statusTag") or "")
                     if node.get("replaced_by"):
                         imgui.text_disabled(line)
@@ -1907,7 +1906,7 @@ def _gui_inspect(state: AppState) -> None:
     imgui.text_wrapped(str(fields.get("title") or "点文件树或知识卡"))
     if fields.get("path") and mode in {"file", "module"}:
         imgui.text_disabled(str(fields.get("path")))
-    if fields.get("status"):
+    if fields.get("status") and str(fields["status"]) not in {"", "在册"}:
         status = str(fields["status"])
         if status == "占位":
             imgui.text_colored((0.92, 0.78, 0.35, 1.0), status)
@@ -2033,14 +2032,6 @@ def _gui_inspect(state: AppState) -> None:
             imgui.separator()
             imgui.text_disabled("覆盖")
             imgui.text(str(fields.get("span_label") or "未打标"))
-            first = True
-            for key, label in (("none", "未打标"), ("folder", "整夹一张"), ("file", "一文件一张")):
-                if not first:
-                    imgui.same_line()
-                first = False
-                if imgui.small_button(f"{label}##span-{key}") and not busy:
-                    audit(state, "覆盖标签", "详情", f"{fields.get('card_id')}:{label}")
-                    state.run_job(lambda tag=key, card=str(fields.get("card_id") or ""): _set_span(state, card, tag))
         if fields.get("summary"):
             imgui.separator()
             imgui.text_disabled("设计思路")

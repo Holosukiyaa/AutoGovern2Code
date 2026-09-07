@@ -145,6 +145,16 @@ def _jurisdiction_span(card: Mapping[str, Any]) -> str:
     return "none"
 
 
+COVERAGE_LABELS = {"none": "未打标", "folder": "整夹一张", "file": "一文件一张"}
+
+
+def _lineage_span_fields(card: Mapping[str, Any]) -> dict[str, str]:
+    if not card.get("jurisdiction"):
+        return {"span": "", "spanLabel": ""}
+    span = _jurisdiction_span(card)
+    return {"span": span, "spanLabel": COVERAGE_LABELS.get(span, "未打标")}
+
+
 def _household_owns_path(household: Mapping[str, Any], candidate: str) -> bool:
     includes = _scope_paths(household)
     if not any(_path_under(path, candidate) for path in includes):
@@ -1014,6 +1024,7 @@ def build_lineage(details: Mapping[str, Any] | None, *, project_name: str = "") 
                     "empty": False,
                     "replaced_by": replacement_titles.get(replaced, replaced),
                     "index": index,
+                    **_lineage_span_fields(card),
                 },
             )
             edges.append({"source": floor_id, "target": visual_id, "type": "card"})
@@ -1073,6 +1084,7 @@ def build_lineage(details: Mapping[str, Any] | None, *, project_name: str = "") 
                     "empty": False,
                     "replaced_by": replacement_titles.get(replaced, replaced),
                     "index": index,
+                    **_lineage_span_fields(card),
                 },
             )
             edges.append({"source": LINEAGE_UNGROUPED_ID, "target": visual_id, "type": "card"})
@@ -1100,7 +1112,10 @@ def build_lineage(details: Mapping[str, Any] | None, *, project_name: str = "") 
                 tag = worst_status_tag(child_tags)
                 if node.get("kind") == "module":
                     node["statusTag"] = tag
-                    node["status"] = STATUS_TAG_LABELS.get(tag, "") or f"{len(kids)} 张知识卡"
+                    if tag and tag != "current":
+                        node["status"] = STATUS_TAG_LABELS.get(tag, "") or f"{len(kids)} 张知识卡"
+                    else:
+                        node["status"] = f"{len(kids)} 张知识卡"
     expanded = {LINEAGE_PROJECT_ID}
     for node in nodes.values():
         if node.get("kind") == "module" and not node.get("empty"):

@@ -47,6 +47,10 @@ ISSUE_LABELS = {
 }
 
 SPAN_LABELS = {"none": "未打标", "folder": "整夹一张", "file": "一文件一张"}
+QUIET_STATUS = frozenset({"", "在册", "current"})
+PROBLEM_STATUS = frozenset(
+    {"占位", "开工", "黑盒", "过期", "废弃未清", "未普查", "未验收", "AI正在写", "无主", "重复认领", "文档"}
+)
 
 FLAG_LABELS = {
     "placeholder": "占位",
@@ -173,6 +177,68 @@ def string_list(row: dict[str, Any] | None, key: str) -> list[str]:
 
 def flag_label(flag: str) -> str:
     return FLAG_LABELS.get(flag, flag)
+
+
+def is_directory_household(card: dict[str, Any]) -> bool:
+    if card.get("jurisdiction") or card.get("household"):
+        return True
+    span = card.get("span")
+    return bool(span) and str(span) not in {"", "none"}
+
+
+def card_problem_status(card: dict[str, Any]) -> str:
+    """User-facing exception badge. 在册 is the default healthy state and stays blank."""
+    status = first_flag_label(card) or text(card, "status")
+    if status in QUIET_STATUS:
+        return ""
+    if status in PROBLEM_STATUS:
+        return status
+    return ""
+
+
+def card_list_badge(card: dict[str, Any]) -> str:
+    problem = card_problem_status(card)
+    if is_directory_household(card):
+        if problem and problem != "文档":
+            return problem
+        return SPAN_LABELS.get(_card_span(card), "未打标")
+    return problem
+
+
+def card_list_label(title: str, card: dict[str, Any], count: int) -> str:
+    parts = [title]
+    badge = card_list_badge(card)
+    if badge:
+        parts.append(badge)
+    if is_directory_household(card) and count > 0:
+        parts.append(f"{count} 个文件")
+    return "  ·  ".join(parts)
+
+
+def lineage_subtitle(node: dict[str, Any]) -> str:
+    replaced = text(node, "replaced_by")
+    if replaced:
+        return "已被 " + replaced + " 替换"
+    kind = text(node, "kind")
+    status = text(node, "status")
+    tag = text(node, "statusTag")
+    if kind == "module":
+        return status
+    if kind != "knowledge":
+        return status
+    if node.get("nested") and node.get("cards"):
+        return status
+    if tag in {"placeholder", "exploring", "opaque", "stale", "abandoned", "unreviewed", "writing", "undeclared"}:
+        return status
+    if tag == "document":
+        return "文档"
+    label = text(node, "spanLabel")
+    if label:
+        return label
+    span = text(node, "span")
+    if span in SPAN_LABELS:
+        return SPAN_LABELS[span]
+    return ""
 
 
 def first_flag_label(node: dict[str, Any]) -> str:
@@ -548,7 +614,7 @@ def inspect_file(
     return {
         "mode": "file",
         "title": text(node, "title") or rel.rsplit("/", 1)[-1],
-        "status": first_flag_label(node),
+        "status": card_problem_status(node),
         "summary": summary,
         "claim": claim_label(node),
         "path": rel,
@@ -563,7 +629,7 @@ def inspect_card(card: dict[str, Any], files: list[tuple[str, dict[str, Any]]]) 
     governed = files_for_card(files, card)
     flags = card.get("flags") if isinstance(card.get("flags"), list) else []
     placeholder = text(card, "statusTag") == "placeholder" or "placeholder" in {str(item) for item in flags}
-    household = bool(card.get("jurisdiction") or card.get("household") or card.get("span"))
+    household = is_directory_household(card)
     span = _card_span(card) if household else ""
     if placeholder:
         message = "入学占位，还没有说清这个目录"
@@ -575,7 +641,7 @@ def inspect_card(card: dict[str, Any], files: list[tuple[str, dict[str, Any]]]) 
     return {
         "mode": "card",
         "title": text(card, "title") or text(card, "id"),
-        "status": first_flag_label(card),
+        "status": card_problem_status(card),
         "summary": text(card, "summary") if show_design else "",
         "claim": "",
         "path": "",

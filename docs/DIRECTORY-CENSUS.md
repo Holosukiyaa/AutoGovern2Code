@@ -9,7 +9,8 @@ lifecycle, grain/meaning/contract/decider, directory scopes, entrypoints, explic
 floor links and its own checks.
 
 Hanging a card is not the same as explaining the tree. Each directory room has a
-**coverage tag** the operator supervises: 未打标 (routing only), 整夹一张 (one
+**coverage tag** the operator supervises (the agent sets it; the tray does not
+offer buttons to click): 未打标 (routing only), 整夹一张 (one
 card covers the room), or 一文件一张 (each code file needs its own card).
 A tag is not 设计思路. After the tag is set, `ag2c-knowledge-authoring` reads
 the files and writes the card text: one detailed room summary for 整夹一张, one

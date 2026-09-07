@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The tray no longer has buttons to set 未打标 / 整夹一张 / 一文件一张. Coverage tags stay visible for supervision; the agent sets them. Healthy cards no longer show 在册, and the card list no longer prints `0 个文件`.
 - `ag2c task start` guidance now includes `lineage`: the knowledge-card 谱系 as a coding index (rooms and per-file 设计思路). The development Skill tells the agent to read it before writing.
 - Code-file knowledge cards (`.py` and other source suffixes) are no longer tagged 文档; that flag stays on prose documents such as README.
 - Clicking a leftover parent that excludes a carved child no longer lights the child's files. Clicking the child household still focuses the files it owns.

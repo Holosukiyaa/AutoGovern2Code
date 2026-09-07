@@ -208,6 +208,7 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("add_bezier_cubic", ui)
         self.assertIn("lineage_expanded", ui)
         self.assertIn("small_button", ui)
+        self.assertNotIn("##span-", ui)
         self.assertIn("layout_lineage_view", ui)
         self.assertIn("exp:", ui)
         self.assertIn("{LINEAGE_PROJECT_ID}", ui)
@@ -773,6 +774,66 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertEqual("这张卡还没有落到文件树上的代码文件", leftover_focus["inspect"]["message"])
         room = focus_card(files, household)
         self.assertEqual({"src/ag2c/cli.py"}, room["highlight_paths"])
+
+    def test_card_list_hides_zaice_and_zero_file_counts(self) -> None:
+        from ag2c.tray_host import card_list_label, inspect_card, lineage_subtitle
+
+        household = {
+            "kind": "knowledge",
+            "id": "knowledge.ag2c",
+            "title": "src/ag2c package",
+            "jurisdiction": {"span": "file"},
+            "span": "file",
+            "statusLabel": "在册",
+            "flags": [],
+        }
+        leftover = {
+            "kind": "knowledge",
+            "id": "knowledge.src",
+            "title": "src leftover parent",
+            "jurisdiction": {"span": "folder"},
+            "span": "folder",
+            "statusTag": "placeholder",
+            "statusLabel": "占位",
+            "flags": ["placeholder"],
+        }
+        file_card = {
+            "kind": "knowledge",
+            "id": "knowledge.ag2c-cli",
+            "title": "ag2c command surface",
+            "statusLabel": "在册",
+            "flags": [],
+        }
+        readme = {
+            "kind": "knowledge",
+            "id": "knowledge.readme-md",
+            "title": "README.md",
+            "statusTag": "document",
+            "statusLabel": "文档",
+            "flags": ["document"],
+        }
+        docs = {
+            "kind": "knowledge",
+            "id": "knowledge.docs",
+            "title": "product documentation",
+            "jurisdiction": {"span": "folder"},
+            "span": "folder",
+            "statusLabel": "在册",
+            "flags": [],
+        }
+        self.assertEqual("src/ag2c package  ·  一文件一张  ·  30 个文件", card_list_label("src/ag2c package", household, 30))
+        self.assertEqual("src leftover parent  ·  占位", card_list_label("src leftover parent", leftover, 0))
+        self.assertEqual("ag2c command surface", card_list_label("ag2c command surface", file_card, 1))
+        self.assertEqual("README.md  ·  文档", card_list_label("README.md", readme, 0))
+        self.assertEqual("product documentation  ·  整夹一张", card_list_label("product documentation", docs, 0))
+        self.assertEqual("", inspect_card(file_card, [])["status"])
+        self.assertEqual("占位", inspect_card(leftover, [])["status"])
+        self.assertEqual("一文件一张", inspect_card(household, [])["span_label"])
+        self.assertEqual("30 张文件卡", lineage_subtitle({"kind": "knowledge", "nested": True, "cards": [1], "status": "30 张文件卡"}))
+        self.assertEqual("", lineage_subtitle({"kind": "knowledge", "status": "在册", "statusTag": "current"}))
+        self.assertEqual("整夹一张", lineage_subtitle({"kind": "knowledge", "status": "在册", "statusTag": "current", "span": "folder", "spanLabel": "整夹一张"}))
+        self.assertEqual("文档", lineage_subtitle({"kind": "knowledge", "status": "文档", "statusTag": "document"}))
+        self.assertEqual("2 张知识卡", lineage_subtitle({"kind": "module", "status": "2 张知识卡", "statusTag": "current"}))
 
     def test_project_details_cache_skips_rebuild_until_refresh(self) -> None:
         from ag2c.management import project_details

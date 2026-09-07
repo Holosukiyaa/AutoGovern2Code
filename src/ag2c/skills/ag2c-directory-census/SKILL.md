@@ -43,7 +43,7 @@ Enrollment already hangs each top-level directory as exploring (`meaning=none`).
 
    After a child room exists, the parent must `--exclude` that child's glob. Re-including the parent tree without that exclude recaptures the child; AG2C refuses `cannot-overlap-household`.
 
-4. **Set a coverage tag on that room in the same pass.** Do not leave it 未打标 unless the user said 未打标. Infer and apply; the user may retag later. Do not wait for permission.
+4. **Set a coverage tag on that room in the same pass.** Do not leave it 未打标 unless the user said 未打标. Infer and apply with `ag2c govern span`. The user supervises the tag in the tray; they do not click to set it. Do not wait for permission.
 
    ```text
    ag2c govern span --id knowledge.<slug> --tag 整夹一张 --actor <harness> --reason "<why this tightness>"

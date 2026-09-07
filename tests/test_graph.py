@@ -302,6 +302,11 @@ class GovernanceGraphTests(unittest.TestCase):
         self.assertEqual("knowledge.ag2c", cli_graph.get("parentCard"))
         self.assertNotEqual("document", cli_graph["statusTag"])
         self.assertNotIn("document", cli_graph.get("flags") or [])
+        household_lineage = next(node for node in lineage["nodes"] if node["id"] == "knowledge.ag2c")
+        leftover_lineage = next(node for node in lineage["nodes"] if node["id"] == "knowledge.src")
+        self.assertEqual("file", household_lineage.get("span"))
+        self.assertEqual("一文件一张", household_lineage.get("spanLabel"))
+        self.assertEqual("folder", leftover_lineage.get("span"))
 
     def test_code_file_cards_are_not_document_tags(self) -> None:
         cli = _card("knowledge.ag2c-cli", "knowledge", "cli", include=["src/ag2c/cli.py"], references=["src/ag2c/cli.py"])
@@ -471,7 +476,7 @@ class GovernanceGraphTests(unittest.TestCase):
         self.assertIn("宪章", project["status"])
         src = next(node for node in lineage["nodes"] if node["visual_id"] == "floor.src")
         self.assertEqual("src", src["title"])
-        self.assertEqual("在册", src["status"])
+        self.assertEqual("1 张知识卡", src["status"])
         front = next(node for node in lineage["nodes"] if node["visual_id"] == "floor.front")
         self.assertEqual("src/frontend", front["title"])
         self.assertTrue(front["empty"])
@@ -508,7 +513,7 @@ class GovernanceGraphTests(unittest.TestCase):
         project = next(node for node in lineage["nodes"] if node["kind"] == "project")
         self.assertGreaterEqual(len(modules), 3)
         src = next(node for node in modules if node["visual_id"] == "floor.src")
-        self.assertEqual("在册", src["status"])
+        self.assertEqual("5 张知识卡", src["status"])
         self.assertEqual(5, len(src["cards"]))
         for left_index, left in enumerate(modules):
             self.assertFalse(lineage_boxes_overlap(project, left, gap=8.0))

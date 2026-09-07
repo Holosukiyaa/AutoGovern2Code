@@ -23,7 +23,9 @@ from ag2c.graph import (
     layout_lineage_view,
     lineage_boxes_overlap,
     lineage_card_width,
+    lineage_heading,
     lineage_ordinal,
+    lineage_ordinal_label,
     lineage_related_ids,
     lineage_step_overlaps,
 )
@@ -292,6 +294,19 @@ class GovernanceGraphTests(unittest.TestCase):
         leftover_node = next(item for item in nodes if item["id"] == "knowledge.src")
         self.assertLess(leftover_node["x"] + leftover_node["width"], shown_cli["x"])
         self.assertGreaterEqual(lineage_ordinal(shown_cli), 1)
+        self.assertEqual("1", src_box.get("ordinal_label"))
+        self.assertEqual("1-1", shown_house.get("ordinal_label"))
+        self.assertEqual("1-2", leftover_node.get("ordinal_label"))
+        self.assertEqual("1-1-1", shown_cli.get("ordinal_label"))
+        self.assertEqual("1-1-1. cli", lineage_heading(shown_cli))
+        shown_tray = next(item for item in nodes if item["id"] == "knowledge.ag2c-imgui-tray")
+        self.assertEqual("1-1-2", shown_tray.get("ordinal_label"))
+        labels = [
+            lineage_ordinal_label(item)
+            for item in nodes
+            if item.get("kind") in {"module", "knowledge"} and lineage_ordinal_label(item)
+        ]
+        self.assertEqual(len(labels), len(set(labels)))
         self.assertEqual("cli", shown_cli["title"])
         self.assertNotIn("abstract", shown_cli)
         hull = shown_house.get("outward_hull")
@@ -325,6 +340,34 @@ class GovernanceGraphTests(unittest.TestCase):
         self.assertEqual("file", household_lineage.get("span"))
         self.assertEqual("一文件一张", household_lineage.get("spanLabel"))
         self.assertEqual("folder", leftover_lineage.get("span"))
+
+    def test_lineage_ordinals_use_hyphenated_layer_paths(self) -> None:
+        lineage = build_lineage(
+            {
+                "project": {"name": "Demo"},
+                "cards": [
+                    _card("constitution.project", "constitution", "宪章"),
+                    _card("floor.a", "floor", "a", include=["a/**"]),
+                    _card("floor.b", "floor", "b", include=["b/**"]),
+                    _card("knowledge.a1", "knowledge", "第一", include=["a/one.py"]),
+                    _card("knowledge.a2", "knowledge", "第二", include=["a/two.py"]),
+                    _card("knowledge.b1", "knowledge", "另一块", include=["b/one.py"]),
+                ],
+                "relations": [
+                    {"source": "knowledge.a1", "type": "explains", "target": "floor.a"},
+                    {"source": "knowledge.a2", "type": "explains", "target": "floor.a"},
+                    {"source": "knowledge.b1", "type": "explains", "target": "floor.b"},
+                ],
+                "graph": {"nodes": []},
+            }
+        )
+        by_id = {node["id"]: node for node in lineage["nodes"]}
+        self.assertEqual("1", by_id["floor.a"]["ordinal_label"])
+        self.assertEqual("2", by_id["floor.b"]["ordinal_label"])
+        self.assertEqual("1-1", by_id["knowledge.a1"]["ordinal_label"])
+        self.assertEqual("1-2", by_id["knowledge.a2"]["ordinal_label"])
+        self.assertEqual("2-1", by_id["knowledge.b1"]["ordinal_label"])
+        self.assertEqual("2-1. 另一块", lineage_heading(by_id["knowledge.b1"]))
 
     def test_file_card_title_is_the_abstract_in_chinese_and_clips_to_20(self) -> None:
         long_title = "模块入口把 python -m ag2c 转给命令面解析"

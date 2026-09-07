@@ -836,7 +836,7 @@ LINEAGE_UNGROUPED_ID = "module:ungrouped"
 # G6 antv-dagre-combo analogue: LR ranks, combos wrap card nodes.
 LINEAGE_CARD_W = 220.0
 LINEAGE_CARD_MIN_W = 220.0
-LINEAGE_CARD_MAX_W = 400.0
+LINEAGE_CARD_MAX_W = 440.0
 LINEAGE_CARD_H = 40.0
 KNOWLEDGE_TITLE_LIMIT = 20
 LINEAGE_CARD_GAP_X = 10.0
@@ -882,18 +882,71 @@ def knowledge_title(card: Mapping[str, Any], *, fallback: str = "") -> str:
 
 
 def lineage_ordinal(node: Mapping[str, Any]) -> int:
-    raw = node.get("index")
+    path = lineage_ordinal_path(node)
+    return path[-1] if path else 0
+
+
+def lineage_ordinal_path(node: Mapping[str, Any]) -> list[int]:
+    raw = node.get("ordinal_path")
+    if isinstance(raw, list) and raw:
+        try:
+            return [int(item) for item in raw]
+        except (TypeError, ValueError):
+            pass
+    label = _text(node.get("ordinal_label"))
+    if label:
+        try:
+            return [int(item) for item in label.split("-") if item]
+        except (TypeError, ValueError):
+            pass
+    raw_index = node.get("index")
     try:
-        return int(raw) + 1
+        return [int(raw_index) + 1]
     except (TypeError, ValueError):
-        return 0
+        return []
+
+
+def lineage_ordinal_label(node: Mapping[str, Any]) -> str:
+    return "-".join(str(item) for item in lineage_ordinal_path(node))
+
+
+def lineage_heading(node: Mapping[str, Any], *, title: str = "") -> str:
+    name = title or str(node.get("title") or "")
+    label = lineage_ordinal_label(node)
+    if label and name:
+        return f"{label}. {name}"
+    return label or name
+
+
+def assign_lineage_ordinals(nodes: Iterable[Mapping[str, Any]]) -> None:
+    """Number modules 1, 2, 3; nested cards 1-2 then 1-1-1 so indexes do not collide."""
+    records = [item for item in nodes if isinstance(item, dict)]
+    by_parent: dict[str, list[dict[str, Any]]] = {}
+    for node in records:
+        if str(node.get("kind") or "") not in {"module", "knowledge"}:
+            continue
+        by_parent.setdefault(str(node.get("parent") or ""), []).append(node)
+
+    def sort_key(node: dict[str, Any]) -> tuple[Any, ...]:
+        if str(node.get("kind") or "") == "module":
+            return (0, str(node.get("title") or ""), str(node.get("id") or ""))
+        return (1, int(node.get("index") or 0), str(node.get("title") or ""), str(node.get("id") or ""))
+
+    def walk(parent_key: str, prefix: list[int]) -> None:
+        kids = by_parent.get(parent_key, [])
+        kids.sort(key=sort_key)
+        for index, kid in enumerate(kids, 1):
+            path = prefix + [index]
+            kid["ordinal_path"] = path
+            kid["ordinal_label"] = "-".join(str(item) for item in path)
+            walk(str(kid.get("visual_id") or kid.get("id") or ""), path)
+
+    walk(LINEAGE_PROJECT_ID, [])
 
 
 def lineage_card_width(node: Mapping[str, Any]) -> float:
     """Elastic card width from numbered title/status, clamped for one combo row."""
-    title = str(node.get("title") or "")
-    ordinal = lineage_ordinal(node)
-    heading = f"{ordinal}. {title}" if ordinal else title
+    heading = lineage_heading(node)
     extra = str(node.get("replaced_by") or node.get("status") or "")
     if node.get("replaced_by"):
         extra = "已被 " + extra + " 替换"
@@ -1131,12 +1184,18 @@ def build_lineage(details: Mapping[str, Any] | None, *, project_name: str = "") 
         kids.sort(key=lambda item: (int(item.get("index") or 0), str(item.get("title") or "")))
         for index, child in enumerate(kids):
             child["index"] = index
+    assign_lineage_ordinals(nodes.values())
     for _floor_id, node in list(nodes.items()):
         if node.get("kind") == "module" and node.get("empty") and not node.get("status"):
             node["status"] = "还没有知识卡"
         if node.get("kind") in {"module", "knowledge"}:
             kids = [
-                {"id": child["id"], "title": child["title"], "visual_id": child["visual_id"]}
+                {
+                    "id": child["id"],
+                    "title": child["title"],
+                    "visual_id": child["visual_id"],
+                    "ordinal_label": child.get("ordinal_label") or "",
+                }
                 for child in nodes.values()
                 if child.get("parent") == node.get("visual_id") and child.get("kind") == "knowledge"
             ]
@@ -1258,7 +1317,7 @@ def _place_outward_column(
         "y": start_y,
         "width": hull_w,
         "height": LINEAGE_MODULE_HEADER + inner_h + LINEAGE_MODULE_PAD,
-        "title": str(parent.get("title") or ""),
+        "title": lineage_heading(parent),
         "status": str(parent.get("status") or f"{len(nested)} 张文件卡"),
         "owner": visual_id,
     }
@@ -1266,6 +1325,7 @@ def _place_outward_column(
 
 def layout_lineage_view(nodes: list[dict[str, Any]], expanded: set[str]) -> None:
     """Pack an LR dagre-combo view for the current expand set. Mutates x/y/width/height/hidden."""
+    assign_lineage_ordinals(nodes)
     project_open = LINEAGE_PROJECT_ID in expanded
     modules = [node for node in nodes if node.get("kind") == "module"]
     modules.sort(key=lambda item: str(item.get("title") or ""))

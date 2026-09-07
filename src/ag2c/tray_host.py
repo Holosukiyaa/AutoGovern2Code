@@ -205,8 +205,9 @@ def card_list_badge(card: dict[str, Any]) -> str:
     return problem
 
 
-def card_list_label(title: str, card: dict[str, Any], count: int, *, ordinal: int = 0) -> str:
-    head = f"{ordinal}. {title}" if ordinal > 0 else title
+def card_list_label(title: str, card: dict[str, Any], count: int, *, ordinal: int = 0, ordinal_label: str = "") -> str:
+    label = ordinal_label or (str(ordinal) if ordinal > 0 else "")
+    head = f"{label}. {title}" if label else title
     parts = [head]
     badge = card_list_badge(card)
     if badge:
@@ -670,18 +671,18 @@ def inspect_card(card: dict[str, Any], files: list[tuple[str, dict[str, Any]]]) 
     else:
         message = "这张卡还没有落到文件树上的代码文件"
     show_design = bool(text(card, "summary")) and (not household or span == "folder")
-    from .graph import knowledge_title, lineage_ordinal
+    from .graph import knowledge_title, lineage_heading, lineage_ordinal_label
 
     summary = text(card, "summary") if show_design else ""
     title = knowledge_title(card)
-    ordinal = lineage_ordinal(card)
+    heading = lineage_heading(card, title=title)
     return {
         "mode": "card",
-        "title": f"{ordinal}. {title}" if ordinal else title,
+        "title": heading,
         "status": card_problem_status(card),
         "summary": summary,
         "detail": summary,
-        "ordinal": ordinal,
+        "ordinal": lineage_ordinal_label(card),
         "claim": "",
         "path": "",
         "peers": [],

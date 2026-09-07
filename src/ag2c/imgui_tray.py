@@ -14,7 +14,7 @@ from .graph import (
     LINEAGE_PROJECT_ID,
     build_lineage,
     layout_lineage_view,
-    lineage_ordinal,
+    lineage_heading,
     lineage_related_ids,
     lineage_uid,
 )
@@ -1399,7 +1399,7 @@ def _gui_cards(state: AppState) -> None:
     if details is not None and not all_cards:
         imgui.text_disabled("还没有知识卡")
         return
-    imgui.text_disabled("每张卡有序号；卡名就是摘要（最多20字）。左侧搜索可按卡名查找。")
+    imgui.text_disabled("序号按层写：1、1-2、1-1-1。卡名就是摘要（最多20字）。左侧搜索可按卡名查找。")
     imgui.push_style_var(imgui.StyleVar_.item_spacing, imgui.ImVec2(4.0, 1.0))
     imgui.push_text_wrap_pos(-1.0)
     children_of: dict[str, list[dict[str, Any]]] = {}
@@ -1411,19 +1411,19 @@ def _gui_cards(state: AppState) -> None:
         else:
             roots.append(node)
 
-    def _draw_card_row(node: dict[str, Any], *, indent: bool, ordinal: int) -> None:
+    def _draw_card_row(node: dict[str, Any], *, indent: bool, ordinal_label: str) -> None:
         title = text(node, "title") or text(node, "id")
         key = node_key(node, title)
         count = state.card_file_counts.get(key)
         if count is None:
             count = len(files_for_card(all_files, node))
         short = _lineage_label(title, 188.0 if indent else 208.0)
-        label = card_list_label(short, node, count, ordinal=ordinal)
+        label = card_list_label(short, node, count, ordinal_label=ordinal_label)
         marked = selected_card == key or key in highlight_cards
         if indent:
             imgui.indent(16.0)
         if _selectable(widget_id(label, key), marked):
-            node["index"] = max(0, ordinal - 1)
+            node["ordinal_label"] = ordinal_label
             _focus_card(state, node)
         if indent:
             imgui.unindent(16.0)
@@ -1433,10 +1433,10 @@ def _gui_cards(state: AppState) -> None:
                 state.scroll_card_key = ""
 
     for index, node in enumerate(roots, 1):
-        _draw_card_row(node, indent=False, ordinal=index)
+        _draw_card_row(node, indent=False, ordinal_label=str(index))
         kids = children_of.get(text(node, "id"), [])
         for child_index, child in enumerate(kids, 1):
-            _draw_card_row(child, indent=True, ordinal=child_index)
+            _draw_card_row(child, indent=True, ordinal_label=f"{index}-{child_index}")
     imgui.pop_text_wrap_pos()
     imgui.pop_style_var()
 
@@ -1448,6 +1448,8 @@ def _focus_lineage_node(state: AppState, node: dict[str, Any]) -> None:
     if kind == "knowledge":
         match = card_matching_lineage(cards, node)
         if match is not None:
+            match["ordinal_label"] = text(node, "ordinal_label")
+            match["ordinal_path"] = list(node.get("ordinal_path") or [])
             _focus_card(state, match, pan_lineage=False, where="谱系")
             return
     module_path = text(node, "path")
@@ -1462,7 +1464,10 @@ def _focus_lineage_node(state: AppState, node: dict[str, Any]) -> None:
         summary = "这是项目里的一个模块。盒子里的知识卡说明这块代码为什么这样写。"
     module_cards = node.get("cards") if isinstance(node.get("cards"), list) else []
     related = [
-        {"id": str(item.get("id") or ""), "title": str(item.get("title") or item.get("id") or "")}
+        {
+            "id": str(item.get("id") or ""),
+            "title": lineage_heading(item) or str(item.get("title") or item.get("id") or ""),
+        }
         for item in module_cards
         if isinstance(item, dict)
     ]
@@ -1470,7 +1475,7 @@ def _focus_lineage_node(state: AppState, node: dict[str, Any]) -> None:
     with state.lock:
         state.inspect = {
             "mode": inspect_mode,
-            "title": text(node, "title") or visual_id,
+            "title": lineage_heading(node) or text(node, "title") or visual_id,
             "status": text(node, "status"),
             "summary": summary,
             "claim": text(node, "kindLabel"),
@@ -1690,7 +1695,7 @@ def _gui_lineage(state: AppState) -> None:
                 marker_hits.append((visual_id, mx, my, mw, mh))
             tag = str(node.get("status") or "")
             tag_w = float(imgui.calc_text_size(tag).x) if tag and tag != "还没有知识卡" else 0.0
-            label = _lineage_label(str(node.get("title") or visual_id), max(48.0, hw - 44.0 - tag_w))
+            label = _lineage_label(lineage_heading(node), max(48.0, hw - 44.0 - tag_w))
             dl.add_text(imgui.ImVec2(hx + 28.0, hy + 10.0), title_col, label)
             if tag_w:
                 tag_col = imgui.get_color_u32(_lineage_status_color(str(node.get("statusTag") or ""), imgui))
@@ -1777,7 +1782,7 @@ def _gui_lineage(state: AppState) -> None:
                 imgui.dummy((content_w, 1.0))
                 if can_expand:
                     _toggle(visual_id, opened)
-                imgui.text(_lineage_label(str(node.get("title") or visual_id), content_w - 28))
+                imgui.text(_lineage_label(lineage_heading(node) or str(visual_id), content_w - 28))
                 imgui.text_disabled(str(node.get("status") or "还没有知识卡"))
                 ed.end_node()
                 ed.pop_style_color(2)
@@ -1792,9 +1797,7 @@ def _gui_lineage(state: AppState) -> None:
                 imgui.dummy((card_w, 1.0))
                 if node.get("nested") and node.get("cards"):
                     _toggle(visual_id, visual_id in expanded)
-                ordinal = lineage_ordinal(node)
-                title = str(node.get("title") or visual_id)
-                heading = f"{ordinal}. {title}" if ordinal else title
+                heading = lineage_heading(node) or str(visual_id)
                 imgui.text(_lineage_label(heading, card_w - (28.0 if node.get("nested") else 8.0)))
                 extra = lineage_subtitle(node)
                 if extra:

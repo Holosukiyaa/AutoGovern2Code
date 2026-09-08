@@ -390,9 +390,13 @@ def _canary(manifest, policy, *, actor: str, reason: str, output_format: str = "
     The defect is a failing unittest planted under ``tests/`` so the always-on
     test checker must catch it. The index snapshot is refreshed right after
     planting (and again after cleanup) so the freshness gate evaluates the
-    canary instead of rejecting the canary's own footprint.
+    canary instead of rejecting the canary's own footprint. The same applies
+    to the census: the planted file changes the room's scope digest, so the
+    canary attests exactly the rooms it made stale — never pre-existing drift.
     """
     from .checks import run_checks
+    from .household_commands import review_census
+    from .households import census_report
     from .index import build_index
     from .slicer import compile_slice
 
@@ -415,11 +419,29 @@ def _canary(manifest, policy, *, actor: str, reason: str, output_format: str = "
         '        self.fail("canary: this defect must be caught")\n'
     )
     canary_rel = f"{target.target_id}:tests/test_ag2c_canary.py"
+
+    def _stale_households() -> set[str]:
+        report = census_report(manifest, policy)
+        return {item["id"] for item in report["households"] if item["freshness"] != "current"}
+
+    pre_stale = _stale_households()
+    canary_caused: set[str] = set()
     try:
         canary_path.write_text(canary_content, encoding="utf-8")
         # Refresh the index so the freshness gate sees the canary as the
         # current state instead of rejecting the canary's own footprint.
         build_index(manifest, policy)
+        # The planted file also changes the room's scope digest; attest only
+        # the rooms the canary itself made stale, never pre-existing drift.
+        canary_caused = _stale_households() - pre_stale
+        if canary_caused:
+            review_census(
+                target_root,
+                card_ids=sorted(canary_caused),
+                all_cards=False,
+                actor=actor,
+                reason=f"canary footprint: attest self-planted {canary_rel}",
+            )
         # Build a minimal slice for the canary file.
         entry_slice = compile_slice(
             manifest,
@@ -461,6 +483,18 @@ def _canary(manifest, policy, *, actor: str, reason: str, output_format: str = "
         try:
             # Restore the snapshot so later governance actions stay unblocked.
             build_index(manifest, policy)
+            # Re-attest the rooms the canary attested while planted: removing
+            # the file reverts their scope digest, which would otherwise leave
+            # them stale against the canary-era census record.
+            restored = _stale_households() & canary_caused
+            if restored:
+                review_census(
+                    target_root,
+                    card_ids=sorted(restored),
+                    all_cards=False,
+                    actor=actor,
+                    reason="canary cleanup: re-attest restored rooms",
+                )
         except Exception:
             print("AG2C warning: index refresh failed after canary cleanup", file=sys.stderr)
 

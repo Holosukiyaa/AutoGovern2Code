@@ -148,6 +148,8 @@ class SunsetBaselineTests(unittest.TestCase):
 
 def _canary_project(root: Path):
     """Minimal governed project whose always-on checker runs unittest discovery."""
+    import subprocess
+
     (root / ".ag2c" / "state").mkdir(parents=True)
     (root / "src").mkdir()
     (root / "tests").mkdir()
@@ -159,6 +161,10 @@ def _canary_project(root: Path):
         "        self.assertEqual(1, 1)\n",
         encoding="utf-8",
     )
+    # review_census requires a git repository.
+    subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "AG2C Test"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "ag2c-test@example.invalid"], cwd=root, check=True, capture_output=True)
     manifest = {
         "schema": "ag2c.manifest.v1",
         "project": {"id": "canary-project"},
@@ -171,6 +177,7 @@ def _canary_project(root: Path):
     }
     policy = {
         "schema": "ag2c.policy.v1",
+        "household_required": True,
         "cards": [
             {"id": "constitution.project", "type": "constitution", "title": "C", "summary": "S"},
             {
@@ -189,8 +196,28 @@ def _canary_project(root: Path):
                 "scopes": [{"target": "app", "include": ["src/**"], "ownership": "primary"}],
                 "checkers": ["check.noop"],
             },
+            {
+                "id": "knowledge.tests",
+                "type": "knowledge",
+                "title": "tests room",
+                "summary": "Tests room.",
+                "scopes": [{"target": "app", "include": ["tests/**"], "ownership": "reference"}],
+                "checkers": ["check.python"],
+                "jurisdiction": {
+                    "capability": "tests",
+                    "implementation": "tests",
+                    "status": "current",
+                    "grain": "directory",
+                    "meaning": "named",
+                    "contract": "none",
+                    "decider": "none",
+                    "span": "folder",
+                },
+            },
         ],
-        "relations": [],
+        "relations": [
+            {"source": "knowledge.tests", "type": "explains", "target": "floor.tests"},
+        ],
         "contracts": [],
         "checkers": [
             {
@@ -215,6 +242,8 @@ def _canary_project(root: Path):
     }
     (root / ".ag2c" / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     (root / ".ag2c" / "policy.json").write_text(json.dumps(policy), encoding="utf-8")
+    subprocess.run(["git", "add", "--all"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=root, check=True, capture_output=True)
     from ag2c.config import load_manifest, load_policy
 
     loaded = load_manifest(root / ".ag2c" / "manifest.json")
@@ -226,17 +255,25 @@ class CanaryEndToEndTests(unittest.TestCase):
 
     def test_canary_caught_and_cleaned_up(self) -> None:
         from ag2c.cli import _canary
+        from ag2c.household_commands import review_census
+        from ag2c.households import census_report
         from ag2c.index import build_index, verify_freshness
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             manifest, policy = _canary_project(root)
             build_index(manifest, policy)
+            # A healthy project: all rooms reviewed before the canary runs.
+            review_census(root, card_ids=[], all_cards=True, actor="test", reason="initial review")
             exit_code = _canary(manifest, policy, actor="test", reason="e2e gate validation")
             self.assertEqual(0, exit_code)
             # Canary file removed and index snapshot restored.
             self.assertFalse((root / "tests" / "test_ag2c_canary.py").exists())
             self.assertEqual([], verify_freshness(manifest, policy))
+            # Census restored too: no room left stale by the canary footprint.
+            report = census_report(manifest, policy)
+            stale = [item["id"] for item in report["households"] if item["freshness"] != "current"]
+            self.assertEqual([], stale)
             events = [
                 json.loads(line)
                 for line in (root / ".ag2c" / "ledger.jsonl").read_text(encoding="utf-8").splitlines()

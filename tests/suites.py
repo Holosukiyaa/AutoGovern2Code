@@ -24,6 +24,7 @@ FAST = [
     "test_budget_dupe",
     "test_cli",
     "test_config",
+    "test_dep_hint",
     "test_graph",
     "test_harnesses",
     "test_index",

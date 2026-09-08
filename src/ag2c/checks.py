@@ -202,6 +202,109 @@ def _duplicate_warnings(manifest: Manifest, entry_slice: dict[str, Any]) -> list
     return warnings
 
 
+def _module_name_for(rel_path: str, target_root: str) -> str:
+    """Convert a relative file path to its Python module name.
+
+    e.g. "src/ag2c/checks.py" with target_root "src" -> "ag2c.checks"
+    """
+    path = rel_path.replace("\\", "/")
+    # Strip target root prefix
+    if target_root and path.startswith(target_root + "/"):
+        path = path[len(target_root) + 1:]
+    # Strip .py extension
+    if path.endswith(".py"):
+        path = path[:-3]
+    # Convert to module path
+    return path.replace("/", ".")
+
+
+def _extract_imports(file_path: Path) -> set[str]:
+    """Extract all imported module names from a Python file using AST."""
+    try:
+        tree = ast.parse(file_path.read_text(encoding="utf-8", errors="replace"))
+    except (SyntaxError, OSError):
+        return set()
+    imports: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imports.add(alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                imports.add(node.module)
+    return imports
+
+
+def _cross_slice_warnings(manifest: Manifest, entry_slice: dict[str, Any]) -> list[dict[str, str]]:
+    """Warn when changed files are imported by files outside the slice.
+
+    This helps the agent understand the blast radius of a change: if a modified
+    file is imported by many files outside the current slice, the change may
+    have unintended side effects.
+    """
+    warnings: list[dict[str, str]] = []
+    entries = entry_slice.get("entries") if isinstance(entry_slice, dict) else None
+    artifacts = entries.get("paths") if isinstance(entries, dict) else None
+    if not artifacts:
+        return warnings
+    changed_py = [
+        str(item.get("path") or "")
+        for item in artifacts
+        if isinstance(item, dict) and str(item.get("path") or "").endswith(".py")
+    ]
+    if not changed_py:
+        return warnings
+    changed_set = set(changed_py)
+
+    # Build module names for changed files.
+    changed_modules: dict[str, str] = {}  # module_name -> file_path
+    for rel in changed_py:
+        # Find which target this file belongs to
+        for target in manifest.targets:
+            root = manifest.target_root(target.target_id)
+            if (root / rel).is_file():
+                mod = _module_name_for(rel, target.path)
+                if mod:
+                    changed_modules[mod] = rel
+                break
+
+    if not changed_modules:
+        return warnings
+
+    # Scan all Python files for imports of changed modules.
+    from .index import _discover_files
+    importers: dict[str, list[str]] = {mod: [] for mod in changed_modules}
+    for target in manifest.targets:
+        root = manifest.target_root(target.target_id)
+        paths, _, _, _ = _discover_files(root, target)
+        for rel in paths:
+            if not rel.endswith(".py") or rel in changed_set:
+                continue
+            file_path = root / rel
+            if not file_path.is_file():
+                continue
+            file_imports = _extract_imports(file_path)
+            for mod in changed_modules:
+                # Check if any import matches the changed module
+                for imp in file_imports:
+                    if imp == mod or imp.startswith(mod + ".") or mod.startswith(imp + "."):
+                        importers[mod].append(rel)
+                        break
+
+    for mod, files in importers.items():
+        if files:
+            count = len(files)
+            changed_file = changed_modules[mod]
+            # Show up to 5 importers
+            examples = ", ".join(files[:5])
+            suffix = f" 等{count}个文件" if count > 5 else ""
+            warnings.append({
+                "kind": "cross-slice-dependency",
+                "detail": f"{changed_file} 被切片外 {count} 个文件 import（{examples}{suffix}）",
+            })
+    return warnings
+
+
 def _is_docs_only_change(entry_slice: dict[str, Any]) -> bool:
     """True when every changed artifact is prose documentation that cannot affect tests."""
     entries = entry_slice.get("entries") if isinstance(entry_slice, dict) else None
@@ -497,10 +600,11 @@ def run_checks(
         "acceptance": acceptance,
         "environment": environment_snapshot(),
     }
-    # Soft checks: budget and duplicate warnings. Never block.
+    # Soft checks: budget, duplicate, and cross-slice dependency warnings. Never block.
     warnings: list[dict[str, str]] = []
     warnings.extend(_budget_warnings(manifest, policy, entry_slice))
     warnings.extend(_duplicate_warnings(manifest, entry_slice))
+    warnings.extend(_cross_slice_warnings(manifest, entry_slice))
     if warnings:
         report["warnings"] = warnings
     if task_id is not None:

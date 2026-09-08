@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -142,6 +144,118 @@ class SunsetBaselineTests(unittest.TestCase):
         self.assertIn("expires_at", record)
         expires = datetime.fromisoformat(record["expires_at"])
         self.assertGreater(expires, datetime.now(timezone.utc))
+
+
+def _canary_project(root: Path):
+    """Minimal governed project whose always-on checker runs unittest discovery."""
+    (root / ".ag2c" / "state").mkdir(parents=True)
+    (root / "src").mkdir()
+    (root / "tests").mkdir()
+    (root / "src" / "value.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (root / "tests" / "test_value.py").write_text(
+        "import unittest\n\n"
+        "class ValueTests(unittest.TestCase):\n"
+        "    def test_value(self):\n"
+        "        self.assertEqual(1, 1)\n",
+        encoding="utf-8",
+    )
+    manifest = {
+        "schema": "ag2c.manifest.v1",
+        "project": {"id": "canary-project"},
+        "policy": ".ag2c/policy.json",
+        "state_dir": ".ag2c/state",
+        "ledger": ".ag2c/ledger.jsonl",
+        "targets": [
+            {"id": "app", "path": ".", "governed_roots": ["src", "tests"], "exclude": []}
+        ],
+    }
+    policy = {
+        "schema": "ag2c.policy.v1",
+        "cards": [
+            {"id": "constitution.project", "type": "constitution", "title": "C", "summary": "S"},
+            {
+                "id": "floor.tests",
+                "type": "floor",
+                "title": "Tests",
+                "summary": "Owns tests.",
+                "scopes": [{"target": "app", "include": ["tests/**"], "ownership": "primary"}],
+                "checkers": ["check.python"],
+            },
+            {
+                "id": "floor.src",
+                "type": "floor",
+                "title": "Src",
+                "summary": "Owns src.",
+                "scopes": [{"target": "app", "include": ["src/**"], "ownership": "primary"}],
+                "checkers": ["check.noop"],
+            },
+        ],
+        "relations": [],
+        "contracts": [],
+        "checkers": [
+            {
+                "id": "check.python",
+                "stage": "floor",
+                "target": "app",
+                "command": [sys.executable, "-B", "-m", "unittest", "discover", "-s", "tests"],
+                "cwd": ".",
+                "timeout": 120,
+                "always": True,
+                "parse": "unittest",
+            },
+            {
+                "id": "check.noop",
+                "stage": "floor",
+                "target": "app",
+                "command": [sys.executable, "-c", "print('noop')"],
+                "cwd": ".",
+                "timeout": 30,
+            },
+        ],
+    }
+    (root / ".ag2c" / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (root / ".ag2c" / "policy.json").write_text(json.dumps(policy), encoding="utf-8")
+    from ag2c.config import load_manifest, load_policy
+
+    loaded = load_manifest(root / ".ag2c" / "manifest.json")
+    return loaded, load_policy(loaded)
+
+
+class CanaryEndToEndTests(unittest.TestCase):
+    """The canary must run end to end: plant, refresh, gate catches, cleanup."""
+
+    def test_canary_caught_and_cleaned_up(self) -> None:
+        from ag2c.cli import _canary
+        from ag2c.index import build_index, verify_freshness
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, policy = _canary_project(root)
+            build_index(manifest, policy)
+            exit_code = _canary(manifest, policy, actor="test", reason="e2e gate validation")
+            self.assertEqual(0, exit_code)
+            # Canary file removed and index snapshot restored.
+            self.assertFalse((root / "tests" / "test_ag2c_canary.py").exists())
+            self.assertEqual([], verify_freshness(manifest, policy))
+            events = [
+                json.loads(line)
+                for line in (root / ".ag2c" / "ledger.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            canary_events = [e for e in events if e.get("event_type") == "canary"]
+            self.assertEqual(1, len(canary_events))
+            payload = canary_events[0]["payload"]
+            self.assertEqual("passed", payload["canary"])
+            self.assertIn("check.python", payload["caught_by"])
+
+    def test_canary_refuses_without_tests_dir(self) -> None:
+        from ag2c.cli import _canary
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, policy = _canary_project(root)
+            shutil.rmtree(root / "tests")
+            self.assertEqual(2, _canary(manifest, policy, actor="test", reason="no tests dir"))
 
 
 if __name__ == "__main__":

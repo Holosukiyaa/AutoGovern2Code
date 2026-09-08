@@ -386,25 +386,40 @@ def _canary(manifest, policy, *, actor: str, reason: str, output_format: str = "
 
     The canary proves the gate still bites: if the defect passes verification,
     the governance loop is broken and the result is canary-failed.
+
+    The defect is a failing unittest planted under ``tests/`` so the always-on
+    test checker must catch it. The index snapshot is refreshed right after
+    planting (and again after cleanup) so the freshness gate evaluates the
+    canary instead of rejecting the canary's own footprint.
     """
-    import tempfile
     from .checks import run_checks
-    from .gitops import change_digest, changed_paths, head
+    from .index import build_index
     from .slicer import compile_slice
 
-    root = manifest.project_root
-    # Find a governed directory with at least one code file.
     target = manifest.targets[0] if manifest.targets else None
     if target is None:
         print("AG2C error: no targets in manifest", file=sys.stderr)
         return 2
     target_root = manifest.target_root(target.target_id)
-    # Plant a canary file with a known defect.
-    canary_path = target_root / "__ag2c_canary__.py"
-    canary_content = '"""AG2C canary: known defect for gate validation."""\n\n\ndef canary_broken():\n    assert False, "canary: this defect must be caught"\n'
-    canary_rel = f"{target.target_id}:__ag2c_canary__.py"
+    tests_dir = target_root / "tests"
+    if not tests_dir.is_dir():
+        print("AG2C error: canary requires a tests/ directory in the governed target", file=sys.stderr)
+        return 2
+    # Plant a failing test that any test-discovery checker must catch.
+    canary_path = tests_dir / "test_ag2c_canary.py"
+    canary_content = (
+        '"""AG2C canary: known defect for gate validation."""\n'
+        "import unittest\n\n\n"
+        "class CanaryTest(unittest.TestCase):\n"
+        "    def test_canary_broken(self):\n"
+        '        self.fail("canary: this defect must be caught")\n'
+    )
+    canary_rel = f"{target.target_id}:tests/test_ag2c_canary.py"
     try:
         canary_path.write_text(canary_content, encoding="utf-8")
+        # Refresh the index so the freshness gate sees the canary as the
+        # current state instead of rejecting the canary's own footprint.
+        build_index(manifest, policy)
         # Build a minimal slice for the canary file.
         entry_slice = compile_slice(
             manifest,
@@ -443,6 +458,11 @@ def _canary(manifest, policy, *, actor: str, reason: str, output_format: str = "
         return 0 if caught else 1
     finally:
         canary_path.unlink(missing_ok=True)
+        try:
+            # Restore the snapshot so later governance actions stay unblocked.
+            build_index(manifest, policy)
+        except Exception:
+            print("AG2C warning: index refresh failed after canary cleanup", file=sys.stderr)
 
 
 def _doctor(manifest, policy) -> int:

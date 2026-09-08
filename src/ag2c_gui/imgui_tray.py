@@ -1529,25 +1529,6 @@ def _lineage_label(value: str, max_px: float) -> str:
     return text_value
 
 
-def _cubic_arrow(dl: Any, imgui: Any, x0: float, y0: float, x1: float, y1: float, color: int) -> None:
-    mid_x = (x0 + x1) * 0.5
-    dl.add_bezier_cubic(
-        imgui.ImVec2(x0, y0),
-        imgui.ImVec2(mid_x, y0),
-        imgui.ImVec2(mid_x, y1),
-        imgui.ImVec2(x1, y1),
-        color,
-        2.0,
-        16,
-    )
-    dl.add_triangle_filled(
-        imgui.ImVec2(x1, y1),
-        imgui.ImVec2(x1 - 8.0, y1 - 4.5),
-        imgui.ImVec2(x1 - 8.0, y1 + 4.5),
-        color,
-    )
-
-
 def _lineage_status_color(tag: str, imgui: Any) -> Any:
     if tag == "placeholder":
         return imgui.ImVec4(*_WARN_COLOR)
@@ -1571,16 +1552,6 @@ def _lineage_view_pads(nodes: list[dict[str, Any]]) -> tuple[float, float, float
     box: list[float] | None = None
     for node in nodes:
         rects = [(float(node.get("x") or 0), float(node.get("y") or 0), float(node.get("width") or 0), float(node.get("height") or 0))]
-        hull = node.get("outward_hull") if isinstance(node.get("outward_hull"), dict) else None
-        if hull is not None:
-            rects.append(
-                (
-                    float(hull.get("x") or 0),
-                    float(hull.get("y") or 0),
-                    float(hull.get("width") or 0),
-                    float(hull.get("height") or 0),
-                )
-            )
         for x, y, w, h in rects:
             if box is None:
                 box = [x, y, x + w, y + h]
@@ -1663,13 +1634,23 @@ def _lineage_draw_hulls(
     expanded: set[str],
     marker_hits: list[tuple[str, float, float, float, float]],
 ) -> None:
+    """Draw the containing hull (底盘) of every expanded node with children.
+
+    Tree layout: an expanded container's x/y/width/height already cover its
+    whole subtree, so one hull per expanded container nests naturally. Parents
+    draw first (they sit further left), children on top.
+    """
     hull_fill = imgui.get_color_u32(imgui.ImVec4(0.18, 0.22, 0.28, 0.82))
     hull_line = imgui.get_color_u32(imgui.ImVec4(0.50, 0.64, 0.84, 1.00))
     title_col = imgui.get_color_u32(imgui.ImVec4(0.90, 0.93, 0.97, 1.00))
-    for node in modules:
+    containers = [
+        node
+        for node in [*modules, *cards]
+        if node.get("group") and str(node.get("visual_id") or node["id"]) in expanded
+    ]
+    containers.sort(key=lambda item: (float(item.get("x") or 0), float(item.get("y") or 0)))
+    for node in containers:
         visual_id = str(node.get("visual_id") or node["id"])
-        if visual_id not in expanded:
-            continue
         hx = float(node.get("x") or 0)
         hy = float(node.get("y") or 0)
         hw = float(node.get("width") or 200)
@@ -1690,87 +1671,10 @@ def _lineage_draw_hulls(
             tag=str(node.get("status") or ""),
             status_tag=str(node.get("statusTag") or ""),
         )
-        if bool(node.get("cards")) and not node.get("empty"):
-            mx, my, mw, mh = _combo_marker_hit(hx, hy)
-            marker_hits.append((visual_id, mx, my, mw, mh))
-    # Outward hulls: knowledge rooms AND subdirectory groups both get one when
-    # expanded; without groups here their children float with no backdrop.
-    hull_owners = [*cards, *(node for node in modules if node.get("kind") == "group")]
-    for node in hull_owners:
-        hull = node.get("outward_hull") if isinstance(node.get("outward_hull"), dict) else None
-        if hull is None or node.get("hidden"):
-            continue
-        hx = float(hull.get("x") or 0)
-        hy = float(hull.get("y") or 0)
-        hw = float(hull.get("width") or 200)
-        hh = float(hull.get("height") or 48)
-        _draw_lineage_hull(
-            dl,
-            imgui,
-            hx,
-            hy,
-            hw,
-            hh,
-            fill=hull_fill,
-            line=hull_line,
-            title_col=title_col,
-            title=str(hull.get("title") or node.get("title") or ""),
-            title_pad=12.0,
-            label_pad=20.0,
-            tag=str(hull.get("status") or ""),
-            status_tag=str(node.get("statusTag") or ""),
-        )
+        mx, my, mw, mh = _combo_marker_hit(hx, hy)
+        marker_hits.append((visual_id, mx, my, mw, mh))
 
 
-def _lineage_draw_links(
-    dl: Any,
-    imgui: Any,
-    project: dict[str, Any] | None,
-    modules: list[dict[str, Any]],
-    cards: list[dict[str, Any]],
-    visible: list[dict[str, Any]],
-    expanded: set[str],
-    link_color: int,
-    groups: list[dict[str, Any]] | None = None,
-) -> None:
-    if project is None or str(project.get("visual_id") or project["id"]) not in expanded:
-        return
-    px = float(project.get("x") or 0)
-    py = float(project.get("y") or 0)
-    pw = float(project.get("width") or 200)
-    ph = float(project.get("height") or 48)
-    x0, y0 = px + pw, py + ph * 0.5
-    cards_by_parent: dict[str, list[dict[str, Any]]] = {}
-    for child in cards:
-        cards_by_parent.setdefault(str(child.get("parent") or ""), []).append(child)
-    for node in modules:
-        mid = str(node.get("visual_id") or node["id"])
-        kids = cards_by_parent.get(mid, [])
-        if kids:
-            for child in kids:
-                cx = float(child.get("x") or 0)
-                cy = float(child.get("y") or 0) + float(child.get("height") or 40) * 0.5
-                _cubic_arrow(dl, imgui, x0, y0, cx, cy, link_color)
-        else:
-            mx = float(node.get("x") or 0)
-            my = float(node.get("y") or 0) + float(node.get("height") or 48) * 0.5
-            _cubic_arrow(dl, imgui, x0, y0, mx, my, link_color)
-    by_visual = {str(item.get("visual_id") or item.get("id") or ""): item for item in visible}
-    # Groups are children too: without them a room→group link is never drawn
-    # and an expanded subdirectory group appears out of thin air.
-    for child in [*cards, *(groups or [])]:
-        parent = by_visual.get(str(child.get("parent") or ""))
-        if parent is None or parent.get("kind") not in {"knowledge", "group"}:
-            continue
-        if parent.get("kind") == "group" and not parent.get("outward_hull"):
-            # Inline-expanded group: children sit inside the grown hull, so
-            # containment is already visible; an arrow would hook backwards.
-            continue
-        px1 = float(parent.get("x") or 0) + float(parent.get("width") or 0)
-        py1 = float(parent.get("y") or 0) + float(parent.get("height") or 40) * 0.5
-        cx = float(child.get("x") or 0)
-        cy = float(child.get("y") or 0) + float(child.get("height") or 40) * 0.5
-        _cubic_arrow(dl, imgui, px1, py1, cx, cy, link_color)
 
 
 def _lineage_rehome_drag_drop(
@@ -1827,8 +1731,8 @@ def _lineage_draw_nodes(
     try:
         for node in modules:
             visual_id = str(node.get("visual_id") or node["id"])
-            opened = visual_id in expanded
-            can_expand = bool(node.get("cards")) and not node.get("empty")
+            can_expand = bool(node.get("group"))
+            opened = can_expand and visual_id in expanded
             if opened:
                 nid = ed.NodeId(_cached_uid(node))
                 ed.set_node_position(
@@ -1860,6 +1764,23 @@ def _lineage_draw_nodes(
             ed.pop_style_color(2)
         for node in cards:
             visual_id = str(node.get("visual_id") or node["id"])
+            # Expanded containers (rooms with children) render like opened
+            # modules: transparent node holding just the toggle; the hull
+            # behind them shows the title and wraps the inline children.
+            if node.get("group") and visual_id in expanded:
+                nid = ed.NodeId(_cached_uid(node))
+                ed.set_node_position(
+                    nid,
+                    imgui.ImVec2(float(node.get("x") or 0) + 4.0, float(node.get("y") or 0) + 6.0),
+                )
+                ed.push_style_color(ed.StyleColor.node_bg, imgui.ImVec4(0.18, 0.22, 0.28, 0.0))
+                ed.push_style_color(ed.StyleColor.node_border, imgui.ImVec4(0.50, 0.64, 0.84, 0.0))
+                ed.begin_node(nid)
+                _lineage_toggle(imgui, visual_id, True, toggles)
+                _lineage_rehome_drag_drop(imgui, node, lineage_heading(node) or str(visual_id), drag, drops)
+                ed.end_node()
+                ed.pop_style_color(2)
+                continue
             _lineage_place_node(ed, imgui, node)
             card_w = max(80.0, float(node.get("width") or LINEAGE_CARD_W) - 12.0)
             bg, border = _lineage_card_colors(_lineage_is_marked(node, selected, highlight, inspect_key))
@@ -1867,7 +1788,7 @@ def _lineage_draw_nodes(
             ed.push_style_color(ed.StyleColor.node_border, imgui.ImVec4(*border))
             ed.begin_node(ed.NodeId(_cached_uid(node)))
             imgui.dummy((card_w, 1.0))
-            if node.get("nested") and node.get("cards"):
+            if node.get("group"):
                 _lineage_toggle(imgui, visual_id, visual_id in expanded, toggles)
             heading = lineage_heading(node) or str(visual_id)
             imgui.text(_lineage_label(heading, card_w - (28.0 if node.get("nested") else 8.0)))
@@ -1935,20 +1856,22 @@ def _lineage_handle_input(
             if hovered_uid and hovered_uid not in pad_uids:
                 pending_click = hovered_uid
             else:
-                for node in reversed(cards):
-                    hull = node.get("outward_hull") if isinstance(node.get("outward_hull"), dict) else None
-                    if hull is None or node.get("hidden"):
+                # Click on a container's hull backdrop (no node hovered):
+                # select the deepest container whose grown rect holds the point.
+                best: tuple[float, int] | None = None
+                for node in cards:
+                    if not node.get("group") or node.get("hidden"):
                         continue
-                    if _point_in_rect(
-                        mx,
-                        my,
-                        float(hull.get("x") or 0),
-                        float(hull.get("y") or 0),
-                        float(hull.get("width") or 0),
-                        float(hull.get("height") or 0),
-                    ):
-                        pending_click = lineage_uid("node", str(node.get("visual_id") or node["id"]))
-                        break
+                    x = float(node.get("x") or 0)
+                    y = float(node.get("y") or 0)
+                    w = float(node.get("width") or 0)
+                    h = float(node.get("height") or 0)
+                    if _point_in_rect(mx, my, x, y, w, h):
+                        area = w * h
+                        if best is None or area < best[0]:
+                            best = (area, lineage_uid("node", str(node.get("visual_id") or node["id"])))
+                if best is not None:
+                    pending_click = best[1]
                 if not pending_click:
                     for node in reversed(modules):
                         x = float(node.get("x") or 0)
@@ -2121,10 +2044,8 @@ def _gui_lineage(state: AppState) -> None:
     ed.begin("谱系", imgui.ImVec2(0.0, 0.0))
     try:
         dl = imgui.get_window_draw_list()
-        link_color = imgui.get_color_u32(imgui.ImVec4(0.46, 0.62, 0.88, 0.90))
         marker_hits: list[tuple[str, float, float, float, float]] = []
         _lineage_draw_hulls(dl, imgui, combos, cards, expanded, marker_hits)
-        _lineage_draw_links(dl, imgui, project, modules, cards, visible, expanded, link_color, groups)
         _lineage_draw_nodes(
             ed,
             imgui,

@@ -379,45 +379,49 @@ class RehomeJobTests(unittest.TestCase):
         ui = (Path(__file__).resolve().parents[1] / "src" / "ag2c_gui" / "imgui_tray.py").read_text(encoding="utf-8")
         self.assertIn("begin_drag_drop_source(imgui.DragDropFlags_.source_allow_null_id)", ui)
 
-    def test_group_outward_hull_is_drawn(self) -> None:
-        # Expanded subdirectory groups own an outward hull behind their file
-        # cards; without it fourth-layer cards float with no backdrop.
+    def test_expanded_container_hull_is_drawn_for_rooms_and_groups(self) -> None:
+        # Tree layout: every expanded node with children — floor, room, or
+        # subdirectory group — gets its grown rect drawn as the containing
+        # hull (底盘); collapsed or childless nodes get none.
         from ag2c_gui import imgui_tray
 
+        floor = {
+            "kind": "module", "visual_id": "floor.src", "id": "floor.src", "title": "src",
+            "x": 0.0, "y": 0.0, "width": 400.0, "height": 900.0, "hidden": False, "group": True,
+        }
+        room = {
+            "kind": "knowledge", "visual_id": "room", "id": "room", "title": "backend",
+            "x": 28.0, "y": 60.0, "width": 372.0, "height": 700.0, "hidden": False, "group": True,
+        }
         group = {
-            "kind": "group",
-            "visual_id": "room/dir:routers",
-            "id": "room/dir:routers",
-            "title": "routers/",
-            "x": 0.0,
-            "y": 0.0,
-            "width": 120.0,
-            "height": 40.0,
-            "hidden": False,
-            "cards": [{"id": "k1"}],
-            "outward_hull": {"x": 200.0, "y": 0.0, "width": 160.0, "height": 320.0, "title": "routers/", "status": "7 张文件卡"},
+            "kind": "group", "visual_id": "room/dir:routers", "id": "room/dir:routers", "title": "routers/",
+            "x": 56.0, "y": 120.0, "width": 344.0, "height": 400.0, "hidden": False, "group": True,
+        }
+        leaf = {
+            "kind": "knowledge", "visual_id": "leaf", "id": "leaf", "title": "leaf.py",
+            "x": 84.0, "y": 180.0, "width": 316.0, "height": 40.0, "hidden": False, "group": False,
         }
         drawn: list[str] = []
         with patch.object(imgui_tray, "_draw_lineage_hull", side_effect=lambda *a, **k: drawn.append(str(k.get("title") or ""))):
-            imgui_tray._lineage_draw_hulls(MagicMock(), MagicMock(), [group], [], {"room/dir:routers"}, [])
-        self.assertTrue(any("routers/" in title for title in drawn), drawn)
-        self.assertGreaterEqual(len(drawn), 2)  # own combo box + outward hull
+            imgui_tray._lineage_draw_hulls(
+                MagicMock(), MagicMock(), [floor, group], [room, leaf],
+                {"floor.src", "room", "room/dir:routers"}, [],
+            )
+        self.assertEqual(3, len(drawn), drawn)
+        self.assertFalse(any("leaf" in title for title in drawn), drawn)
+        # Collapsed containers draw no hull.
+        drawn.clear()
+        with patch.object(imgui_tray, "_draw_lineage_hull", side_effect=lambda *a, **k: drawn.append(str(k.get("title") or ""))):
+            imgui_tray._lineage_draw_hulls(MagicMock(), MagicMock(), [floor, group], [room, leaf], {"floor.src"}, [])
+        self.assertEqual(1, len(drawn), drawn)
 
-    def test_group_node_gets_an_incoming_link(self) -> None:
-        # A group is a child of its room card; without a room→group link the
-        # expanded group appears out of thin air.
+    def test_tree_layout_draws_no_diagonal_links(self) -> None:
+        # The old LR graph drew long diagonal arrows; the tree carries the
+        # hierarchy through indentation + hulls, so the link layer is gone.
         from ag2c_gui import imgui_tray
 
-        project = {"kind": "project", "visual_id": "project:root", "id": "project:root", "x": 0.0, "y": 0.0, "width": 100.0, "height": 60.0}
-        room = {"kind": "knowledge", "visual_id": "room", "id": "room", "parent": "floor", "x": 300.0, "y": 0.0, "width": 120.0, "height": 40.0}
-        group = {"kind": "group", "visual_id": "room/dir:routers", "id": "room/dir:routers", "parent": "room", "x": 600.0, "y": 0.0, "width": 120.0, "height": 40.0}
-        arrows: list[tuple[float, float, float, float]] = []
-        with patch.object(imgui_tray, "_cubic_arrow", side_effect=lambda _dl, _i, x0, y0, x1, y1, _c: arrows.append((x0, y0, x1, y1))):
-            imgui_tray._lineage_draw_links(
-                MagicMock(), MagicMock(), project, [], [room], [project, room, group], {"project:root"}, 0, [group]
-            )
-        # room right edge (300+120, 20) -> group left edge (600, 20)
-        self.assertIn((420.0, 20.0, 600.0, 20.0), arrows)
+        self.assertFalse(hasattr(imgui_tray, "_lineage_draw_links"))
+        self.assertFalse(hasattr(imgui_tray, "_cubic_arrow"))
 
 
 class CrashLoggingTests(unittest.TestCase):
@@ -487,18 +491,20 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("no_collapse", ui)
         self.assertIn("get_hovered_node", ui)
         self.assertIn("card_matching_lineage", ui)
-        self.assertIn("add_bezier_cubic", ui)
+        self.assertIn("_draw_lineage_hull", ui)
         self.assertIn("lineage_expanded", ui)
         self.assertIn("small_button", ui)
         self.assertNotIn("##span-", ui)
         self.assertIn("layout_lineage_view", ui)
-        self.assertIn("outward_hull", ui)
+        self.assertNotIn("outward_hull", ui)
         self.assertIn("卡名就是摘要", ui)
         self.assertIn("详细设计", ui)
         self.assertIn("序号按层写", ui)
         self.assertIn("1-1-1", ui)
         self.assertNotIn('text_disabled("摘要")', ui)
-        self.assertIn("outward_hull", (root / "src" / "ag2c_gui" / "graph.py").read_text(encoding="utf-8"))
+        graph_src = (root / "src" / "ag2c_gui" / "graph.py").read_text(encoding="utf-8")
+        self.assertIn("LINEAGE_TREE_INDENT", graph_src)
+        self.assertNotIn("outward_hull", graph_src)
         self.assertIn("exp:", ui)
         self.assertIn("{LINEAGE_PROJECT_ID}", ui)
         self.assertIn("highlight_card_keys", ui)

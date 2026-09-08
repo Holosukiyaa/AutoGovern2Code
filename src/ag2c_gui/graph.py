@@ -877,7 +877,8 @@ LINEAGE_PROJECT_H = 48.0
 LINEAGE_EMPTY_INNER_H = 28.0
 LINEAGE_COLLAPSED_W = 200.0
 LINEAGE_COLLAPSED_H = 48.0
-LINEAGE_GROUP_INDENT = 18.0
+LINEAGE_TREE_INDENT = 28.0
+LINEAGE_TREE_ROOT_W = 400.0
 
 
 def _lineage_text_width(value: str) -> float:
@@ -1443,211 +1444,64 @@ def lineage_boxes_overlap(left: Mapping[str, Any], right: Mapping[str, Any], *, 
 
 def _hide_lineage_branch(node: dict[str, Any], kids_of: dict[str, list[dict[str, Any]]]) -> None:
     node["hidden"] = True
-    node["outward_hull"] = None
     visual_id = str(node.get("visual_id") or node.get("id") or "")
     for child in kids_of.get(visual_id, []):
         _hide_lineage_branch(child, kids_of)
 
 
-def _pack_lineage_children(
-    children: list[dict[str, Any]],
-    *,
-    x: float,
-    y: float,
-    width: float,
-    expanded: set[str],
-    kids_of: dict[str, list[dict[str, Any]]],
-) -> float:
-    cursor = y
-    for child in children:
-        visual_id = str(child.get("visual_id") or child.get("id") or "")
-        nested = kids_of.get(visual_id, [])
-        height = lineage_card_height(child)
-        child["hidden"] = False
-        child["x"] = x
-        child["y"] = cursor
-        child["width"] = width
-        child["height"] = height
-        child["group"] = bool(nested)
-        cursor += height + LINEAGE_CARD_GAP_Y
-        if not (nested and visual_id in expanded):
-            for grand in nested:
-                _hide_lineage_branch(grand, kids_of)
-    return max(0.0, cursor - y - LINEAGE_CARD_GAP_Y)
-
-
-def _place_outward_column(
-    parent: dict[str, Any],
-    kids_of: dict[str, list[dict[str, Any]]],
-    expanded: set[str],
-    *,
-    min_y: float = 0.0,
-) -> float:
-    """Place parent's children in a column right of it; returns the column bottom.
-
-    Sibling cards in one module share the same column x, so each expanded
-    sibling's column must start below the previous sibling's column (min_y);
-    otherwise two open combos draw their children on top of each other.
-    """
-    visual_id = str(parent.get("visual_id") or parent.get("id") or "")
-    nested = kids_of.get(visual_id, [])
-    parent["outward_hull"] = None
-    if not nested:
-        return min_y
-    if visual_id not in expanded or parent.get("hidden"):
-        for child in nested:
-            _hide_lineage_branch(child, kids_of)
-        return min_y
-    column_x = float(parent.get("x") or 0) + float(parent.get("width") or LINEAGE_CARD_W) + LINEAGE_RANK_SEP
-    card_w = LINEAGE_CARD_MIN_W
-    for child in nested:
-        card_w = max(card_w, lineage_card_width(child))
-    card_w = min(LINEAGE_CARD_MAX_W, card_w)
-    hull_w = max(LINEAGE_MODULE_MIN_W, card_w + LINEAGE_MODULE_PAD * 2)
-    inner_w = hull_w - LINEAGE_MODULE_PAD * 2
-    inner_x = column_x + LINEAGE_MODULE_PAD
-    start_y = max(float(parent.get("y") or 0), min_y)
-    inner_y = start_y + LINEAGE_MODULE_HEADER
-    cursor = inner_y
-    child_floor = 0.0
-    for child in nested:
-        child_visual = str(child.get("visual_id") or child.get("id") or "")
-        grandchildren = kids_of.get(child_visual, [])
-        height = lineage_card_height(child)
-        child["hidden"] = False
-        child["group"] = bool(grandchildren)
-        child["x"] = inner_x
-        child["y"] = cursor
-        child["width"] = inner_w
-        child["height"] = height
-        cursor += height + LINEAGE_CARD_GAP_Y
-        # Subdirectory groups expand in place like a tree: children pack
-        # indented below the group header and the group hull grows around
-        # them, instead of jumping to a far-right outward column.
-        if child.get("kind") == "group" and grandchildren:
-            if child_visual in expanded and not child.get("hidden"):
-                child["outward_hull"] = None
-                gx = inner_x + LINEAGE_GROUP_INDENT
-                gw = max(LINEAGE_CARD_MIN_W * 0.6, inner_w - LINEAGE_GROUP_INDENT)
-                for grand in grandchildren:
-                    grand_h = lineage_card_height(grand)
-                    grand["hidden"] = False
-                    grand["group"] = False
-                    grand["x"] = gx
-                    grand["y"] = cursor
-                    grand["width"] = gw
-                    grand["height"] = grand_h
-                    cursor += grand_h + LINEAGE_CARD_GAP_Y
-                child["height"] = cursor - LINEAGE_CARD_GAP_Y - float(child["y"])
-            else:
-                for grand in grandchildren:
-                    _hide_lineage_branch(grand, kids_of)
-            continue
-        child_floor = max(child_floor, _place_outward_column(child, kids_of, expanded, min_y=child_floor))
-    inner_h = max(0.0, cursor - inner_y - LINEAGE_CARD_GAP_Y)
-    if not inner_h:
-        inner_h = LINEAGE_EMPTY_INNER_H
-    bottom = start_y + LINEAGE_MODULE_HEADER + inner_h + LINEAGE_MODULE_PAD
-    parent["outward_hull"] = {
-        "x": column_x,
-        "y": start_y,
-        "width": hull_w,
-        "height": LINEAGE_MODULE_HEADER + inner_h + LINEAGE_MODULE_PAD,
-        "title": lineage_heading(parent),
-        "status": str(parent.get("status") or f"{len(nested)} 张文件卡"),
-        "owner": visual_id,
-    }
-    return max(bottom, child_floor)
-
-
 def layout_lineage_view(nodes: list[dict[str, Any]], expanded: set[str]) -> None:
-    """Pack an LR dagre-combo view for the current expand set. Mutates x/y/width/height/hidden."""
+    """Pack the lineage as ONE indented tree: every expanded node stacks its
+    children below itself, indented one step, and grows to wrap them.
+
+    Single paradigm — no outward columns, no per-kind expansion behavior.
+    Mutates x/y/width/height/hidden/group. An expanded container's width/height
+    cover its whole subtree so the tray can draw it as the containing hull.
+    """
     assign_lineage_ordinals(nodes)
-    project_open = LINEAGE_PROJECT_ID in expanded
-    modules = [node for node in nodes if node.get("kind") == "module"]
-    modules.sort(key=lambda item: str(item.get("title") or ""))
     kids_of: dict[str, list[dict[str, Any]]] = {}
     for node in nodes:
-        if node.get("kind") not in {"knowledge", "group"}:
+        if node.get("kind") == "project":
             continue
         kids_of.setdefault(str(node.get("parent") or ""), []).append(node)
     for kids in kids_of.values():
         kids.sort(key=lambda item: (int(item.get("index") or 0), str(item.get("title") or "")))
     project = next((node for node in nodes if node.get("kind") == "project"), None)
-    if project is not None:
-        project["x"] = LINEAGE_ORIGIN_X
-        project["y"] = LINEAGE_ORIGIN_Y
-        project["width"] = LINEAGE_PROJECT_W
-        project["height"] = LINEAGE_PROJECT_H
-        project["hidden"] = False
-        project["group"] = False
-    if not project_open:
-        for module in modules:
-            module["hidden"] = True
-            module["x"] = LINEAGE_ORIGIN_X
-            module["y"] = LINEAGE_ORIGIN_Y
-            module["width"] = LINEAGE_COLLAPSED_W
-            module["height"] = LINEAGE_COLLAPSED_H
-        for node in nodes:
-            if node.get("kind") in {"knowledge", "group"}:
-                node["hidden"] = True
-        return
-    module_x = LINEAGE_ORIGIN_X + LINEAGE_PROJECT_W + LINEAGE_RANK_SEP
-    cursor_y = LINEAGE_ORIGIN_Y
-    outward_floor = 0.0
-    for module in modules:
-        visual_id = str(module.get("visual_id") or module.get("id") or "")
+
+    def header_height(node: dict[str, Any]) -> float:
+        if node.get("kind") == "project":
+            return LINEAGE_PROJECT_H
+        if node.get("kind") == "module":
+            return LINEAGE_COLLAPSED_H
+        return lineage_card_height(node)
+
+    def pack(node: dict[str, Any], x: float, y: float, width: float) -> float:
+        """Place node at (x, y); return the subtree's bottom edge."""
+        visual_id = str(node.get("visual_id") or node.get("id") or "")
         children = kids_of.get(visual_id, [])
-        opened = bool(children) and visual_id in expanded
-        module["hidden"] = False
-        module["group"] = True
-        if not opened:
-            module["x"] = module_x
-            module["y"] = cursor_y
-            module["width"] = LINEAGE_COLLAPSED_W
-            module["height"] = LINEAGE_COLLAPSED_H
+        header = header_height(node)
+        node["x"] = x
+        node["y"] = y
+        node["hidden"] = False
+        node["group"] = bool(children)
+        if not children or visual_id not in expanded:
+            node["width"] = width
+            node["height"] = header
             for child in children:
-                child["x"] = module_x
-                child["y"] = cursor_y
-                child["width"] = LINEAGE_CARD_W
-                child["height"] = LINEAGE_CARD_H
                 _hide_lineage_branch(child, kids_of)
-            cursor_y += LINEAGE_COLLAPSED_H + LINEAGE_MODULE_GAP
-            continue
-        card_w = LINEAGE_CARD_MIN_W
+            return y + header
+        child_w = max(LINEAGE_CARD_MIN_W * 0.6, width - LINEAGE_TREE_INDENT)
+        cursor = y + header + LINEAGE_CARD_GAP_Y
+        right = x + width
         for child in children:
-            card_w = max(card_w, lineage_card_width(child))
-        card_w = min(LINEAGE_CARD_MAX_W, card_w)
-        width = max(LINEAGE_MODULE_MIN_W, card_w + LINEAGE_MODULE_PAD * 2)
-        inner_x = module_x + LINEAGE_MODULE_PAD
-        inner_w = width - LINEAGE_MODULE_PAD * 2
-        inner_y = cursor_y + LINEAGE_MODULE_HEADER
-        inner_h = _pack_lineage_children(
-            children,
-            x=inner_x,
-            y=inner_y,
-            width=inner_w,
-            expanded=expanded,
-            kids_of=kids_of,
-        )
-        if not inner_h:
-            inner_h = LINEAGE_EMPTY_INNER_H
-        height = LINEAGE_MODULE_HEADER + inner_h + LINEAGE_MODULE_PAD
-        module["x"] = module_x
-        module["y"] = cursor_y
-        module["width"] = width
-        module["height"] = height
-        if visual_id in expanded:
-            for child in children:
-                outward_floor = max(
-                    outward_floor,
-                    _place_outward_column(child, kids_of, expanded, min_y=outward_floor),
-                )
-        cursor_y += height + LINEAGE_MODULE_GAP
-    total_h = max(cursor_y - LINEAGE_MODULE_GAP - LINEAGE_ORIGIN_Y, LINEAGE_PROJECT_H)
+            bottom = pack(child, x + LINEAGE_TREE_INDENT, cursor, child_w)
+            right = max(right, float(child["x"]) + float(child["width"]))
+            cursor = bottom + LINEAGE_CARD_GAP_Y
+        node["width"] = right - x
+        node["height"] = cursor - y  # trailing gap doubles as bottom padding
+        return cursor
+
     if project is not None:
-        project["x"] = LINEAGE_ORIGIN_X
-        project["y"] = LINEAGE_ORIGIN_Y + max(0.0, (total_h - LINEAGE_PROJECT_H) / 2.0)
+        pack(project, LINEAGE_ORIGIN_X, LINEAGE_ORIGIN_Y, LINEAGE_TREE_ROOT_W)
 
 
 def lineage_visible_boxes(nodes: list[dict[str, Any]], expanded: set[str]) -> list[dict[str, Any]]:

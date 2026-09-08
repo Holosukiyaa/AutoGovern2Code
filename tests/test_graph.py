@@ -9,11 +9,15 @@ from ag2c_gui.graph import (
     LINEAGE_CARD_H,
     LINEAGE_CARD_MAX_W,
     LINEAGE_CARD_MIN_W,
+    LINEAGE_CARD_GAP_Y,
     LINEAGE_COLLAPSED_H,
     LINEAGE_COLLAPSED_W,
     LINEAGE_MODULE_HEADER,
     LINEAGE_MODULE_PAD,
     LINEAGE_ORIGIN_X,
+    LINEAGE_TREE_INDENT,
+    LINEAGE_TREE_ROOT_W,
+    lineage_card_height,
     LINEAGE_PROJECT_ID,
     build_governance_graph,
     build_lineage,
@@ -289,10 +293,12 @@ class GovernanceGraphTests(unittest.TestCase):
         src_box = next(item for item in nodes if item["visual_id"] == "floor.src")
         self.assertFalse(shown_cli.get("hidden"))
         self.assertEqual("knowledge.ag2c@floor.src", shown_cli["parent"])
-        self.assertGreater(shown_cli["x"], shown_house["x"] + shown_house["width"])
-        self.assertGreater(shown_cli["x"], src_box["x"] + src_box["width"])
+        # Tree layout: children pack INSIDE the parent, indented one step.
+        self.assertGreater(shown_cli["x"], shown_house["x"])
+        self.assertLessEqual(shown_cli["x"] + shown_cli["width"], shown_house["x"] + shown_house["width"])
+        self.assertGreater(shown_cli["y"], shown_house["y"])
         leftover_node = next(item for item in nodes if item["id"] == "knowledge.src")
-        self.assertLess(leftover_node["x"] + leftover_node["width"], shown_cli["x"])
+        self.assertEqual(leftover_node["x"], shown_house["x"])
         self.assertGreaterEqual(lineage_ordinal(shown_cli), 1)
         self.assertEqual("1", src_box.get("ordinal_label"))
         self.assertEqual("1-1", shown_house.get("ordinal_label"))
@@ -309,17 +315,13 @@ class GovernanceGraphTests(unittest.TestCase):
         self.assertEqual(len(labels), len(set(labels)))
         self.assertEqual("cli", shown_cli["title"])
         self.assertNotIn("abstract", shown_cli)
-        hull = shown_house.get("outward_hull")
-        self.assertIsInstance(hull, dict)
-        self.assertGreater(float(hull["x"]), shown_house["x"] + shown_house["width"])
-        self.assertGreaterEqual(shown_cli["x"], float(hull["x"]))
-        self.assertLessEqual(shown_cli["x"] + shown_cli["width"], float(hull["x"]) + float(hull["width"]))
-        self.assertGreaterEqual(shown_cli["y"], float(hull["y"]))
-        self.assertLessEqual(shown_cli["y"] + shown_cli["height"], float(hull["y"]) + float(hull["height"]))
+        # Expanded container grows to wrap its subtree (the hull rect).
+        self.assertGreaterEqual(shown_cli["y"] + shown_cli["height"], shown_house["y"] + 40)
+        self.assertLessEqual(shown_cli["y"] + shown_cli["height"], shown_house["y"] + shown_house["height"])
         collapsed = [dict(item) for item in lineage["nodes"]]
         layout_lineage_view(collapsed, {LINEAGE_PROJECT_ID, "floor.src"})
         folded = next(item for item in collapsed if item["visual_id"] == "knowledge.ag2c@floor.src")
-        self.assertFalse(folded.get("outward_hull"))
+        self.assertEqual(lineage_card_height(folded), folded["height"])
         graph = build_governance_graph(
             {
                 "cards": [household, cli, tray],
@@ -490,8 +492,8 @@ class GovernanceGraphTests(unittest.TestCase):
         laid = {str(node.get("visual_id") or node.get("id")): node for node in view}
         placed_group = laid[group["visual_id"]]
         gx, gy = float(placed_group["x"]), float(placed_group["y"])
-        # Inline expansion: no far-right outward column for the group.
-        self.assertIsNone(placed_group.get("outward_hull"))
+        # Tree layout: the group grows in place; children stack below it.
+        self.assertTrue(placed_group.get("group"))
         last_bottom = gy
         for name in router_files:
             child = laid[by_id["knowledge.backend-" + name.removesuffix(".py")]["visual_id"]]
@@ -902,7 +904,11 @@ class GovernanceGraphTests(unittest.TestCase):
         self.assertEqual("5 张知识卡", src["status"])
         self.assertEqual(5, len(src["cards"]))
         for left_index, left in enumerate(modules):
-            self.assertFalse(lineage_boxes_overlap(project, left, gap=8.0))
+            # Tree layout: the expanded project wraps its floors; sibling
+            # floors still never overlap each other.
+            self.assertGreaterEqual(left["x"], project["x"])
+            self.assertGreaterEqual(left["y"], project["y"])
+            self.assertLessEqual(left["y"] + left["height"], project["y"] + project["height"])
             for right in modules[left_index + 1 :]:
                 self.assertFalse(lineage_boxes_overlap(left, right, gap=8.0), (left["title"], right["title"]))
         kids = [node for node in lineage["nodes"] if node.get("parent") == "floor.src"]
@@ -923,14 +929,12 @@ class GovernanceGraphTests(unittest.TestCase):
                 self.assertFalse(lineage_boxes_overlap(left, right, gap=4.0))
         module_xs = {float(node["x"]) for node in modules}
         self.assertEqual(1, len(module_xs))
-        self.assertLessEqual(float(project["x"]) + float(project["width"]) + 8.0, min(module_xs))
+        # Tree layout: floors stack below the project root, indented one step.
+        self.assertAlmostEqual(float(project["x"]) + LINEAGE_TREE_INDENT, min(module_xs), delta=0.5)
         stack_top = min(float(node["y"]) for node in modules)
         stack_bot = max(float(node["y"]) + float(node["height"]) for node in modules)
-        self.assertAlmostEqual(
-            float(project["y"]) + float(project["height"]) / 2.0,
-            (stack_top + stack_bot) / 2.0,
-            delta=2.0,
-        )
+        self.assertGreater(stack_top, float(project["y"]))
+        self.assertLessEqual(stack_bot, float(project["y"]) + float(project["height"]))
 
     def test_lineage_view_defaults_to_collapsed_project(self) -> None:
         lineage = build_lineage(
@@ -1092,11 +1096,11 @@ class GovernanceGraphTests(unittest.TestCase):
         expanded = {LINEAGE_PROJECT_ID, "floor.src", "knowledge.aaa@floor.src", "knowledge.bbb@floor.src"}
         nodes = [dict(item) for item in lineage["nodes"]]
         self.assertEqual([], lineage_step_overlaps(nodes, expanded))
-        # The second sibling's column starts below the first sibling's column bottom.
+        # Tree layout: the second sibling room starts below the first
+        # sibling's whole subtree (its grown hull).
         aaa = next(node for node in nodes if node.get("id") == "knowledge.aaa")
-        bbb_child = next(node for node in nodes if node.get("id") == "knowledge.bbb-f0")
-        aaa_hull = aaa.get("outward_hull") or {}
-        self.assertGreaterEqual(float(bbb_child["y"]), float(aaa_hull.get("y", 0)) + float(aaa_hull.get("height", 0)))
+        bbb = next(node for node in nodes if node.get("id") == "knowledge.bbb")
+        self.assertGreaterEqual(float(bbb["y"]), float(aaa["y"]) + float(aaa["height"]))
 
     def test_lineage_expand_steps_do_not_overlap(self) -> None:
         cards = [
@@ -1141,7 +1145,8 @@ class GovernanceGraphTests(unittest.TestCase):
         nodes = [dict(item) for item in lineage["nodes"]]
         layout_lineage_view(nodes, {LINEAGE_PROJECT_ID})
         src = next(item for item in nodes if item["visual_id"] == "floor.src")
-        self.assertEqual(LINEAGE_COLLAPSED_W, src["width"])
+        tree_w = LINEAGE_TREE_ROOT_W - LINEAGE_TREE_INDENT
+        self.assertEqual(tree_w, src["width"])
         self.assertEqual(LINEAGE_COLLAPSED_H, src["height"])
         self.assertTrue(all(item.get("hidden") for item in nodes if item.get("parent") == "floor.src"))
         layout_lineage_view(nodes, {LINEAGE_PROJECT_ID, "floor.src"})
@@ -1156,10 +1161,10 @@ class GovernanceGraphTests(unittest.TestCase):
             self.assertLessEqual(child["x"] + child["width"], src["x"] + src["width"])
             self.assertLessEqual(child["y"] + child["height"], src["y"] + src["height"])
             self.assertGreater(child["y"], src["y"] + 8.0)
-        self.assertAlmostEqual(float(kids[0]["y"]), src["y"] + LINEAGE_MODULE_HEADER, delta=0.5)
+        self.assertAlmostEqual(float(kids[0]["y"]), src["y"] + LINEAGE_COLLAPSED_H + LINEAGE_CARD_GAP_Y, delta=0.5)
         front = next(item for item in nodes if item["visual_id"] == "floor.front")
         self.assertEqual(LINEAGE_COLLAPSED_H, front["height"])
-        self.assertEqual(LINEAGE_COLLAPSED_W, front["width"])
+        self.assertEqual(tree_w, front["width"])
         self.assertFalse(lineage_boxes_overlap(src, front, gap=8.0))
 
     def test_lineage_card_width_is_elastic_and_clamped(self) -> None:
@@ -1204,7 +1209,9 @@ class GovernanceGraphTests(unittest.TestCase):
         self.assertGreater(width, LINEAGE_CARD_MIN_W)
         self.assertLessEqual(width, LINEAGE_CARD_MAX_W)
         proto = next(item for item in nodes if item["visual_id"] == "floor.proto")
-        self.assertGreaterEqual(proto["width"], width + LINEAGE_MODULE_PAD * 2)
+        # Tree layout: an expanded container wraps its children exactly —
+        # one indent step wider than the uniform child width.
+        self.assertAlmostEqual(float(proto["width"]), LINEAGE_TREE_INDENT + width, delta=0.5)
         for child in kids:
             self.assertLessEqual(child["x"] + child["width"], proto["x"] + proto["width"])
 

@@ -373,6 +373,45 @@ class RehomeJobTests(unittest.TestCase):
         self.assertIn("搬家失败（已自动回滚）", ui)
 
 
+class CrashLoggingTests(unittest.TestCase):
+    def test_crash_log_captures_header_traceback_and_native_faults(self) -> None:
+        import faulthandler
+
+        from ag2c_gui import imgui_tray
+
+        old_hook = sys.excepthook
+        old_log = imgui_tray._CRASH_LOG
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.dict(os.environ, {"AG2C_DATA_ROOT": directory}, clear=False):
+                try:
+                    path = imgui_tray._install_crash_logging()
+                    self.assertEqual(path, imgui_tray._crash_log_path())
+                    try:
+                        raise ValueError("boom")
+                    except ValueError:
+                        imgui_tray._log_crash("test heading")
+                    content = path.read_text(encoding="utf-8")
+                    self.assertIn("tray start", content)
+                    self.assertIn("test heading", content)
+                    self.assertIn("ValueError: boom", content)
+                finally:
+                    sys.excepthook = old_hook
+                    faulthandler.disable()
+                    if imgui_tray._CRASH_LOG is not None:
+                        imgui_tray._CRASH_LOG.close()
+                    imgui_tray._CRASH_LOG = old_log
+
+    def test_logged_wrapper_names_the_callback_before_reraising(self) -> None:
+        from ag2c_gui import imgui_tray
+
+        seen = []
+        with patch.object(imgui_tray, "_log_crash", side_effect=lambda heading: seen.append(heading)):
+            wrapped = imgui_tray._logged("show_status", lambda: (_ for _ in ()).throw(RuntimeError("panel died")))
+            with self.assertRaises(RuntimeError):
+                wrapped()
+        self.assertEqual(["frame callback: show_status"], seen)
+
+
 class TrayHostSourceTests(unittest.TestCase):
     def test_tray_host_is_hello_imgui_without_webview2_or_pyside(self) -> None:
         root = Path(__file__).resolve().parents[1]

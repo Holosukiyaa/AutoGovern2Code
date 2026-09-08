@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import faulthandler
 import os
 import sys
 import threading
 import time
+import traceback
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -61,6 +64,84 @@ from .tray_host import (
 from .tray_caption_win32 import _apply_dark_caption
 
 # 3D / vision add-ons are not imported.
+
+_CRASH_LOG: Any = None
+
+
+def _crash_log_path() -> Path:
+    """Crash log lives under the AG2C data root (portable-aware) or temp dir.
+
+    pythonw has no console, so without this file a tray crash leaves zero
+    evidence behind.
+    """
+    data = os.environ.get("AG2C_DATA_ROOT", "").strip()
+    base = Path(data) if data else Path(os.environ.get("TEMP", "."))
+    return base / "logs" / "tray-crash.log"
+
+
+def _log_crash(heading: str) -> None:
+    if _CRASH_LOG is None:
+        return
+    try:
+        _CRASH_LOG.write(f"\n=== {heading} {datetime.now().isoformat(timespec='seconds')} ===\n")
+        traceback.print_exc(file=_CRASH_LOG)
+        _CRASH_LOG.flush()
+    except Exception:
+        pass
+
+
+def _logged(label: str, fn: Callable[[], None]) -> Callable[[], None]:
+    """Wrap a frame callback so a crash names the callback before dying."""
+
+    def wrapper() -> None:
+        try:
+            fn()
+        except BaseException:
+            _log_crash(f"frame callback: {label}")
+            raise
+
+    return wrapper
+
+
+def _install_crash_logging() -> Path:
+    """faulthandler + excepthooks into a persistent log file."""
+    global _CRASH_LOG
+    path = _crash_log_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    log = open(path, "a", encoding="utf-8", buffering=1)
+    from ag2c import __version__
+
+    log.write(
+        f"\n=== tray start {datetime.now().isoformat(timespec='seconds')} "
+        f"ag2c {__version__} pid {os.getpid()} ===\n"
+    )
+    log.flush()
+    faulthandler.enable(file=log)
+
+    def excepthook(exc_type: Any, exc: BaseException, tb: Any) -> None:
+        if _CRASH_LOG is not None:
+            try:
+                _CRASH_LOG.write(f"\n=== UNCAUGHT {datetime.now().isoformat(timespec='seconds')} ===\n")
+                traceback.print_exception(exc_type, exc, tb, file=_CRASH_LOG)
+                _CRASH_LOG.flush()
+            except Exception:
+                pass
+        if sys.__excepthook__ is not None and sys.stderr is not None:
+            sys.__excepthook__(exc_type, exc, tb)
+
+    def thread_hook(args: threading.ExceptHookArgs) -> None:
+        if _CRASH_LOG is not None:
+            try:
+                _CRASH_LOG.write(f"\n=== THREAD CRASH {datetime.now().isoformat(timespec='seconds')} ===\n")
+                traceback.print_exception(args.exc_type, args.exc_value, args.traceback, file=_CRASH_LOG)
+                _CRASH_LOG.flush()
+            except Exception:
+                pass
+
+    sys.excepthook = excepthook
+    threading.excepthook = thread_hook
+    _CRASH_LOG = log
+    return path
 
 
 class AppState:
@@ -232,6 +313,7 @@ def audit(state: AppState, action: str, where: str, detail: str = "") -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _install_crash_logging()
     args = list(sys.argv[1:] if argv is None else argv)
     if any(arg.lower() == "--unregister" for arg in args):
         from .tray_host import unregister_app
@@ -284,13 +366,13 @@ def main(argv: list[str] | None = None) -> int:
     gl_opts = runner.renderer_backend_options.open_gl_options
     gl_opts.anti_aliasing_samples = 4
     runner.renderer_backend_options.open_gl_options = gl_opts
-    runner.callbacks.setup_imgui_style = _setup_theme
-    runner.callbacks.load_additional_fonts = _load_fonts
-    runner.callbacks.show_status = lambda: _status_bar(state)
-    runner.callbacks.post_render_dockable_windows = lambda: _gui_overlays(state)
-    runner.callbacks.post_init = lambda: _post_init(state)
-    runner.callbacks.before_imgui_render = lambda: _before_frame(state)
-    runner.callbacks.before_exit = lambda: _shutdown(state)
+    runner.callbacks.setup_imgui_style = _logged("setup_imgui_style", _setup_theme)
+    runner.callbacks.load_additional_fonts = _logged("load_additional_fonts", _load_fonts)
+    runner.callbacks.show_status = _logged("show_status", lambda: _status_bar(state))
+    runner.callbacks.post_render_dockable_windows = _logged("overlays", lambda: _gui_overlays(state))
+    runner.callbacks.post_init = _logged("post_init", lambda: _post_init(state))
+    runner.callbacks.before_imgui_render = _logged("before_frame", lambda: _before_frame(state))
+    runner.callbacks.before_exit = _logged("before_exit", lambda: _shutdown(state))
     runner.docking_params.layout_condition = hello_imgui.DockingLayoutCondition.application_start
     runner.docking_params.layout_name = "tray-v14"
     runner.docking_params.main_dock_space_node_flags = imgui.DockNodeFlags_.no_undocking

@@ -10,7 +10,7 @@ from typing import Any
 from .checks import run_checks
 from .config import discover_manifest, load_manifest, load_policy
 from .errors import AG2CError
-from .gitops import change_digest, commit_change_digest, commit_changed_paths, git, head, repository_root, status_entries
+from .gitops import change_digest, commit_change_digest, commit_changed_paths, commit_line_deltas, git, head, line_deltas, repository_root, status_entries
 from .index import build_index
 from .slicer import compile_slice
 from .util import digest_file, digest_json
@@ -41,6 +41,10 @@ def build_receipt(manifest, policy, task: dict[str, Any]) -> dict[str, Any]:
         "entry": task["entry"],
         "changed_paths": verification["changed_paths"],
         "change_digest": verification["change_digest"],
+        "line_deltas": line_deltas(
+            Path(task["worktree"]["path"]),
+            str(task["source"]["head"]),
+        ),
         "route": {
             "state": verification["route_state"],
             "fallback_reasons": verification["route"]["fallback_reasons"],
@@ -186,6 +190,12 @@ def verify_commit_receipt(start: Path, commit: str = "HEAD", *, rerun: bool = Fa
     actual_digest = commit_change_digest(root, source, target, exclude_prefixes=excluded)
     if receipt.get("change_digest") != actual_digest:
         raise AG2CError("AG2C evidence content digest does not match the commit")
+    # Receipts written before line_deltas existed simply lack the key; only
+    # receipts that recorded deltas are held to them.
+    if "line_deltas" in receipt:
+        actual_deltas = commit_line_deltas(root, source, target, exclude_prefixes=excluded)
+        if receipt["line_deltas"] != actual_deltas:
+            raise AG2CError("AG2C evidence line deltas do not match the commit")
     if legacy:
         manifest_blob = str(git(root, "rev-parse", f"{target}:.ag2c/manifest.json")).strip()
         policy_blob = str(git(root, "rev-parse", f"{target}:.ag2c/policy.json")).strip()

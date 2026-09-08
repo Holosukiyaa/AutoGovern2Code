@@ -14,6 +14,7 @@ import urllib.request
 import zipfile
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 from .errors import GIT_MISSING, AG2CError
 from .util import hidden_process_kwargs
@@ -778,3 +779,87 @@ def commit_change_digest(
         else:
             digest.update(b"\0other\0")
     return digest.hexdigest()
+
+
+def _parse_numstat(raw: bytes, excludes: tuple[str, ...]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in raw.split(b"\0"):
+        if not item:
+            continue
+        added_b, removed_b, path_b = item.split(b"\t", 2)
+        path = path_b.decode("utf-8", errors="replace").replace("\\", "/")
+        if path.startswith(excludes):
+            continue
+        rows.append(
+            {
+                "path": path,
+                "added": None if added_b == b"-" else int(added_b),
+                "removed": None if removed_b == b"-" else int(removed_b),
+            }
+        )
+    return rows
+
+
+def _normalized_excludes(exclude_prefixes: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(prefix.replace("\\", "/").rstrip("/") + "/" for prefix in exclude_prefixes)
+
+
+def _untracked_line_deltas(root: Path, excludes: tuple[str, ...]) -> list[dict[str, Any]]:
+    """Untracked files never appear in `git diff`; count their lines as all-added.
+
+    Binary detection mirrors git's own heuristic (NUL byte in the first 8000
+    bytes) so the counts match numstat once the file is committed.
+    """
+    raw = git(root, "ls-files", "--others", "--exclude-standard", "-z", binary=True)
+    assert isinstance(raw, bytes)
+    rows: list[dict[str, Any]] = []
+    for item in raw.split(b"\0"):
+        if not item:
+            continue
+        path = item.decode("utf-8", errors="replace").replace("\\", "/")
+        if path.startswith(excludes):
+            continue
+        target = root / path
+        if not target.is_file() or target.is_symlink():
+            continue
+        content = target.read_bytes()
+        if b"\0" in content[:8000]:
+            rows.append({"path": path, "added": None, "removed": None})
+            continue
+        added = content.count(b"\n") + (1 if content and not content.endswith(b"\n") else 0)
+        rows.append({"path": path, "added": added, "removed": 0})
+    return rows
+
+
+def line_deltas(root: Path, base: str, *, exclude_prefixes: tuple[str, ...] = ()) -> list[dict[str, Any]]:
+    """Per-file added/removed line counts between base and the WORKING TREE.
+
+    Used at receipt time, when the verified change is still uncommitted.
+    """
+    excludes = _normalized_excludes(exclude_prefixes)
+    raw = git(root, "diff", "--numstat", "--no-renames", "-z", "--diff-filter=ACMRD", base, binary=True)
+    assert isinstance(raw, bytes)
+    rows = _parse_numstat(raw, excludes) + _untracked_line_deltas(root, excludes)
+    rows.sort(key=lambda row: row["path"])
+    return rows
+
+
+def commit_line_deltas(
+    root: Path,
+    base: str,
+    commit: str,
+    *,
+    exclude_prefixes: tuple[str, ...] = (),
+) -> list[dict[str, Any]]:
+    """Per-file added/removed line counts between base and commit.
+
+    Binary files record None counts (git numstat prints '-'). Paths follow
+    commit_changed_paths conventions: --no-renames, -z termination, forward
+    slashes, sorted, same exclude prefixes.
+    """
+    excludes = _normalized_excludes(exclude_prefixes)
+    raw = git(root, "diff", "--numstat", "--no-renames", "-z", "--diff-filter=ACMRD", base, commit, binary=True)
+    assert isinstance(raw, bytes)
+    rows = _parse_numstat(raw, excludes)
+    rows.sort(key=lambda row: row["path"])
+    return rows

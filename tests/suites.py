@@ -7,8 +7,8 @@ maps suite names to test modules, so policy checker commands stay tiny:
 
 Suite membership is deliberate, not derived:
 - fast: cheap always-on core bound at floor level as the baseline gate.
-- rehome / enrollment / checks / storage / gitops: slow integration suites
-  bound to the src/ag2c room.
+- rehome / enrollment / checks / receipts / storage / gitops: slow integration
+  suites bound to the src/ag2c room.
 - gui: imgui tray suite bound to the src/ag2c_gui room.
 
 When a test file appears or retires, update the mapping here; the census and
@@ -38,6 +38,7 @@ SUITES = {
     "rehome": ["test_rehome"],
     "enrollment": ["test_enrollment"],
     "checks": ["test_checks"],
+    "receipts": ["test_receipts"],
     "storage": ["test_storage"],
     "gitops": ["test_gitops"],
     "gui": ["test_desktop"],

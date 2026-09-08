@@ -18,7 +18,7 @@ class SuiteMappingTests(unittest.TestCase):
         self.assertEqual(len(mapped), len(set(mapped)), "a test module appears in two suites")
 
     def test_fast_suite_stays_fast(self) -> None:
-        slow = {"test_rehome", "test_enrollment", "test_checks", "test_storage", "test_gitops", "test_desktop"}
+        slow = {"test_rehome", "test_enrollment", "test_checks", "test_receipts", "test_storage", "test_gitops", "test_desktop"}
         self.assertFalse(slow & set(suites.SUITES["fast"]), "slow integration module leaked into the fast suite")
 
     def test_list_output(self) -> None:

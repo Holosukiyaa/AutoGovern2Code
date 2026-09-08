@@ -597,6 +597,10 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("dock_windows", ui)
         self.assertIn("def toggle_dock(", ui)
         self.assertIn("def open_ops(", ui)
+        # Runtime visibility must mutate the live C++ DockableWindow, not the
+        # Python originals (docking_params assignment copies by value).
+        self.assertIn("get_runner_params()", ui)
+        self.assertIn("dockable_window_of_name", ui)
         self.assertIn('set_dock_visible("检查器", True)', ui)
         self.assertIn('window("谱系", "MainDockSpace"', ui)
         self.assertIn("is_visible = not closable", ui)

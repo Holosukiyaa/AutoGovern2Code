@@ -215,17 +215,38 @@ class AppState:
         self.ops_active = ""
         self.panel_fields: dict[str, dict[str, Any]] = {}
 
+    def _live_dock_window(self, label: str) -> Any | None:
+        """The C++-side DockableWindow, not the Python original.
+
+        Assigning runner.docking_params.dockable_windows COPIES the structs
+        into C++; mutating the registered Python originals at runtime changes
+        nothing on screen. get_runner_params() + dockable_window_of_name()
+        return the live object (pointer semantics). Falls back to the Python
+        original before the runner exists (pre-run calls stay harmless).
+        """
+        try:
+            from imgui_bundle import hello_imgui
+
+            params = hello_imgui.get_runner_params()
+            if params is not None:
+                window = params.docking_params.dockable_window_of_name(label)
+                if window is not None:
+                    return window
+        except Exception:
+            pass
+        return self.dock_windows.get(label)
+
     def dock_visible(self, label: str) -> bool:
-        window = self.dock_windows.get(label)
+        window = self._live_dock_window(label)
         return bool(window is not None and window.is_visible)
 
     def set_dock_visible(self, label: str, visible: bool) -> None:
-        window = self.dock_windows.get(label)
+        window = self._live_dock_window(label)
         if window is not None:
             window.is_visible = visible
 
     def toggle_dock(self, label: str) -> bool:
-        window = self.dock_windows.get(label)
+        window = self._live_dock_window(label)
         if window is None:
             return False
         window.is_visible = not window.is_visible

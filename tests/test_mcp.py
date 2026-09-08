@@ -36,6 +36,33 @@ def _rpc(method: str, params: dict | None = None, req_id: int = 1) -> dict:
     return reply
 
 
+class ResultGateTests(unittest.TestCase):
+    def test_task_start_schema_requires_the_portrait(self) -> None:
+        start = next(item for item in tool_defs() if item["name"] == "ag2c_task_start")
+        self.assertIn("portrait", start["inputSchema"]["required"])
+        finish = next(item for item in tool_defs() if item["name"] == "ag2c_task_finish")
+        self.assertIn("proof", finish["inputSchema"]["required"])
+
+    def test_start_without_portrait_is_refused(self) -> None:
+        from ag2c.errors import AG2CError
+        from ag2c.mcp_server import _call_start
+
+        with self.assertRaises(AG2CError):
+            _call_start({"goal": "x", "paths": ["app:a.py"]})
+
+    def test_finish_without_proof_is_refused(self) -> None:
+        from ag2c.errors import AG2CError
+        from ag2c.mcp_server import _call_finish
+
+        with self.assertRaises(AG2CError):
+            _call_finish({"task": "t", "message": "m"})
+
+    def test_instructions_carry_the_result_gate_discipline(self) -> None:
+        self.assertIn("结果门", MCP_INSTRUCTIONS)
+        self.assertIn("自证", MCP_INSTRUCTIONS)
+        self.assertIn("随便的答案", MCP_INSTRUCTIONS)
+
+
 class McpServerTests(unittest.TestCase):
     def test_initialize_embeds_skill_workflow(self) -> None:
         reply = _rpc(

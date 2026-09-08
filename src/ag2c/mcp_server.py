@@ -36,8 +36,13 @@ MCP_INSTRUCTIONS = """This workspace is governed by AutoGovern2Code (AG2C) when 
 You already have the AG2C workflow through this MCP connection (instructions, resources, tools). Do not ask the user to paste a copy-prompt, install Skill folders, or configure Git. Do not git commit on the canonical checkout.
 
 Route:
-- New session with work possibly in flight: ag2c_task_orient first. It returns the phase, checklist, and the exact next tool call (or the open-task queue when several tasks are open).
+- New session with work possibly in flight: ag2c_task_orient first. It returns the phase, checklist, the locked portrait, and the exact next tool call (or the open-task queue when several tasks are open).
 - File-changing work: ag2c_guard_status → ag2c_task_start (read guidance.lineage as the knowledge-card index) → write only in worktree.path → ag2c_census / ag2c_span / ag2c_household / ag2c_tighten / ag2c_apply as needed → ag2c_task_verify → ag2c_task_finish → ag2c_settle if pending → ag2c_evidence.
+
+结果门 (result gate) — the discipline that keeps a task honest:
+- BEFORE coding, simulate the finished state and lock it as the portrait in ag2c_task_start: what is true when done, checkable by an outsider — Done looks like / Surfaces (with example + empty/error/success) / Out of result / Inferences marked INFERRED. Never steps, files-to-edit, or architecture. Write it against the knowledge cards in your slice; that is your working set.
+- The portrait is your anchor for the whole task: re-read it via ag2c_task_orient whenever the session drifts. If the target itself changes, update the portrait with the user's named correction and continue — do not restart.
+- At ag2c_task_finish, 自证 (proof): every claim with side effects (files changed, behavior changed) quotes this-session tool output that proves it — command + output fragment. Read-only observations (you clicked and saw) need no proof. "Tests passed" without the output, or confidence without an artifact, is a 随便的答案 — do not hand it in.
 - Tree investigation and coverage tags (未打标 / 整夹一张 / 一文件一张): ag2c_census then ag2c_span. The user supervises tags; they do not click tray buttons.
 - Write 设计思路 from tags: ag2c_apply for per-file cards, ag2c_household for 整夹一张 rooms. Read the files first.
 - Named README/interface cards: ag2c_apply. Never edit Policy JSON by hand.
@@ -232,15 +237,19 @@ def tool_defs() -> list[dict[str, Any]]:
         _tool("ag2c_guard_status", "Check whether this Git repo is AG2C-managed. Call before any write.", {"cwd": _cwd_prop()}),
         _tool(
             "ag2c_task_start",
-            "Start a governed task worktree. Returns guidance.lineage (knowledge-card 谱系 index). Write only in worktree.path.",
+            "Start a governed task worktree. Requires a 结果门 portrait: simulate the finished state BEFORE coding and lock it. Returns guidance.lineage (knowledge-card 谱系 index). Write only in worktree.path.",
             {
                 "goal": {"type": "string", "description": "What to implement or fix."},
+                "portrait": {
+                    "type": "string",
+                    "description": "结果门: the checkable finished-state portrait, written from outside the implementation — Done looks like (2-4 sentences an outsider could accept/reject) / Surfaces (each observable surface with example + empty/error/success) / Out of result (what will NOT exist) / Inferences (each guessed detail marked INFERRED). Not steps, not files-to-edit, not architecture.",
+                },
                 "paths": {"type": "array", "items": {"type": "string"}, "description": "app:relative/path entries."},
                 "contracts": {"type": "array", "items": {"type": "string"}},
                 "all": {"type": "boolean"},
                 "cwd": _cwd_prop(),
             },
-            ["goal"],
+            ["goal", "portrait"],
         ),
         _tool("ag2c_task_verify", "Verify the current task worktree from its actual diff.", {"cwd": _cwd_prop()}),
         _tool(
@@ -257,13 +266,17 @@ def tool_defs() -> list[dict[str, Any]]:
         ),
         _tool(
             "ag2c_task_finish",
-            "Finish a verified task from the canonical checkout. --message names the product change.",
+            "Finish a verified task from the canonical checkout. message names the product change; proof 自证 backs every side-effecting claim with this-session tool output.",
             {
                 "task": {"type": "string"},
                 "message": {"type": "string"},
+                "proof": {
+                    "type": "string",
+                    "description": "自证: for each claim with side effects (files changed, behavior changed), quote the this-session tool output that proves it (command + output fragment). Read-only observations need no proof. 'Tests passed' without the output is not proof.",
+                },
                 "cwd": _cwd_prop(),
             },
-            ["task", "message"],
+            ["task", "message", "proof"],
         ),
         _tool("ag2c_task_list", "List governed tasks and worktree lifecycle.", {"cwd": _cwd_prop()}),
         _tool(
@@ -402,6 +415,12 @@ def _call_guard(args: dict[str, Any]) -> Any:
 def _call_start(args: dict[str, Any]) -> Any:
     from .tasks import start_task
 
+    portrait = str(args.get("portrait") or "").strip()
+    if not portrait:
+        raise AG2CError(
+            "ag2c_task_start requires a 结果门 portrait: simulate the checkable finished state "
+            "(Done looks like / Surfaces / Out of result / Inferences) and lock it before coding."
+        )
     paths = _string_list(args, "paths") or _string_list(args, "path")
     return start_task(
         _cwd(args),
@@ -409,6 +428,7 @@ def _call_start(args: dict[str, Any]) -> Any:
         path_specs=paths,
         contract_specs=_string_list(args, "contracts"),
         all_mode=bool(args.get("all")),
+        portrait=portrait,
     )
 
 
@@ -537,7 +557,13 @@ def _call_rehome(args: dict[str, Any]) -> Any:
 def _call_finish(args: dict[str, Any]) -> Any:
     from .tasks import finish_task
 
-    return finish_task(_cwd(args), str(args.get("task") or ""), message=str(args.get("message") or ""))
+    proof = str(args.get("proof") or "").strip()
+    if not proof:
+        raise AG2CError(
+            "ag2c_task_finish requires 自证 proof: for every side-effecting claim, quote the "
+            "this-session tool output that proves it. Read-only observations need no proof."
+        )
+    return finish_task(_cwd(args), str(args.get("task") or ""), message=str(args.get("message") or ""), proof=proof)
 
 
 def _call_list(args: dict[str, Any]) -> Any:

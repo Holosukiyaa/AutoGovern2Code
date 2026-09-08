@@ -31,11 +31,22 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
    `ag2c-knowledge-authoring`. Do not start a feature task to name a
    catch-all parent.
 
-5. Start the task from the canonical checkout:
+5. Start the task from the canonical checkout, locking the 结果门 (result
+   gate) portrait before any code:
 
    ```text
-   ag2c task start --goal "<user request>" --path app:<relative-path>
+   ag2c task start --goal "<user request>" --path app:<relative-path> --portrait "<finished-state portrait>"
    ```
+
+   The portrait simulates the finished state from outside the implementation
+   and locks it: Done looks like (2-4 sentences an outsider could accept or
+   reject), Surfaces (each observable surface with example + empty/error/
+   success), Out of result (what will NOT exist), Inferences (each guessed
+   detail marked INFERRED). Never steps, files-to-edit, or architecture. Write
+   it against the knowledge cards in the slice — that is your working set. The
+   portrait is the anchor for the whole task: re-read it through
+   `ag2c task orient` whenever the session drifts; apply the user's named
+   corrections to it and continue without restarting.
 
    Repeat `--path` and `--contract` as needed. If a household is opaque or has
    unresolved `tighten-or-renew` debt on those paths, settle that first or use
@@ -65,10 +76,10 @@ Treat AutoGovern2Code (AG2C) as the mandatory construction path, not an optional
 8. After a passing verification, return to the canonical checkout and run:
 
    ```text
-   ag2c task finish --task <task-id> --message "<what was implemented or fixed>"
+   ag2c task finish --task <task-id> --message "<what was implemented or fixed>" --proof "<自证 evidence>"
    ```
 
-   `--message` must name the product change: a feature that landed or a problem that was fixed. AG2C stores that as the task delivery record, refuses stale evidence, writes the full record to the external project store, adds only evidence digest trailers to the commit, validates the committed bytes, fast-forwards the original branch, and cleans up the external worktree. If `governance_pending.items` is not empty, immediately settle it before any new coding task:
+   `--message` must name the product change: a feature that landed or a problem that was fixed. `--proof` is 自证 against the locked portrait: for every claim with side effects (files changed, behavior changed), quote the this-session tool output that proves it — command plus output fragment. Read-only observations (you clicked and saw) need no proof. "Tests passed" without the output, or confidence without an artifact, is a 随便的答案 — do not hand it in. AG2C stores that as the task delivery record, refuses stale evidence, writes the full record to the external project store, adds only evidence digest trailers to the commit, validates the committed bytes, fast-forwards the original branch, and cleans up the external worktree. If `governance_pending.items` is not empty, immediately settle it before any new coding task:
 
    ```text
    ag2c govern settle --actor <harness> --reason "after task <task-id>: <user request>"

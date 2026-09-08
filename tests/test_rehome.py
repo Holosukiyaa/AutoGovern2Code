@@ -16,7 +16,7 @@ from ag2c.gitops import git
 from ag2c.govern import _read_json, apply_change
 from ag2c.household_commands import register_household, review_census
 from ag2c.rehome import python_module_name, rehome_file_card, rewrite_module_imports
-from ag2c.tasks import task_record
+from ag2c.tasks import orient_task, task_record
 
 ACTOR = "tester"
 REASON = "rehome engine tests"
@@ -182,7 +182,14 @@ class RehomePipelineTests(unittest.TestCase):
                 # The card scope follows the file.
                 self.assertEqual(["src/pkg/sub/a.py"], _card_include(fixture.root, "knowledge.pkg-a"))
                 # The governed task completed instead of bypassing the loop.
-                self.assertEqual("completed", task_record(fixture.root, result["task"])["state"])
+                record = task_record(fixture.root, result["task"])
+                self.assertEqual("completed", record["state"])
+                # Engine-spawned tasks still carry a result-gate portrait and 自证 proof.
+                self.assertIn("src/pkg/sub/a.py", record.get("portrait") or "")
+                self.assertIn("verify_task", record.get("proof") or "")
+                # orient re-anchors on the locked portrait, even after completion.
+                orient = orient_task(fixture.root, result["task"])
+                self.assertEqual(record["portrait"], orient["portrait"])
                 # The moved module still imports and runs.
                 import subprocess
                 import sys

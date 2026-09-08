@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import json
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -57,6 +57,21 @@ class CLITests(unittest.TestCase):
         for item in payload["skills"]:
             self.assertEqual(__version__, item["version"])
             self.assertTrue(item["digest"])
+
+
+class ResultGateCliTests(unittest.TestCase):
+    def test_task_start_requires_the_portrait(self) -> None:
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                main(["task", "start", "--goal", "g", "--path", "app:a.py"])
+
+    def test_task_finish_requires_proof(self) -> None:
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                main(["task", "finish", "--task", "t", "--message", "m"])
+
+    def test_default_portrait_derives_from_the_goal(self) -> None:
+        self.assertIn("修 bug", tasks._default_portrait("修 bug"))
 
 
 class WorktreeLocationTests(unittest.TestCase):

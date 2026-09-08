@@ -199,10 +199,14 @@ def rehome_file_card(
     census_rooms = sorted({room for room in (old_room, new_room, target_room) if room})
 
     goal = f"rehome {old_rel} -> {new_rel} (card {card_id} into room {target_room})"
+    portrait = (
+        f"完成态：{old_rel} 移到 {new_rel}，卡 {card_id} 的 scope 指向新路径，"
+        f"全仓 {old_module} 引用改写为 {new_module}，verify 通过后合并；失败则全部回滚。"
+    )
     _rewrite_card_scope(canonical, card_id, old_rel, new_rel, actor, reason, "card-rehome-scope")
     task_id = ""
     try:
-        task = start_task(canonical, goal=goal, path_specs=[f"app:{old_rel}"], contract_specs=[])
+        task = start_task(canonical, goal=goal, path_specs=[f"app:{old_rel}"], contract_specs=[], portrait=portrait)
         task_id = str(task["id"])
         worktree = Path(task["worktree"]["path"])
         (worktree / target_dir).mkdir(parents=True, exist_ok=True)
@@ -213,7 +217,11 @@ def rehome_file_card(
         result = verify_task(worktree)
         if not result.get("passed"):
             raise AG2CError("verification failed after rehome; the task was abandoned and the move rolled back")
-        finish_task(canonical, task_id, message=goal)
+        proof = (
+            f"verify_task 在 worktree 通过（change_digest {result.get('change_digest')}）；"
+            f"git mv {old_rel} -> {new_rel}；改写 {len(rewritten)} 个文件的模块引用。"
+        )
+        finish_task(canonical, task_id, message=goal, proof=proof)
     except Exception:
         if task_id:
             try:

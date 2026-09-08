@@ -240,7 +240,7 @@ def _start_evidence_valid(
     if event is None:
         return False
     started_head = task.get("source", {}).get("started_head") or task.get("source", {}).get("head")
-    return event["payload"] == {
+    expected = {
         "task_id": task["id"],
         "goal": task.get("goal"),
         "source_head": started_head,
@@ -250,6 +250,11 @@ def _start_evidence_valid(
         "slice_digest": task.get("route", {}).get("slice_digest"),
         "route_state": task.get("route", {}).get("state"),
     }
+    # Tasks started before the result gate existed have no portrait in the
+    # start event; only bind it when the event carries one.
+    if "portrait" in event["payload"]:
+        expected["portrait"] = task.get("portrait")
+    return event["payload"] == expected
 
 
 BLOCKING_HOUSEHOLD_PENDING = frozenset({"opaque-household", "tighten-or-renew", "fake-child"})
@@ -353,6 +358,12 @@ def _ensure_worktree_location(canonical: Path, worktree: Path) -> None:
     )
 
 
+def _default_portrait(goal: str) -> str:
+    """Minimal result-gate portrait for engine-spawned tasks; agent-facing
+    surfaces (CLI/MCP) require an explicit portrait instead."""
+    return f"完成态：{goal}"
+
+
 def start_task(
     start: Path,
     *,
@@ -362,6 +373,7 @@ def start_task(
     all_mode: bool = False,
     task_id: str | None = None,
     worktree_root: Path | None = None,
+    portrait: str = "",
 ) -> dict[str, Any]:
     root = repository_root(start)
     status = activation_status(root)
@@ -406,11 +418,13 @@ def start_task(
     branch = f"ag2c/{task_id}"
     worktree.parent.mkdir(parents=True, exist_ok=True)
     git(canonical, "worktree", "add", "-b", branch, str(worktree), source_head)
+    portrait = portrait.strip() or _default_portrait(goal)
     task: dict[str, Any] = {
         "schema": TASK_SCHEMA,
         "id": task_id,
         "state": "active",
         "goal": goal,
+        "portrait": portrait,
         "created_at": _now(),
         "source": {
             "root": str(canonical),
@@ -441,6 +455,7 @@ def start_task(
         {
             "task_id": task_id,
             "goal": task["goal"],
+            "portrait": task["portrait"],
             "source_head": source_head,
             "source_branch": source_branch,
             "worktree": str(worktree),
@@ -740,7 +755,7 @@ def verify_task(start: Path) -> dict[str, Any]:
     }
 
 
-def finish_task(start: Path, task_id: str, *, message: str) -> dict[str, Any]:
+def finish_task(start: Path, task_id: str, *, message: str, proof: str = "") -> dict[str, Any]:
     root = repository_root(start)
     status = activation_status(root)
     canonical = Path(status["canonical_root"])
@@ -784,6 +799,7 @@ def finish_task(start: Path, task_id: str, *, message: str) -> dict[str, Any]:
     if not delivery["outcome"]:
         raise AG2CError("AG2C requires a finish message that says what was implemented or fixed")
     task["delivery"] = delivery
+    task["proof"] = proof.strip()
     receipt = build_receipt(manifest, policy, task)
     evidence_path = write_receipt(manifest, receipt)
     commit_message = (
@@ -826,7 +842,7 @@ def finish_task(start: Path, task_id: str, *, message: str) -> dict[str, Any]:
     event = append_event(
         manifest.ledger_path,
         "task-completed",
-        {"task_id": task_id, **task["result"], "intervention_count": len(task["interventions"])},
+        {"task_id": task_id, **task["result"], "proof": task["proof"], "intervention_count": len(task["interventions"])},
     )
     task["result"]["ledger_event_digest"] = event["event_digest"]
     _atomic_json(_task_path(canonical, task_id), task)
@@ -1036,6 +1052,7 @@ def orient_task(start: Path, task_id: str | None = None) -> dict[str, Any]:
         "schema": ORIENT_SCHEMA,
         "task": task_id,
         "goal": row.get("goal"),
+        "portrait": task.get("portrait") or "",
         "phase": lifecycle,
         "checklist": checklist,
         "next": _orient_next(

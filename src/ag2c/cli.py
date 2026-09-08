@@ -180,6 +180,11 @@ def build_parser() -> argparse.ArgumentParser:
     task_commands = task.add_subparsers(dest="task_command", required=True)
     task_start = task_commands.add_parser("start")
     _add_slice_arguments(task_start, goal_required=True)
+    task_start.add_argument(
+        "--portrait",
+        required=True,
+        help="结果门: the checkable finished-state portrait (Done looks like / Surfaces / Out of result / Inferences), locked before work begins",
+    )
     task_start.add_argument("--task-id")
     task_start.add_argument("--worktree-root", type=Path)
     task_commands.add_parser("verify")
@@ -198,6 +203,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--message",
         required=True,
         help="what this task implemented or fixed; becomes the commit subject and the stored delivery record",
+    )
+    task_finish.add_argument(
+        "--proof",
+        required=True,
+        help="自证: for each side-effecting claim, quote this-session tool output that proves it; read-only observations need no proof",
     )
     task_show = task_commands.add_parser("show")
     task_show.add_argument("--task", required=True)
@@ -590,6 +600,7 @@ def main(argv: list[str] | None = None) -> int:
                             all_mode=bool(args.all),
                             task_id=args.task_id,
                             worktree_root=args.worktree_root,
+                            portrait=args.portrait,
                         )
                     )
                 )
@@ -629,7 +640,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(_json(abandon_task(Path.cwd(), args.task, reason=args.reason)))
                 return 0
             if args.task_command == "finish":
-                print(_json(finish_task(Path.cwd(), args.task, message=args.message)))
+                print(_json(finish_task(Path.cwd(), args.task, message=args.message, proof=args.proof)))
                 return 0
             print(_json(task_record(Path.cwd(), args.task)))
             return 0

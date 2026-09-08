@@ -49,6 +49,7 @@ class Card:
     jurisdiction: dict | None = None
     provides: tuple[str, ...] = ()
     conventions: str = ""
+    budget_lines: int = 0  # 0 = no budget
 
 
 @dataclass(frozen=True)

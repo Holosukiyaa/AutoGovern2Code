@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -100,6 +101,105 @@ def parse_unittest_failures(output: str) -> list[str]:
 
 
 DOCS_ONLY_SUFFIXES = frozenset({".md", ".markdown", ".rst", ".txt", ".adoc"})
+
+
+def _budget_warnings(manifest: Manifest, policy: Policy, entry_slice: dict[str, Any]) -> list[dict[str, str]]:
+    """Soft budget: warn when a room's code exceeds its budget_lines. Never blocks."""
+    warnings: list[dict[str, str]] = []
+    from .households import census_report
+    try:
+        report = census_report(manifest, policy)
+    except Exception:
+        return warnings
+    for item in report.get("households") or []:
+        if not isinstance(item, dict):
+            continue
+        card = policy.card(str(item.get("id") or ""))
+        if card is None or card.budget_lines <= 0:
+            continue
+        code_count = int(item.get("code_count") or 0)
+        if code_count > card.budget_lines:
+            warnings.append({
+                "kind": "over-budget",
+                "room": str(item.get("id") or ""),
+                "detail": f"{code_count} 行代码，预算 {card.budget_lines} 行（超出 {code_count - card.budget_lines} 行）",
+            })
+    return warnings
+
+
+def _duplicate_warnings(manifest: Manifest, entry_slice: dict[str, Any]) -> list[dict[str, str]]:
+    """Soft duplicate detection: warn when new functions look like existing ones.
+
+    Uses AST to extract function names + body line counts. A new function is
+    flagged when an existing function has the same name or a body within 20%
+    line count and the same argument count.
+    """
+    warnings: list[dict[str, str]] = []
+    entries = entry_slice.get("entries") if isinstance(entry_slice, dict) else None
+    artifacts = entries.get("paths") if isinstance(entries, dict) else None
+    if not artifacts:
+        return warnings
+    changed_py = [
+        str(item.get("path") or "")
+        for item in artifacts
+        if isinstance(item, dict) and str(item.get("path") or "").endswith(".py")
+    ]
+    if not changed_py:
+        return warnings
+    # Collect all functions from changed files.
+    new_funcs: list[tuple[str, str, int, int]] = []  # (file, name, args, body_lines)
+    for rel in changed_py:
+        path = manifest.project_root / rel
+        if not path.is_file():
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                body_lines = (node.end_lineno or 0) - (node.lineno or 0)
+                new_funcs.append((rel, node.name, len(node.args.args), body_lines))
+    if not new_funcs:
+        return warnings
+    # Collect existing functions from all governed Python files.
+    from .index import _discover_files
+    existing: list[tuple[str, str, int, int]] = []
+    for target in manifest.targets:
+        root = manifest.target_root(target.target_id)
+        paths, _, _, _ = _discover_files(root, target)
+        for rel in paths:
+            if not rel.endswith(".py") or rel in changed_py:
+                continue
+            path = root / rel
+            if not path.is_file():
+                continue
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    body_lines = (node.end_lineno or 0) - (node.lineno or 0)
+                    existing.append((rel, node.name, len(node.args.args), body_lines))
+    # Compare new vs existing.
+    for new_file, new_name, new_args, new_lines in new_funcs:
+        for old_file, old_name, old_args, old_lines in existing:
+            if new_name == old_name and new_args == old_args:
+                warnings.append({
+                    "kind": "possible-duplicate",
+                    "detail": f"同名函数 {new_name}（{new_file}）与 {old_file} 参数数相同",
+                })
+                break
+            if old_lines > 0 and new_lines > 0 and new_args == old_args:
+                ratio = min(new_lines, old_lines) / max(new_lines, old_lines)
+                if ratio >= 0.8 and abs(new_lines - old_lines) <= 5:
+                    warnings.append({
+                        "kind": "possible-duplicate",
+                        "detail": f"相似函数 {new_name}（{new_file}，{new_lines}行）与 {old_name}（{old_file}，{old_lines}行）",
+                    })
+                    break
+    return warnings
 
 
 def _is_docs_only_change(entry_slice: dict[str, Any]) -> bool:
@@ -397,6 +497,12 @@ def run_checks(
         "acceptance": acceptance,
         "environment": environment_snapshot(),
     }
+    # Soft checks: budget and duplicate warnings. Never block.
+    warnings: list[dict[str, str]] = []
+    warnings.extend(_budget_warnings(manifest, policy, entry_slice))
+    warnings.extend(_duplicate_warnings(manifest, entry_slice))
+    if warnings:
+        report["warnings"] = warnings
     if task_id is not None:
         report["task_id"] = task_id
     event = append_event(ledger_path or manifest.ledger_path, "check-run", report)

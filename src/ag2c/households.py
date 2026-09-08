@@ -657,7 +657,10 @@ def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
         matched = [item for item in artifacts if _matches(card, item["target"], item["path"])]
         floors = [relation.target for relation in policy.relations if relation.source == card.card_id and relation.relation_type == "explains"]
         replacements = [relation.target for relation in policy.relations if relation.source == card.card_id and relation.relation_type == "replaced_by"]
-        declaration_digest = digest_json({"card": asdict(card), "floors": floors, "replacements": replacements, "checkers": [asdict(policy.checker(checker)) for checker in card.checkers]})
+        # Exclude metadata fields that don't affect jurisdiction/behavior,
+        # so adding new optional fields doesn't invalidate all census records.
+        card_dict = {k: v for k, v in asdict(card).items() if k not in ("budget_lines",)}
+        declaration_digest = digest_json({"card": card_dict, "floors": floors, "replacements": replacements, "checkers": [asdict(policy.checker(checker)) for checker in card.checkers]})
         scope_digest = digest_json([{key: item[key] for key in ("target", "path", "digest")} for item in matched])
         previous = latest.get(card.card_id)
         freshness = "never" if previous is None else "current" if previous.get("scope_digest") == scope_digest and previous.get("declaration_digest") == declaration_digest else "stale"

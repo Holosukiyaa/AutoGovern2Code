@@ -510,6 +510,7 @@ def apply_change(
     include: list[str] | None = None,
     provides: list[str] | None = None,
     conventions: str | None = None,
+    budget_lines: int | None = None,
 ) -> dict[str, Any]:
     actor = actor.strip()
     reason = reason.strip()
@@ -578,6 +579,8 @@ def apply_change(
             current["provides"] = [item.strip() for item in provides]
         if conventions is not None:
             current["conventions"] = conventions.strip()
+        if budget_lines is not None:
+            current["budget_lines"] = max(0, int(budget_lines))
         if action == "add":
             cards.append(current)
             raw["cards"] = cards

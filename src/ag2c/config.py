@@ -188,6 +188,7 @@ def load_policy(manifest: Manifest) -> Policy:
                 jurisdiction=coerce_jurisdiction(item.get("jurisdiction")),
                 provides=_provides(item.get("provides"), f"card {card_id} provides"),
                 conventions=str(item.get("conventions", "") or "").strip(),
+                budget_lines=max(0, int(item.get("budget_lines", 0) or 0)),
             )
         )
     card_ids = [card.card_id for card in cards]

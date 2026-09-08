@@ -282,6 +282,7 @@ def build_parser() -> argparse.ArgumentParser:
     govern_apply.add_argument("--include", dest="includes", action="append", default=[])
     govern_apply.add_argument("--provides", action="append", default=None, help="Reusable capability (货架); repeatable. Omit to keep existing.")
     govern_apply.add_argument("--conventions", default=None, help="写法约定 for this module. Omit to keep existing.")
+    govern_apply.add_argument("--budget-lines", type=int, default=None, help="Soft budget: max lines of code for this room. 0 = no budget.")
     govern_apply.add_argument("--format", choices=("text", "json"), default="text")
     govern_retrieve = govern_commands.add_parser("retrieve")
     _add_slice_arguments(govern_retrieve)
@@ -877,6 +878,7 @@ def main(argv: list[str] | None = None) -> int:
                     include=list(args.includes),
                     provides=args.provides,
                     conventions=args.conventions,
+                    budget_lines=args.budget_lines,
                 )
             else:
                 result = retrieve_guidance(

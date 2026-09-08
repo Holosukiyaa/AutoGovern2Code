@@ -85,6 +85,28 @@ def parse_unittest_failures(output: str) -> list[str]:
     return sorted(set(_UNITTEST_FAILURE_RE.findall(output)))
 
 
+DOCS_ONLY_SUFFIXES = frozenset({".md", ".markdown", ".rst", ".txt", ".adoc"})
+
+
+def _is_docs_only_change(entry_slice: dict[str, Any]) -> bool:
+    """True when every changed artifact is prose documentation that cannot affect tests."""
+    entries = entry_slice.get("entries") if isinstance(entry_slice, dict) else None
+    artifacts = entries.get("paths") if isinstance(entries, dict) else None
+    paths = [str(item.get("path") or "") for item in artifacts or [] if isinstance(item, dict)]
+    paths = [path for path in paths if path]
+    if not paths:
+        return False
+    for path in paths:
+        parts = path.replace("\\", "/").split("/")
+        name = parts[-1].lower()
+        if Path(name).suffix in DOCS_ONLY_SUFFIXES:
+            continue
+        if "docs" in {part.lower() for part in parts[:-1]}:
+            continue
+        return False
+    return True
+
+
 def _clip(value: str, limit: int = 4000) -> str:
     if len(value) <= limit:
         return value
@@ -241,9 +263,29 @@ def run_checks(
     from .households import enforce_households
 
     enforce_households(manifest, policy, entry_slice, selected_ids)
+    docs_only = _is_docs_only_change(entry_slice)
     results: list[dict[str, Any]] = []
     for checker in sorted(policy.checkers, key=lambda item: (item.stage, item.checker_id)):
         if checker.checker_id not in selected_ids:
+            continue
+        if docs_only and checker.always and checker.parse and not checker.implementation:
+            results.append(
+                {
+                    "id": checker.checker_id,
+                    "stage": checker.stage,
+                    "target": checker.target_id,
+                    "status": "skipped",
+                    "exit_code": None,
+                    "started_at": datetime.now(timezone.utc).isoformat(),
+                    "duration_ms": 0,
+                    "command": list(checker.command),
+                    "implementation": checker.implementation,
+                    "cwd": str(_checker_cwd(manifest, checker)),
+                    "stdout": "",
+                    "stderr": "",
+                    "skip_reason": "docs-only diff: prose changes cannot affect the test suite",
+                }
+            )
             continue
         cwd = _checker_cwd(manifest, checker)
         started_at = datetime.now(timezone.utc).isoformat()

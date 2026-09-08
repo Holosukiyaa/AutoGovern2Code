@@ -261,6 +261,27 @@ class CheckerTests(unittest.TestCase):
             result = next(item for item in report["results"] if item["id"] == "check.tests")
             self.assertEqual("passed", result["status"])
 
+    def test_docs_only_diff_skips_always_test_suites(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root)
+            (root / "docs").mkdir()
+            (root / "docs" / "guide.md").write_text("# guide\n", encoding="utf-8")
+            _add_checker(root, _unittest_checker("print('ok')", always=True))
+            manifest, policy = _reload(root)
+            build_index(manifest, policy)
+
+            docs_slice = compile_slice(manifest, policy, path_specs=["app:docs/guide.md"])
+            report = run_checks(manifest, policy, docs_slice)
+            result = next(item for item in report["results"] if item["id"] == "check.tests")
+            self.assertEqual("skipped", result["status"])
+            self.assertIn("docs-only", result["skip_reason"])
+
+            code_slice = compile_slice(manifest, policy, path_specs=["app:src/api/service.py"])
+            report = run_checks(manifest, policy, code_slice)
+            result = next(item for item in report["results"] if item["id"] == "check.tests")
+            self.assertEqual("passed", result["status"])
+
     def test_update_checker_adjusts_gate_behavior(self) -> None:
         import subprocess
 

@@ -403,6 +403,22 @@ class RehomeJobTests(unittest.TestCase):
         self.assertTrue(any("routers/" in title for title in drawn), drawn)
         self.assertGreaterEqual(len(drawn), 2)  # own combo box + outward hull
 
+    def test_group_node_gets_an_incoming_link(self) -> None:
+        # A group is a child of its room card; without a room→group link the
+        # expanded group appears out of thin air.
+        from ag2c_gui import imgui_tray
+
+        project = {"kind": "project", "visual_id": "project:root", "id": "project:root", "x": 0.0, "y": 0.0, "width": 100.0, "height": 60.0}
+        room = {"kind": "knowledge", "visual_id": "room", "id": "room", "parent": "floor", "x": 300.0, "y": 0.0, "width": 120.0, "height": 40.0}
+        group = {"kind": "group", "visual_id": "room/dir:routers", "id": "room/dir:routers", "parent": "room", "x": 600.0, "y": 0.0, "width": 120.0, "height": 40.0}
+        arrows: list[tuple[float, float, float, float]] = []
+        with patch.object(imgui_tray, "_cubic_arrow", side_effect=lambda _dl, _i, x0, y0, x1, y1, _c: arrows.append((x0, y0, x1, y1))):
+            imgui_tray._lineage_draw_links(
+                MagicMock(), MagicMock(), project, [], [room], [project, room, group], {"project:root"}, 0, [group]
+            )
+        # room right edge (300+120, 20) -> group left edge (600, 20)
+        self.assertIn((420.0, 20.0, 600.0, 20.0), arrows)
+
 
 class CrashLoggingTests(unittest.TestCase):
     def test_crash_log_captures_header_traceback_and_native_faults(self) -> None:

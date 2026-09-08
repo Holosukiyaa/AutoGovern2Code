@@ -1731,6 +1731,7 @@ def _lineage_draw_links(
     visible: list[dict[str, Any]],
     expanded: set[str],
     link_color: int,
+    groups: list[dict[str, Any]] | None = None,
 ) -> None:
     if project is None or str(project.get("visual_id") or project["id"]) not in expanded:
         return
@@ -1755,7 +1756,9 @@ def _lineage_draw_links(
             my = float(node.get("y") or 0) + float(node.get("height") or 48) * 0.5
             _cubic_arrow(dl, imgui, x0, y0, mx, my, link_color)
     by_visual = {str(item.get("visual_id") or item.get("id") or ""): item for item in visible}
-    for child in cards:
+    # Groups are children too: without them a room→group link is never drawn
+    # and an expanded subdirectory group appears out of thin air.
+    for child in [*cards, *(groups or [])]:
         parent = by_visual.get(str(child.get("parent") or ""))
         if parent is None or parent.get("kind") not in {"knowledge", "group"}:
             continue
@@ -2117,7 +2120,7 @@ def _gui_lineage(state: AppState) -> None:
         link_color = imgui.get_color_u32(imgui.ImVec4(0.46, 0.62, 0.88, 0.90))
         marker_hits: list[tuple[str, float, float, float, float]] = []
         _lineage_draw_hulls(dl, imgui, combos, cards, expanded, marker_hits)
-        _lineage_draw_links(dl, imgui, project, modules, cards, visible, expanded, link_color)
+        _lineage_draw_links(dl, imgui, project, modules, cards, visible, expanded, link_color, groups)
         _lineage_draw_nodes(
             ed,
             imgui,

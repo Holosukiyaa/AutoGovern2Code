@@ -20,12 +20,13 @@ from ag2c.checks import (
     _load_warning_history,
     _record_warnings_and_find_escalated,
     _room_code_measurements,
+    baseline_debt,
 )
 from ag2c.config import load_policy
 from ag2c.model import Card, Manifest, Target
 
 
-def _manifest(root: Path) -> Manifest:
+def _budget_manifest(root: Path) -> Manifest:
     return Manifest(
         path=root / "manifest.json",
         project_id="test-proj",
@@ -343,6 +344,187 @@ class WarningEscalationTests(unittest.TestCase):
         for warning in warnings:
             self.assertIn("key", warning)
             self.assertTrue(warning["key"])
+
+    def test_same_key_instances_count_once_per_run(self) -> None:
+        """Several instances of one logical warning = one appearance per run."""
+        warning = self._budget_warning()
+        three_instances = [dict(warning), dict(warning), dict(warning)]
+        for _ in range(2):
+            escalated = _record_warnings_and_find_escalated(self.manifest, three_instances)
+            self.assertEqual([], escalated)
+        history = _load_warning_history(self.manifest)
+        counts = [e["count"] for e in history["warnings"].values()]
+        self.assertEqual([2], counts)  # 2 runs, not 6 instances
+
+    def test_unittest_convention_methods_not_flagged_as_duplicates(self) -> None:
+        """setUp/tearDown are scaffolding, not duplication (noise must not escalate)."""
+        (self._tmp / "src").mkdir(exist_ok=True)
+        (self._tmp / "tests").mkdir(exist_ok=True)
+        (self._tmp / "src" / "api.py").write_text(
+            "def public_hello(self):\n    a = 1\n    b = 2\n    c = 3\n    return a + b + c\n",
+            encoding="utf-8",
+        )
+        (self._tmp / "tests" / "test_x.py").write_text(
+            "class T:\n    def setUp(self):\n        a = 1\n        b = 2\n        c = 3\n        self.v = a + b + c\n",
+            encoding="utf-8",
+        )
+        manifest = Manifest(
+            path=self._tmp / "manifest.json", project_id="test-proj", project_root=self._tmp,
+            targets=(Target(target_id="app", path=".", governed_roots=("src", "tests"), excludes=()),),
+            ledger_path=self._tmp / "ledger.jsonl", policy_path=self._tmp / "policy.json",
+            state_dir=self._tmp / "state",
+        )
+        entry_slice = {"entries": {"paths": [{"path": "tests/test_x.py", "target": "app"}]}}
+        warnings = _duplicate_warnings(manifest, entry_slice)
+        self.assertEqual([], [w for w in warnings if "setUp" in w.get("key", "")])
+
+
+class DuplicatePrecisionTests(unittest.TestCase):
+    """The detector must be high-precision, because 9.7 warnings harden."""
+
+    def setUp(self) -> None:
+        self._tmp = Path(tempfile.mkdtemp())
+        (self._tmp / "src").mkdir(parents=True)
+        (self._tmp / "state").mkdir(parents=True)
+        self.manifest = Manifest(
+            path=self._tmp / "manifest.json", project_id="test-proj", project_root=self._tmp,
+            targets=(Target(target_id="app", path=".", governed_roots=("src",), excludes=()),),
+            ledger_path=self._tmp / "ledger.jsonl", policy_path=self._tmp / "policy.json",
+            state_dir=self._tmp / "state",
+        )
+
+    def _write(self, rel: str, text: str) -> None:
+        (self._tmp / rel).write_text(text, encoding="utf-8")
+
+    def _warnings_for(self, changed: str) -> list[dict[str, str]]:
+        return _duplicate_warnings(
+            self.manifest, {"entries": {"paths": [{"path": changed, "target": "app"}]}}
+        )
+
+    def test_short_same_shape_functions_not_flagged(self) -> None:
+        """1-2 line functions with equal arity are everywhere; not duplication."""
+        self._write("src/old.py", "def hello(name):\n    return name\n")
+        self._write("src/new.py", "def greet(name):\n    return name\n")
+        self.assertEqual([], self._warnings_for("src/new.py"))
+
+    def test_copy_paste_large_function_flagged(self) -> None:
+        body = "".join(f"    v{i} = compute(data, {i})\n" for i in range(10))
+        self._write("src/old.py", f"def render_page(data):\n{body}    return v0\n")
+        self._write("src/new.py", f"def render_view(data):\n{body}    return v0\n")
+        warnings = self._warnings_for("src/new.py")
+        self.assertEqual(1, len(warnings))
+        self.assertIn("render_view", warnings[0]["detail"])
+
+    def test_large_but_structurally_different_not_flagged(self) -> None:
+        self._write(
+            "src/old.py",
+            "def process(data):\n"
+            + "".join(f"    x{i} = data[{i}]\n" for i in range(10))
+            + "    return x0\n",
+        )
+        self._write(
+            "src/new.py",
+            "def handle(data):\n"
+            "    try:\n"
+            "        with open(data) as fh:\n"
+            "            for line in fh:\n"
+            "                if line.strip():\n"
+            "                    print(line.upper())\n"
+            "    except OSError:\n"
+            "        return None\n"
+            "    while data:\n"
+            "        data = data[1:]\n"
+            "    return data\n",
+        )
+        self.assertEqual([], self._warnings_for("src/new.py"))
+
+    def test_same_name_still_flagged_regardless_of_size(self) -> None:
+        self._write("src/old.py", "def helper(a, b):\n    return a + b\n")
+        self._write("src/new.py", "def helper(a, b):\n    return a * b\n")
+        warnings = self._warnings_for("src/new.py")
+        self.assertEqual(1, len(warnings))
+        self.assertIn("同名函数", warnings[0]["detail"])
+
+
+class BaselineDebtTests(unittest.TestCase):
+    """9.12: baseline total enters governance health with a ratcheting target."""
+
+    def setUp(self) -> None:
+        self._tmp = Path(tempfile.mkdtemp())
+        (self._tmp / "state").mkdir(parents=True)
+        self.manifest = Manifest(
+            path=self._tmp / "manifest.json",
+            project_id="test-proj",
+            project_root=self._tmp,
+            targets=[],
+            ledger_path=self._tmp / "ledger.jsonl",
+            policy_path=self._tmp / "policy.json",
+            state_dir=self._tmp / "state",
+        )
+
+    def _write_baseline(self, failures: list[str]) -> None:
+        payload = {
+            "schema": "ag2c.test-baseline.v1",
+            "checkers": {
+                "check.python": {
+                    "failures": failures,
+                    "updated_at": "2026-01-01T00:00:00+00:00",
+                    "expires_at": "2099-01-01T00:00:00+00:00",
+                    "actor": "test",
+                    "reason": "fixture",
+                }
+            }
+            if failures
+            else {},
+        }
+        (self._tmp / "state" / "test-baseline.json").write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+
+    def test_first_observation_establishes_ceiling(self) -> None:
+        self._write_baseline(["FAIL: a", "FAIL: b"])
+        debt = baseline_debt(self.manifest)
+        self.assertEqual({"total": 2, "target": 2, "over": False}, debt)
+
+    def test_ratchet_only_moves_down(self) -> None:
+        self._write_baseline(["FAIL: a", "FAIL: b", "FAIL: c"])
+        baseline_debt(self.manifest)  # ceiling = 3
+        self._write_baseline(["FAIL: a"])  # paid down to 1
+        debt = baseline_debt(self.manifest)
+        self.assertEqual({"total": 1, "target": 1, "over": False}, debt)
+        # Debt grows again: target stays at 1, project is over.
+        self._write_baseline(["FAIL: a", "FAIL: b"])
+        debt = baseline_debt(self.manifest)
+        self.assertEqual({"total": 2, "target": 1, "over": True}, debt)
+
+    def test_zero_baseline_zero_target(self) -> None:
+        debt = baseline_debt(self.manifest)
+        self.assertEqual({"total": 0, "target": 0, "over": False}, debt)
+
+    def test_expired_entries_do_not_count_toward_debt(self) -> None:
+        payload = {
+            "schema": "ag2c.test-baseline.v1",
+            "checkers": {
+                "check.python": {
+                    "failures": ["FAIL: old"],
+                    "updated_at": "2026-01-01T00:00:00+00:00",
+                    "expires_at": "2026-01-02T00:00:00+00:00",  # expired
+                    "actor": "test",
+                    "reason": "fixture",
+                }
+            },
+        }
+        (self._tmp / "state" / "test-baseline.json").write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+        debt = baseline_debt(self.manifest)
+        self.assertEqual(0, debt["total"])
+
+    def test_corrupt_target_file_re_establishes_ceiling(self) -> None:
+        self._write_baseline(["FAIL: a"])
+        (self._tmp / "state" / "baseline-target.json").write_text("{bad", encoding="utf-8")
+        debt = baseline_debt(self.manifest)
+        self.assertEqual({"total": 1, "target": 1, "over": False}, debt)
 
 
 class DuplicateWarningTests(unittest.TestCase):

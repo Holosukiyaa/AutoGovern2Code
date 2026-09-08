@@ -117,6 +117,13 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
     index = details.get("index") if isinstance(details.get("index"), dict) else {}
     for error in index.get("errors") or []:
         anomalies.append({"severity": "error", "text": f"索引错误：{error}"})
+    debt = details.get("baseline_debt") if isinstance(details.get("baseline_debt"), dict) else {}
+    debt_total = int(debt.get("total") or 0)
+    debt_target = int(debt.get("target") or 0)
+    if debt.get("over"):
+        anomalies.append(
+            {"severity": "error", "text": f"基线债务超目标：当前 {debt_total}，上限 {debt_target}（只减不增，新增失败需先还债）"}
+        )
 
     overflow = max(0, len(anomalies) - MAX_LISTED_ANOMALIES)
     listed = anomalies[:MAX_LISTED_ANOMALIES]
@@ -132,6 +139,7 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
     census_households = census_data.get("households") if isinstance(census_data.get("households"), list) else []
     stale_census = sum(1 for h in census_households if isinstance(h, dict) and h.get("freshness") == "stale")
     health.append({"label": "普查陈旧", "value": stale_census})
+    health.append({"label": "基线债务", "value": debt_total})
     project = details.get("project") if isinstance(details.get("project"), dict) else {}
     return {
         "project": _text(project, "name"),

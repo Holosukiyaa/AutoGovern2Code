@@ -486,6 +486,12 @@ def _compute_project_details(root: Path) -> dict[str, Any]:
         result["census"] = census_report(manifest, policy)
     except (AG2CError, OSError, ValueError) as exc:
         result["census"] = {"error": str(exc), "households": [], "directories": []}
+    from .checks import baseline_debt
+
+    try:
+        result["baseline_debt"] = baseline_debt(manifest)
+    except (AG2CError, OSError, ValueError):
+        result["baseline_debt"] = {"total": 0, "target": 0, "over": False}
     result["file_history"] = {}
     try:
         revisions = (result.get("census") or {}).get("revisions") or {}

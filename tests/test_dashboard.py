@@ -42,7 +42,7 @@ class DashboardModelTests(unittest.TestCase):
         self.assertEqual([], model["tasks"])
         self.assertEqual([], model["anomalies"])
         self.assertEqual(0, model["anomaly_count"])
-        self.assertEqual([0, 0, 0, 0], [h["value"] for h in model["health"]])
+        self.assertEqual([0, 0, 0, 0, 0], [h["value"] for h in model["health"]])
         self.assertEqual("", model["project"])
 
     def test_all_green_project_is_nearly_empty(self):
@@ -135,6 +135,29 @@ class DashboardModelTests(unittest.TestCase):
         model = dashboard_model({}, {})
         health = {h["label"]: h["value"] for h in model["health"]}
         self.assertEqual(0, health["普查陈旧"])
+
+    def test_health_shows_baseline_debt(self):
+        details = {"baseline_debt": {"total": 3, "target": 3, "over": False}}
+        model = dashboard_model(details, {})
+        health = {h["label"]: h["value"] for h in model["health"]}
+        self.assertEqual(3, health["基线债务"])
+        self.assertEqual([], model["anomalies"])
+
+    def test_over_target_baseline_debt_is_an_error(self):
+        details = {"baseline_debt": {"total": 5, "target": 3, "over": True}}
+        model = dashboard_model(details, {})
+        self.assertEqual(1, len(model["anomalies"]))
+        self.assertEqual("error", model["anomalies"][0]["severity"])
+        self.assertIn("基线债务超目标", model["anomalies"][0]["text"])
+        self.assertIn("5", model["anomalies"][0]["text"])
+        self.assertIn("3", model["anomalies"][0]["text"])
+        self.assertEqual(1, model["anomaly_count"])
+
+    def test_baseline_debt_tolerates_garbage(self):
+        model = dashboard_model({"baseline_debt": "x"}, {})
+        health = {h["label"]: h["value"] for h in model["health"]}
+        self.assertEqual(0, health["基线债务"])
+        self.assertEqual([], model["anomalies"])
 
 
 class HelperTests(unittest.TestCase):

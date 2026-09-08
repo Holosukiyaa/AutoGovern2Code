@@ -194,6 +194,11 @@ def _budget_warnings(manifest: Manifest, policy: Policy, entry_slice: dict[str, 
     return warnings
 
 
+_UNITTEST_CONVENTION_METHODS = frozenset({
+    "setUp", "tearDown", "setUpClass", "tearDownClass", "setUpModule", "tearDownModule",
+})
+
+
 def _duplicate_warnings(manifest: Manifest, entry_slice: dict[str, Any]) -> list[dict[str, str]]:
     """Soft duplicate detection: warn when new functions look like existing ones.
 
@@ -213,8 +218,10 @@ def _duplicate_warnings(manifest: Manifest, entry_slice: dict[str, Any]) -> list
     ]
     if not changed_py:
         return warnings
-    # Collect all functions from changed files.
-    new_funcs: list[tuple[str, str, int, int]] = []  # (file, name, args, body_lines)
+    # Collect all functions from changed files. unittest convention methods
+    # (setUp/tearDown/...) are idiomatic scaffolding, not duplication — and
+    # since 9.7 warnings can harden into gate blocks, detector noise must not.
+    new_funcs: list[tuple[str, str, int, int, tuple[tuple[str, int], ...]]] = []
     for rel in changed_py:
         path = manifest.project_root / rel
         if not path.is_file():
@@ -225,13 +232,15 @@ def _duplicate_warnings(manifest: Manifest, entry_slice: dict[str, Any]) -> list
             continue
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.name in _UNITTEST_CONVENTION_METHODS:
+                    continue
                 body_lines = (node.end_lineno or 0) - (node.lineno or 0)
-                new_funcs.append((rel, node.name, len(node.args.args), body_lines))
+                new_funcs.append((rel, node.name, len(node.args.args), body_lines, _function_shape(node)))
     if not new_funcs:
         return warnings
     # Collect existing functions from all governed Python files.
     from .index import _discover_files
-    existing: list[tuple[str, str, int, int]] = []
+    existing: list[tuple[str, str, int, int, tuple[tuple[str, int], ...]]] = []
     for target in manifest.targets:
         root = manifest.target_root(target.target_id)
         paths, _, _, _ = _discover_files(root, target)
@@ -248,10 +257,14 @@ def _duplicate_warnings(manifest: Manifest, entry_slice: dict[str, Any]) -> list
             for node in ast.walk(tree):
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     body_lines = (node.end_lineno or 0) - (node.lineno or 0)
-                    existing.append((rel, node.name, len(node.args.args), body_lines))
-    # Compare new vs existing.
-    for new_file, new_name, new_args, new_lines in new_funcs:
-        for old_file, old_name, old_args, old_lines in existing:
+                    existing.append((rel, node.name, len(node.args.args), body_lines, _function_shape(node)))
+    # Compare new vs existing. Two signals, both deliberately high-precision:
+    # same name + same arity (re-implemented helper), or a SUBSTANTIAL body
+    # (>=8 lines) with a near-identical AST node-type multiset (copy-paste).
+    # Bare body-length similarity matched every short function in the repo —
+    # noise that 9.7 escalation would otherwise harden into blocks.
+    for new_file, new_name, new_args, new_lines, new_shape in new_funcs:
+        for old_file, old_name, old_args, old_lines, old_shape in existing:
             if new_name == old_name and new_args == old_args:
                 warnings.append({
                     "kind": "possible-duplicate",
@@ -259,16 +272,93 @@ def _duplicate_warnings(manifest: Manifest, entry_slice: dict[str, Any]) -> list
                     "detail": f"同名函数 {new_name}（{new_file}）与 {old_file} 参数数相同",
                 })
                 break
-            if old_lines > 0 and new_lines > 0 and new_args == old_args:
-                ratio = min(new_lines, old_lines) / max(new_lines, old_lines)
-                if ratio >= 0.8 and abs(new_lines - old_lines) <= 5:
-                    warnings.append({
-                        "kind": "possible-duplicate",
-                        "key": f"{new_file}:{new_name}",
-                        "detail": f"相似函数 {new_name}（{new_file}，{new_lines}行）与 {old_name}（{old_file}，{old_lines}行）",
-                    })
-                    break
+            if (
+                new_lines >= 8
+                and old_lines >= 8
+                and new_args == old_args
+                and min(new_lines, old_lines) / max(new_lines, old_lines) >= 0.8
+                and _shape_similarity(new_shape, old_shape) >= 0.9
+            ):
+                warnings.append({
+                    "kind": "possible-duplicate",
+                    "key": f"{new_file}:{new_name}",
+                    "detail": f"相似函数 {new_name}（{new_file}，{new_lines}行）与 {old_name}（{old_file}，{old_lines}行）结构高度一致",
+                })
+                break
     return warnings
+
+
+def _function_shape(node: ast.AST) -> tuple[tuple[str, int], ...]:
+    """Sorted AST node-type multiset for a function body — a structural fingerprint."""
+    counts: dict[str, int] = {}
+    for child in ast.walk(node):
+        name = type(child).__name__
+        counts[name] = counts.get(name, 0) + 1
+    return tuple(sorted(counts.items()))
+
+
+def _shape_similarity(a: tuple[tuple[str, int], ...], b: tuple[tuple[str, int], ...]) -> float:
+    """Multiset Jaccard similarity between two shape fingerprints."""
+    if not a or not b:
+        return 0.0
+    counts_a, counts_b = dict(a), dict(b)
+    keys = set(counts_a) | set(counts_b)
+    intersection = sum(min(counts_a.get(k, 0), counts_b.get(k, 0)) for k in keys)
+    union = sum(max(counts_a.get(k, 0), counts_b.get(k, 0)) for k in keys)
+    return intersection / union if union else 0.0
+
+
+# --- 9.12: baseline decreasing pressure (债务上限: the baseline only shrinks) ---
+#
+# The test baseline is a debt ledger. baseline_debt() compares the live total
+# against a ratcheting target stored in state/baseline-target.json: the first
+# observation establishes the ceiling, and the target only ever ratchets DOWN
+# when reality improves. New debt pushes total above target -> over=True, which
+# the dashboard surfaces as an alert. Advisory only; never blocks verify.
+BASELINE_TARGET_SCHEMA = "ag2c.baseline-target.v1"
+
+
+def _baseline_target_path(manifest: Manifest) -> Path:
+    return manifest.state_dir / "baseline-target.json"
+
+
+def baseline_debt(manifest: Manifest) -> dict[str, Any]:
+    """Return {"total", "target", "over"} for the test baseline, ratcheting the target down."""
+    baseline = load_test_baseline(manifest)
+    total = sum(len(failures) for failures in baseline.values())
+    path = _baseline_target_path(manifest)
+    target: int | None = None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(raw, dict) and raw.get("schema") == BASELINE_TARGET_SCHEMA:
+            target = max(0, int(raw.get("target")))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        target = None
+    changed = target is None
+    if target is None:
+        target = total  # first observation establishes the ceiling
+    if total < target:
+        target = total  # ratchet down: paid debt lowers the ceiling permanently
+        changed = True
+    if changed:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema": BASELINE_TARGET_SCHEMA,
+                        "target": target,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
+    return {"total": total, "target": target, "over": total > target}
 
 
 # --- 9.7: warning auto-escalation (泰坦尼克: ignored warnings must harden) ---
@@ -316,8 +406,12 @@ def _record_warnings_and_find_escalated(manifest: Manifest, warnings: list[dict[
     store = history["warnings"]
     now = datetime.now(timezone.utc).isoformat()
     escalated: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for warning in warnings:
         fingerprint = _warning_fingerprint(warning)
+        if fingerprint in seen:
+            continue  # one logical warning counts once per run, however many instances
+        seen.add(fingerprint)
         entry = store.get(fingerprint)
         if not isinstance(entry, dict):
             entry = {"kind": warning.get("kind"), "key": warning.get("key"), "count": 0, "first_seen": now}
@@ -746,6 +840,8 @@ def run_checks(
     escalated = _record_warnings_and_find_escalated(manifest, warnings)
     if escalated:
         report["escalated_warnings"] = escalated
+    # 9.12: baseline debt vs ratcheting target (advisory; the dashboard alerts).
+    report["baseline_debt"] = baseline_debt(manifest)
     # Maturity summary: count rooms at each L0-L3 level.
     maturity_counts: dict[str, int] = {}
     for card in policy.cards:

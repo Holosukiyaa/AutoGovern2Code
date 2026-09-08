@@ -1693,7 +1693,10 @@ def _lineage_draw_hulls(
         if bool(node.get("cards")) and not node.get("empty"):
             mx, my, mw, mh = _combo_marker_hit(hx, hy)
             marker_hits.append((visual_id, mx, my, mw, mh))
-    for node in cards:
+    # Outward hulls: knowledge rooms AND subdirectory groups both get one when
+    # expanded; without groups here their children float with no backdrop.
+    hull_owners = [*cards, *(node for node in modules if node.get("kind") == "group")]
+    for node in hull_owners:
         hull = node.get("outward_hull") if isinstance(node.get("outward_hull"), dict) else None
         if hull is None or node.get("hidden"):
             continue

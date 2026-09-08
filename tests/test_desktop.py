@@ -379,6 +379,30 @@ class RehomeJobTests(unittest.TestCase):
         ui = (Path(__file__).resolve().parents[1] / "src" / "ag2c_gui" / "imgui_tray.py").read_text(encoding="utf-8")
         self.assertIn("begin_drag_drop_source(imgui.DragDropFlags_.source_allow_null_id)", ui)
 
+    def test_group_outward_hull_is_drawn(self) -> None:
+        # Expanded subdirectory groups own an outward hull behind their file
+        # cards; without it fourth-layer cards float with no backdrop.
+        from ag2c_gui import imgui_tray
+
+        group = {
+            "kind": "group",
+            "visual_id": "room/dir:routers",
+            "id": "room/dir:routers",
+            "title": "routers/",
+            "x": 0.0,
+            "y": 0.0,
+            "width": 120.0,
+            "height": 40.0,
+            "hidden": False,
+            "cards": [{"id": "k1"}],
+            "outward_hull": {"x": 200.0, "y": 0.0, "width": 160.0, "height": 320.0, "title": "routers/", "status": "7 张文件卡"},
+        }
+        drawn: list[str] = []
+        with patch.object(imgui_tray, "_draw_lineage_hull", side_effect=lambda *a, **k: drawn.append(str(k.get("title") or ""))):
+            imgui_tray._lineage_draw_hulls(MagicMock(), MagicMock(), [group], [], {"room/dir:routers"}, [])
+        self.assertTrue(any("routers/" in title for title in drawn), drawn)
+        self.assertGreaterEqual(len(drawn), 2)  # own combo box + outward hull
+
 
 class CrashLoggingTests(unittest.TestCase):
     def test_crash_log_captures_header_traceback_and_native_faults(self) -> None:

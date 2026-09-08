@@ -877,6 +877,7 @@ LINEAGE_PROJECT_H = 48.0
 LINEAGE_EMPTY_INNER_H = 28.0
 LINEAGE_COLLAPSED_W = 200.0
 LINEAGE_COLLAPSED_H = 48.0
+LINEAGE_GROUP_INDENT = 18.0
 
 
 def _lineage_text_width(value: str) -> float:
@@ -1510,14 +1511,38 @@ def _place_outward_column(
     cursor = inner_y
     child_floor = 0.0
     for child in nested:
+        child_visual = str(child.get("visual_id") or child.get("id") or "")
+        grandchildren = kids_of.get(child_visual, [])
         height = lineage_card_height(child)
         child["hidden"] = False
-        child["group"] = bool(kids_of.get(str(child.get("visual_id") or child.get("id") or ""), []))
+        child["group"] = bool(grandchildren)
         child["x"] = inner_x
         child["y"] = cursor
         child["width"] = inner_w
         child["height"] = height
         cursor += height + LINEAGE_CARD_GAP_Y
+        # Subdirectory groups expand in place like a tree: children pack
+        # indented below the group header and the group hull grows around
+        # them, instead of jumping to a far-right outward column.
+        if child.get("kind") == "group" and grandchildren:
+            if child_visual in expanded and not child.get("hidden"):
+                child["outward_hull"] = None
+                gx = inner_x + LINEAGE_GROUP_INDENT
+                gw = max(LINEAGE_CARD_MIN_W * 0.6, inner_w - LINEAGE_GROUP_INDENT)
+                for grand in grandchildren:
+                    grand_h = lineage_card_height(grand)
+                    grand["hidden"] = False
+                    grand["group"] = False
+                    grand["x"] = gx
+                    grand["y"] = cursor
+                    grand["width"] = gw
+                    grand["height"] = grand_h
+                    cursor += grand_h + LINEAGE_CARD_GAP_Y
+                child["height"] = cursor - LINEAGE_CARD_GAP_Y - float(child["y"])
+            else:
+                for grand in grandchildren:
+                    _hide_lineage_branch(grand, kids_of)
+            continue
         child_floor = max(child_floor, _place_outward_column(child, kids_of, expanded, min_y=child_floor))
     inner_h = max(0.0, cursor - inner_y - LINEAGE_CARD_GAP_Y)
     if not inner_h:

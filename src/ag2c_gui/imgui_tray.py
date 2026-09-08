@@ -1762,6 +1762,10 @@ def _lineage_draw_links(
         parent = by_visual.get(str(child.get("parent") or ""))
         if parent is None or parent.get("kind") not in {"knowledge", "group"}:
             continue
+        if parent.get("kind") == "group" and not parent.get("outward_hull"):
+            # Inline-expanded group: children sit inside the grown hull, so
+            # containment is already visible; an arrow would hook backwards.
+            continue
         px1 = float(parent.get("x") or 0) + float(parent.get("width") or 0)
         py1 = float(parent.get("y") or 0) + float(parent.get("height") or 40) * 0.5
         cx = float(child.get("x") or 0)

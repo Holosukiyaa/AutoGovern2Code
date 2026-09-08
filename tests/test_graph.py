@@ -452,6 +452,59 @@ class GovernanceGraphTests(unittest.TestCase):
             self.assertIn(by_id[card_id]["visual_id"], visible_ids)
         self.assertEqual([], lineage_step_overlaps(lineage["nodes"], expanded))
 
+    def test_expanded_group_packs_children_inline_below_the_header(self) -> None:
+        room = _card("knowledge.backend", "knowledge", "后端服务层", include=["src/backend/**"])
+        room["jurisdiction"] = {"span": "file", "meaning": "named", "status": "current", "implementation": "cf.backend"}
+        root_files = ["main.py", "api_models.py", "state.py", "store.py"]
+        router_files = ["agent.py", "runs.py", "studio.py"]
+        cards = [
+            _card("constitution.project", "constitution", "宪章"),
+            _card("floor.src", "floor", "src", include=["src/**"]),
+            room,
+        ]
+        relations = [{"source": "knowledge.backend", "type": "explains", "target": "floor.src"}]
+        for name in root_files + router_files:
+            rel = f"src/backend/{name}" if name in root_files else f"src/backend/routers/{name}"
+            card_id = "knowledge.backend-" + name.removesuffix(".py")
+            cards.append(_card(card_id, "knowledge", name, include=[rel], references=[rel]))
+            relations.append({"source": card_id, "type": "explains", "target": "floor.src"})
+        lineage = build_lineage(
+            {
+                "project": {"name": "CartridgeFlow"},
+                "cards": cards,
+                "relations": relations,
+                "graph": {"nodes": []},
+            }
+        )
+        by_id = {node["id"]: node for node in lineage["nodes"]}
+        group = next(node for node in lineage["nodes"] if node.get("kind") == "group")
+
+        from ag2c_gui.graph import LINEAGE_PROJECT_ID, layout_lineage_view
+
+        expanded = {node["visual_id"] for node in lineage["nodes"] if node.get("kind") == "module" and not node.get("empty")}
+        expanded.add(LINEAGE_PROJECT_ID)
+        expanded.add("knowledge.backend@floor.src")
+        expanded.add(group["visual_id"])
+        view = [dict(node) for node in lineage["nodes"]]
+        layout_lineage_view(view, expanded)
+        laid = {str(node.get("visual_id") or node.get("id")): node for node in view}
+        placed_group = laid[group["visual_id"]]
+        gx, gy = float(placed_group["x"]), float(placed_group["y"])
+        # Inline expansion: no far-right outward column for the group.
+        self.assertIsNone(placed_group.get("outward_hull"))
+        last_bottom = gy
+        for name in router_files:
+            child = laid[by_id["knowledge.backend-" + name.removesuffix(".py")]["visual_id"]]
+            # Same column as the group header, indented, stacked below it.
+            self.assertGreater(float(child["x"]), gx)
+            self.assertLess(float(child["x"]), gx + float(placed_group["width"]))
+            self.assertGreaterEqual(float(child["y"]), last_bottom)
+            last_bottom = float(child["y"]) + float(child["height"])
+            self.assertFalse(child.get("hidden"))
+        # The group hull grows to contain every inline child.
+        self.assertGreaterEqual(float(placed_group["y"]) + float(placed_group["height"]), last_bottom)
+        self.assertEqual([], lineage_step_overlaps(lineage["nodes"], expanded))
+
     def test_lineage_marks_rehome_sources_and_drop_targets(self) -> None:
         room = _card("knowledge.backend", "knowledge", "后端服务层", include=["src/backend/**"])
         room["jurisdiction"] = {"span": "file", "meaning": "named", "status": "current", "implementation": "cf.backend"}

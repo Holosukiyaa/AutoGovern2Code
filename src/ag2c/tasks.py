@@ -220,7 +220,12 @@ def _verification_evidence_valid(
         "acceptance": verification.get("acceptance"),
         "check_ledger_event_digest": verification.get("check_ledger_event_digest"),
     }
-    if payload != expected:
+    # Forward compatibility: the ledger event digest covers the whole payload,
+    # so keys this validator does not know cannot be forged after the fact.
+    # Bind every known key exactly; tolerate extensions recorded by newer
+    # versions (e.g. regulator verdicts) so older canonical code can still
+    # finish tasks verified by newer worktree code.
+    if any(payload.get(key) != value for key, value in expected.items()):
         return False
     check_event = _matching_event(
         manifest,

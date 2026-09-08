@@ -62,5 +62,67 @@ class FinishHintTests(unittest.TestCase):
             self.assertEqual([], hints)
 
 
+class VerificationEvidenceTests(unittest.TestCase):
+    """_verification_evidence_valid tolerates payload keys it does not know."""
+
+    def _fixture(self, root: Path, *, extra: dict | None = None):
+        from ag2c.ledger import append_event
+        from ag2c.tasks import _verification_evidence_valid
+
+        manifest = _bare_manifest(root)
+        task = {"id": "t-x"}
+        check = append_event(
+            manifest.ledger_path,
+            "check-run",
+            {
+                "task_id": "t-x",
+                "results": [{"id": "c1", "stage": "floor", "status": "passed", "exit_code": 0}],
+                "slice_digest": "s",
+            },
+        )
+        payload = {
+            "attempt": 1,
+            "occurred_at": "2026-09-09T00:00:00+00:00",
+            "passed": True,
+            "changed_paths": ["app:src/x.py"],
+            "change_digest": "d",
+            "slice_digest": "s",
+            "route_state": "conservative",
+            "route": {"state": "conservative"},
+            "route_cards": [],
+            "checker_results": [{"id": "c1", "stage": "floor", "status": "passed", "exit_code": 0}],
+            "acceptance": "ok",
+            "check_ledger_event_digest": check["event_digest"],
+        }
+        event = append_event(
+            manifest.ledger_path,
+            "task-verification",
+            {"task_id": "t-x", **payload, **(extra or {})},
+        )
+        verification = {**payload, "ledger_event_digest": event["event_digest"]}
+        return manifest, task, verification, _verification_evidence_valid
+
+    def test_unknown_extension_keys_tolerated(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest, task, verification, valid = self._fixture(
+                Path(directory), extra={"regulator": {"outcome": "passed"}}
+            )
+            self.assertTrue(valid(manifest, task, verification))
+
+    def test_tampered_known_key_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest, task, verification, valid = self._fixture(
+                Path(directory), extra={"regulator": {"outcome": "passed"}}
+            )
+            verification["change_digest"] = "tampered"
+            self.assertFalse(valid(manifest, task, verification))
+
+    def test_missing_known_key_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest, task, verification, valid = self._fixture(Path(directory))
+            verification["changed_paths"] = ["app:src/other.py"]
+            self.assertFalse(valid(manifest, task, verification))
+
+
 if __name__ == "__main__":
     unittest.main()

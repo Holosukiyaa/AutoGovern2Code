@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 import threading
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -40,6 +41,7 @@ Route:
 - Tree investigation and coverage tags (未打标 / 整夹一张 / 一文件一张): ag2c_census then ag2c_span. The user supervises tags; they do not click tray buttons.
 - Write 设计思路 from tags: ag2c_apply for per-file cards, ag2c_household for 整夹一张 rooms. Read the files first.
 - Named README/interface cards: ag2c_apply. Never edit Policy JSON by hand.
+- Move a file card to another room/subdirectory: ag2c_rehome (id + room + optional subdir). It rides the governed loop itself (scope update → task worktree git mv + repo-wide Python import rewrite → census → verify → merge; failure rolls everything back), so prefer it over hand-moving files. Python only, never __init__.py. Like ag2c_task_verify it answers within 45s or returns a job id to poll.
 - Full liquidation (全量清算: wipe stale cards, re-census, re-author, audit, cleanup queue): resource ag2c://skill/ag2c-full-liquidation. Run it ONLY when the user explicitly asks — never offer or start it proactively.
 
 Delivery is the Git hook, not this MCP. Connecting MCP does not replace pre-commit. AG2C uses its own Git binary on the project's existing `.git` and history.
@@ -241,6 +243,18 @@ def tool_defs() -> list[dict[str, Any]]:
             ["goal"],
         ),
         _tool("ag2c_task_verify", "Verify the current task worktree from its actual diff.", {"cwd": _cwd_prop()}),
+        _tool(
+            "ag2c_rehome",
+            "Move a file card into another room (or a subdirectory of it) through the governed loop: the card scope updates, a task worktree does git mv + repo-wide Python import rewrite, census + verify gate the merge, and any failure rolls everything back. Python files only; never __init__.py. Runs in the background like ag2c_task_verify: answers within 45s or returns a job id — call again with that job id to poll.",
+            {
+                "id": {"type": "string", "description": "File card id, e.g. knowledge.backend-main."},
+                "room": {"type": "string", "description": "Target room card id, e.g. knowledge.backend."},
+                "subdir": {"type": "string", "description": "Optional subdirectory inside the room, e.g. routers."},
+                "job": {"type": "string", "description": "Poll a running rehome job by id."},
+                "reason": {"type": "string"},
+                "cwd": _cwd_prop(),
+            },
+        ),
         _tool(
             "ag2c_task_finish",
             "Finish a verified task from the canonical checkout. --message names the product change.",
@@ -449,6 +463,77 @@ def _call_verify(args: dict[str, Any]) -> Any:
     return job["result"]
 
 
+_REHOME_JOBS: dict[str, dict[str, Any]] = {}
+_REHOME_LOCK = threading.Lock()
+
+
+def _call_rehome(args: dict[str, Any]) -> Any:
+    """Run rehome_file_card on a worker thread; poll by job id like verify.
+
+    One rehome at a time per MCP server: concurrent moves would race on the
+    canonical checkout and the shared policy file.
+    """
+    from .rehome import rehome_file_card
+
+    cwd = _cwd(args).resolve()
+    job_id = str(args.get("job") or "").strip()
+    if job_id:
+        with _REHOME_LOCK:
+            job = _REHOME_JOBS.get(job_id)
+        if job is None:
+            raise AG2CError(f"unknown rehome job: {job_id}")
+    else:
+        card_id = str(args.get("id") or "").strip()
+        room = str(args.get("room") or "").strip()
+        if not card_id or not room:
+            raise AG2CError("ag2c_rehome requires id (file card) and room (target room)")
+        subdir = str(args.get("subdir") or "").strip()
+        reason = str(args.get("reason") or "").strip() or f"agent rehomed {card_id} into {room}"
+        with _REHOME_LOCK:
+            running = [key for key, item in _REHOME_JOBS.items() if item["state"] == "running"]
+            if running:
+                raise AG2CError(f"another rehome is still running; poll it first: {running[0]}")
+            job_id = uuid.uuid4().hex[:12]
+            job = {
+                "state": "running",
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "event": threading.Event(),
+                "result": None,
+                "error": None,
+            }
+            _REHOME_JOBS[job_id] = job
+
+        def runner() -> None:
+            try:
+                job["result"] = rehome_file_card(
+                    cwd,
+                    card_id=card_id,
+                    target_room=room,
+                    target_subdir=subdir,
+                    actor="mcp-agent",
+                    reason=reason,
+                )
+            except BaseException as exc:  # delivered on the polling call
+                job["error"] = exc
+            finally:
+                job["state"] = "done"
+                job["event"].set()
+
+        threading.Thread(target=runner, daemon=True, name=f"ag2c-rehome-{job_id}").start()
+    if not job["event"].wait(VERIFY_WAIT_SECONDS):
+        return {
+            "state": "running",
+            "job": job_id,
+            "started_at": job["started_at"],
+            "hint": "rehome is still running in the background; call ag2c_rehome again with this job id to poll the result",
+        }
+    with _REHOME_LOCK:
+        _REHOME_JOBS.pop(job_id, None)
+    if job["error"] is not None:
+        raise job["error"]
+    return job["result"]
+
+
 def _call_finish(args: dict[str, Any]) -> Any:
     from .tasks import finish_task
 
@@ -624,6 +709,7 @@ HANDLERS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "ag2c_guard_status": _call_guard,
     "ag2c_task_start": _call_start,
     "ag2c_task_verify": _call_verify,
+    "ag2c_rehome": _call_rehome,
     "ag2c_task_finish": _call_finish,
     "ag2c_task_list": _call_list,
     "ag2c_task_orient": _call_orient,

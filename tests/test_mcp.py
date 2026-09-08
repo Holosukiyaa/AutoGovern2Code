@@ -301,5 +301,104 @@ class AsyncVerifyTests(unittest.TestCase):
             self.assertEqual({}, self.server._VERIFY_JOBS)
 
 
+class AsyncRehomeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        from ag2c import mcp_server
+
+        self.server = mcp_server
+        self._jobs = dict(mcp_server._REHOME_JOBS)
+        mcp_server._REHOME_JOBS.clear()
+        self.addCleanup(self._restore_jobs)
+
+    def _restore_jobs(self) -> None:
+        self.server._REHOME_JOBS.clear()
+        self.server._REHOME_JOBS.update(self._jobs)
+
+    def _rehome(self, cwd: Path, **extra):
+        args = {"cwd": str(cwd), "id": "knowledge.pkg-a", "room": "knowledge.pkg", "subdir": "sub"}
+        args.update(extra)
+        return self.server._call_rehome(args)
+
+    def test_fast_rehome_returns_the_result_inline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            done = {"merged": True, "from": "src/pkg/a.py", "to": "src/pkg/sub/a.py"}
+            with patch("ag2c.rehome.rehome_file_card", return_value=done) as mocked:
+                result = self._rehome(Path(directory))
+            self.assertEqual(done, result)
+            self.assertEqual(1, mocked.call_count)
+            self.assertEqual({}, self.server._REHOME_JOBS)
+
+    def test_slow_rehome_returns_a_job_then_delivers_once(self) -> None:
+        import threading
+
+        release = threading.Event()
+
+        def slow(*_args, **_kwargs):
+            release.wait(10)
+            return {"merged": True}
+
+        with tempfile.TemporaryDirectory() as directory:
+            cwd = Path(directory)
+            with patch("ag2c.rehome.rehome_file_card", side_effect=slow) as mocked:
+                with patch.object(self.server, "VERIFY_WAIT_SECONDS", 0.05):
+                    first = self._rehome(cwd)
+                    self.assertEqual("running", first["state"])
+                    job_id = first["job"]
+                    second = self._rehome(cwd, job=job_id)
+                    self.assertEqual("running", second["state"])
+                    release.set()
+                    with patch.object(self.server, "VERIFY_WAIT_SECONDS", 5):
+                        third = self._rehome(cwd, job=job_id)
+            self.assertEqual({"merged": True}, third)
+            self.assertEqual(1, mocked.call_count)
+            self.assertEqual({}, self.server._REHOME_JOBS)
+
+    def test_rehome_errors_surface_on_the_poll(self) -> None:
+        from ag2c.errors import AG2CError
+
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("ag2c.rehome.rehome_file_card", side_effect=AG2CError("target file already exists")):
+                with self.assertRaisesRegex(AG2CError, "target file already exists"):
+                    self._rehome(Path(directory))
+            self.assertEqual({}, self.server._REHOME_JOBS)
+
+    def test_concurrent_rehome_is_refused(self) -> None:
+        import threading
+
+        release = threading.Event()
+
+        def slow(*_args, **_kwargs):
+            release.wait(5)
+            return {"merged": True}
+
+        from ag2c.errors import AG2CError
+
+        with tempfile.TemporaryDirectory() as directory:
+            cwd = Path(directory)
+            with patch("ag2c.rehome.rehome_file_card", side_effect=slow):
+                with patch.object(self.server, "VERIFY_WAIT_SECONDS", 0.05):
+                    first = self._rehome(cwd)
+                    self.assertEqual("running", first["state"])
+                    with self.assertRaisesRegex(AG2CError, "another rehome is still running"):
+                        self._rehome(cwd)
+                    release.set()
+                    with patch.object(self.server, "VERIFY_WAIT_SECONDS", 5):
+                        self.assertEqual({"merged": True}, self._rehome(cwd, job=first["job"]))
+
+    def test_unknown_job_id_is_an_error(self) -> None:
+        from ag2c.errors import AG2CError
+
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(AG2CError, "unknown rehome job"):
+                self._rehome(Path(directory), job="no-such-job")
+
+    def test_missing_card_or_room_is_an_error(self) -> None:
+        from ag2c.errors import AG2CError
+
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(AG2CError, "requires id"):
+                self.server._call_rehome({"cwd": str(Path(directory)), "id": "", "room": ""})
+
+
 if __name__ == "__main__":
     unittest.main()

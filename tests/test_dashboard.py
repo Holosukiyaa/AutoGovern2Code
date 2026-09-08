@@ -42,7 +42,7 @@ class DashboardModelTests(unittest.TestCase):
         self.assertEqual([], model["tasks"])
         self.assertEqual([], model["anomalies"])
         self.assertEqual(0, model["anomaly_count"])
-        self.assertEqual([0, 0, 0, 0, 0], [h["value"] for h in model["health"]])
+        self.assertEqual([0, 0, 0, 0, 0, "—"], [h["value"] for h in model["health"]])
         self.assertEqual("", model["project"])
 
     def test_all_green_project_is_nearly_empty(self):
@@ -158,6 +158,33 @@ class DashboardModelTests(unittest.TestCase):
         health = {h["label"]: h["value"] for h in model["health"]}
         self.assertEqual(0, health["基线债务"])
         self.assertEqual([], model["anomalies"])
+
+    def test_audit_pending_is_warn_anomaly(self):
+        details = {"audit": {"pending": [{"kind": "room-card", "id": "knowledge.x", "question": "q"}], "due": False, "days_since": 1}}
+        model = dashboard_model(details, {})
+        self.assertEqual(1, len(model["anomalies"]))
+        self.assertEqual("warn", model["anomalies"][0]["severity"])
+        self.assertIn("抽查待办", model["anomalies"][0]["text"])
+        self.assertIn("knowledge.x", model["anomalies"][0]["text"])
+        self.assertEqual(1, len(model["audit"]["pending"]))
+
+    def test_audit_due_is_error_anomaly(self):
+        details = {"audit": {"pending": [{"kind": "receipt", "id": "t001", "question": "q"}], "due": True, "days_since": 9}}
+        model = dashboard_model(details, {})
+        self.assertEqual("error", model["anomalies"][0]["severity"])
+        self.assertIn("抽查到期", model["anomalies"][0]["text"])
+
+    def test_health_shows_days_since_audit(self):
+        model = dashboard_model({"audit": {"pending": [], "due": False, "days_since": 4}}, {})
+        health = {h["label"]: h["value"] for h in model["health"]}
+        self.assertEqual(4, health["距上次抽查"])
+
+    def test_audit_tolerates_garbage(self):
+        model = dashboard_model({"audit": "x"}, {})
+        health = {h["label"]: h["value"] for h in model["health"]}
+        self.assertEqual("—", health["距上次抽查"])
+        self.assertEqual([], model["anomalies"])
+        self.assertEqual([], model["audit"]["pending"])
 
 
 class HelperTests(unittest.TestCase):

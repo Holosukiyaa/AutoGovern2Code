@@ -124,6 +124,15 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
         anomalies.append(
             {"severity": "error", "text": f"基线债务超目标：当前 {debt_total}，上限 {debt_target}（只减不增，新增失败需先还债）"}
         )
+    audit = details.get("audit") if isinstance(details.get("audit"), dict) else {}
+    audit_pending = [item for item in audit.get("pending") or [] if isinstance(item, dict)]
+    if audit_pending:
+        first = _text(audit_pending[0], "id")
+        severity = "error" if audit.get("due") else "warn"
+        label = "抽查到期" if audit.get("due") else "抽查待办"
+        anomalies.append(
+            {"severity": severity, "text": f"{label}：{len(audit_pending)} 项待人工核对（如 {first}），确认点下方「已抽查」"}
+        )
 
     overflow = max(0, len(anomalies) - MAX_LISTED_ANOMALIES)
     listed = anomalies[:MAX_LISTED_ANOMALIES]
@@ -140,6 +149,8 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
     stale_census = sum(1 for h in census_households if isinstance(h, dict) and h.get("freshness") == "stale")
     health.append({"label": "普查陈旧", "value": stale_census})
     health.append({"label": "基线债务", "value": debt_total})
+    days_since = audit.get("days_since")
+    health.append({"label": "距上次抽查", "value": days_since if isinstance(days_since, int) else "—"})
     project = details.get("project") if isinstance(details.get("project"), dict) else {}
     return {
         "project": _text(project, "name"),
@@ -147,6 +158,7 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
         "anomalies": listed,
         "anomaly_count": len(anomalies),
         "health": health,
+        "audit": {"pending": audit_pending, "due": bool(audit.get("due"))},
     }
 
 

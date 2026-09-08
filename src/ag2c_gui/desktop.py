@@ -173,6 +173,14 @@ class DesktopHandler(BaseHTTPRequestHandler):
             if path == "/api/project/digest":
                 self._json(HTTPStatus.OK, _project_digest(self._request_path(body)))
                 return
+            if path == "/api/project/audit-ack":
+                from ag2c.audit import acknowledge
+                from ag2c.config import discover_manifest, load_manifest
+
+                root = self._request_path(body)
+                manifest = load_manifest(discover_manifest(root), project_root=root)
+                self._json(HTTPStatus.OK, {"acknowledged": acknowledge(manifest, actor="tray")})
+                return
             if path == "/api/projects/remove":
                 self._json(HTTPStatus.OK, stop_managing(self._request_path(body)))
                 return
@@ -354,7 +362,13 @@ def _project_digest(root: Path) -> dict[str, object]:
             else:
                 _file_part(git_dir / "packed-refs")
     manifest = load_manifest(discover_manifest(root), project_root=root)
-    for path in (manifest.policy_path, manifest.ledger_path, journal_path(manifest), census_path(manifest)):
+    for path in (
+        manifest.policy_path,
+        manifest.ledger_path,
+        journal_path(manifest),
+        census_path(manifest),
+        manifest.path.parent / "audit-state.json",
+    ):
         _file_part(path)
     digest = hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()
     return {"digest": digest, "version": __version__, "guard": _canonical_guard(root)}

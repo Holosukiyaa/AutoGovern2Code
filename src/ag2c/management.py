@@ -356,10 +356,32 @@ def project_details(path: Path, *, refresh: bool = False) -> dict[str, Any]:
     if not refresh:
         cached, cached_fp = _read_details_cache(root)
         if cached is not None and cached_fp == fingerprint:
-            return cached
-    result = _compute_project_details(root)
-    _write_details_cache(root, fingerprint, result)
+            result = cached
+        else:
+            result = _compute_project_details(root)
+            _write_details_cache(root, fingerprint, result)
+    else:
+        result = _compute_project_details(root)
+        _write_details_cache(root, fingerprint, result)
+    _overlay_audit_status(root, result)
     return result
+
+
+def _overlay_audit_status(root: Path, result: dict[str, Any]) -> None:
+    """随机抽查状态：每次调用现算（不随 details 缓存），且只有这条用户侧
+    路径会触发生成——verify / run_checks 不读取、不展示抽查计划。"""
+    if not result.get("available"):
+        return
+    try:
+        manifest_path = discover_manifest(root)
+        if manifest_path is None:
+            return
+        manifest = load_manifest(manifest_path, project_root=root)
+        from .audit import audit_status
+
+        result["audit"] = audit_status(manifest, load_policy(manifest))
+    except (AG2CError, OSError, ValueError):
+        result["audit"] = {"pending": [], "due": False, "days_since": None}
 
 
 def _compute_project_details(root: Path) -> dict[str, Any]:

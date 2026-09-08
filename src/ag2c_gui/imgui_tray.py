@@ -591,7 +591,29 @@ def _gui_dashboard(state: AppState) -> None:
     with state.lock:
         details = state.details
         guard = dict(state.guard)
-    draw_dashboard(dashboard_model(details, guard))
+    model = dashboard_model(details, guard)
+    draw_dashboard(model)
+    _gui_audit_pending(state, model)
+
+
+def _gui_audit_pending(state: AppState, model: dict[str, Any]) -> None:
+    """随机抽查待办：条目只出现在这个用户侧界面；确认走桌面端，不经 MCP。"""
+    from imgui_bundle import imgui
+
+    audit_info = model.get("audit") if isinstance(model.get("audit"), dict) else {}
+    pending = audit_info.get("pending") or []
+    if not pending:
+        return
+    imgui.separator()
+    imgui.text_colored((1.0, 0.6, 0.2, 1.0), "随机抽查（人工核对后确认）")
+    for item in pending:
+        imgui.bullet_text(f"{text(item, 'id')} — {text(item, 'question')}")
+    if imgui.small_button("已抽查"):
+        with state.lock:
+            project = state.details.get("project") if isinstance(state.details, dict) else {}
+        audit(state, "已抽查", "首页", text(project, "root"))
+        state.run_job(lambda: _post(state, "api/project/audit-ack", text(project, "root")))
+        _refresh(state)
 
 
 def _gui_splash(state: AppState) -> None:

@@ -213,6 +213,54 @@ class CheckerTests(unittest.TestCase):
         output = "FAIL: test_a (tests.test_a)\nERROR: test_b (tests.test_b)\nrandom noise\nFAILED (failures=2)\n"
         self.assertEqual(["test_a (tests.test_a)", "test_b (tests.test_b)"], parse_unittest_failures(output))
 
+    def test_room_bound_unittest_checker_runs_only_when_the_room_is_sliced(self) -> None:
+        body = "import sys; print('FAIL: test_worker (tests.test_worker)', file=sys.stderr); sys.exit(1)"
+        jurisdiction = {
+            "capability": "worker",
+            "implementation": "worker.main",
+            "status": "current",
+            "entrypoints": [],
+            "grain": "subtree",
+            "meaning": "named",
+            "contract": "none",
+            "decider": "none",
+            "span": "folder",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root)
+            # Only directory households (knowledge cards with a jurisdiction) may own checkers.
+            _add_checker(root, _unittest_checker(body), bind_to="knowledge.worker")
+            manifest = load_manifest(root / ".ag2c" / "manifest.json")
+            with self.assertRaisesRegex(ConfigurationError, "cannot own checkers"):
+                load_policy(manifest)
+            policy_path = root / ".ag2c" / "policy.json"
+            raw = json.loads(policy_path.read_text(encoding="utf-8"))
+            for card in raw["cards"]:
+                if card.get("id") == "knowledge.worker":
+                    card["jurisdiction"] = jurisdiction
+            policy_path.write_text(json.dumps(raw), encoding="utf-8")
+            manifest, policy = _reload(root)
+            build_index(manifest, policy)
+
+            # Slicing the api side never selects knowledge.worker, so its room checker stays out.
+            api_slice = compile_slice(manifest, policy, path_specs=["app:src/api/service.py"])
+            self.assertNotIn("knowledge.worker", {card["id"] for card in api_slice["cards"]})
+            self.assertNotIn("check.tests", {item["id"] for item in api_slice["check_plan"]})
+
+            # Slicing the worker room selects the card and its zero-regression checker.
+            worker_slice = compile_slice(manifest, policy, path_specs=["app:src/worker/job.py"])
+            self.assertIn("knowledge.worker", {card["id"] for card in worker_slice["cards"]})
+            self.assertIn("check.tests", {item["id"] for item in worker_slice["check_plan"]})
+            report = run_checks(manifest, policy, worker_slice)
+            result = next(item for item in report["results"] if item["id"] == "check.tests")
+            self.assertEqual("failed", result["status"])
+            self.assertEqual(["test_worker (tests.test_worker)"], result["new_failures"])
+            accept_test_baseline(manifest, policy, [], actor="tester", reason="record room debt")
+            report = run_checks(manifest, policy, worker_slice)
+            result = next(item for item in report["results"] if item["id"] == "check.tests")
+            self.assertEqual("passed", result["status"])
+
     def test_update_checker_adjusts_gate_behavior(self) -> None:
         import subprocess
 

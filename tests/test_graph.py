@@ -243,7 +243,7 @@ class GovernanceGraphTests(unittest.TestCase):
             references=["src/ag2c/imgui_tray.py"],
         )
         sibling = _card("knowledge.src", "knowledge", "src leftover", include=["src/**"])
-        sibling["jurisdiction"] = {"span": "folder", "meaning": "none", "status": "current"}
+        sibling["jurisdiction"] = {"span": "folder", "meaning": "none", "status": "current", "implementation": "src.exploring"}
         lineage = build_lineage(
             {
                 "project": {"name": "AutoGovern2Code"},
@@ -340,6 +340,56 @@ class GovernanceGraphTests(unittest.TestCase):
         self.assertEqual("file", household_lineage.get("span"))
         self.assertEqual("一文件一张", household_lineage.get("spanLabel"))
         self.assertEqual("folder", leftover_lineage.get("span"))
+
+    def test_lineage_nests_rooms_under_their_directory_parent_room(self) -> None:
+        core = _card("knowledge.core", "knowledge", "core 松散文件", include=["src/core/**"])
+        core["jurisdiction"] = {"span": "folder", "meaning": "none", "status": "current", "implementation": "cf.core-misc"}
+        protocol = _card("knowledge.core-protocol", "knowledge", "协议注册表", include=["src/core/protocol/**"])
+        protocol["jurisdiction"] = {"span": "file", "meaning": "named", "status": "current", "implementation": "cf.core-protocol"}
+        backend = _card("knowledge.backend", "knowledge", "后端服务层", include=["src/backend/**"])
+        backend["jurisdiction"] = {"span": "file", "meaning": "named", "status": "current", "implementation": "cf.backend"}
+        exploring = _card("knowledge.src", "knowledge", "src exploring household", include=["src/**"])
+        exploring["jurisdiction"] = {"span": "none", "meaning": "none", "status": "current", "implementation": "src.exploring"}
+        lineage = build_lineage(
+            {
+                "project": {"name": "CartridgeFlow"},
+                "cards": [
+                    _card("constitution.project", "constitution", "宪章"),
+                    _card("floor.src", "floor", "src", include=["src/**"]),
+                    core,
+                    protocol,
+                    backend,
+                    exploring,
+                ],
+                "relations": [
+                    {"source": "knowledge.core", "type": "explains", "target": "floor.src"},
+                    {"source": "knowledge.core-protocol", "type": "explains", "target": "floor.src"},
+                    {"source": "knowledge.backend", "type": "explains", "target": "floor.src"},
+                    {"source": "knowledge.src", "type": "explains", "target": "floor.src"},
+                ],
+                "graph": {"nodes": []},
+            }
+        )
+        core_node = next(node for node in lineage["nodes"] if node["id"] == "knowledge.core")
+        protocol_node = next(node for node in lineage["nodes"] if node["id"] == "knowledge.core-protocol")
+        backend_node = next(node for node in lineage["nodes"] if node["id"] == "knowledge.backend")
+        exploring_node = next(node for node in lineage["nodes"] if node["id"] == "knowledge.src")
+        # A room nests under the real room whose directory strictly contains it.
+        self.assertEqual("knowledge.core@floor.src", protocol_node["parent"])
+        self.assertEqual(3, protocol_node["layer"])
+        self.assertTrue(core_node.get("nested"))
+        # Sibling top-level directories stay on the floor.
+        self.assertEqual("floor.src", core_node["parent"])
+        self.assertEqual("floor.src", backend_node["parent"])
+        # Exploring households never swallow other rooms.
+        self.assertEqual("floor.src", exploring_node["parent"])
+        self.assertFalse(exploring_node.get("nested"))
+        labels = {
+            node["id"]: node.get("ordinal_label")
+            for node in lineage["nodes"]
+            if node.get("kind") == "knowledge"
+        }
+        self.assertTrue(labels["knowledge.core-protocol"].startswith(labels["knowledge.core"] + "-"))
 
     def test_lineage_ordinals_use_hyphenated_layer_paths(self) -> None:
         lineage = build_lineage(

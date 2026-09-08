@@ -1170,6 +1170,59 @@ def build_lineage(
         node["layer"] = 3
         node["path"] = (_scope_paths(card) or [""])[0]
         nodes[parent_visual]["nested"] = True
+
+    # Nest directory rooms under their longest-prefix parent room so the card
+    # tree mirrors the real directory hierarchy (core/* rooms under the core
+    # room, frontend pages/styles under the frontend room, and so on).
+    # Exploring households never act as parents: they are census scaffolding,
+    # not a directory grouping the maintainer chose.
+    def _room_directory(card: Mapping[str, Any]) -> str:
+        paths = [_normalize_path(path) for path in _scope_paths(card)]
+        if not paths:
+            return ""
+        shortest = min(paths, key=len)
+        if shortest.endswith("/**"):
+            return shortest[:-3]
+        return shortest.rstrip("/")
+
+    room_dirs: dict[str, str] = {}
+    for card_id, card in knowledge_cards.items():
+        if is_document_knowledge(card):
+            continue
+        directory = _room_directory(card)
+        if directory:
+            room_dirs[card_id] = directory
+    for node in list(nodes.values()):
+        if node.get("kind") != "knowledge" or int(node.get("layer") or 0) != 2:
+            continue
+        card_id = _text(node.get("id"))
+        card = knowledge_cards.get(card_id)
+        if card is None or is_document_knowledge(card):
+            continue
+        my_dir = room_dirs.get(card_id) or ""
+        if not my_dir:
+            continue
+        best_id = ""
+        best_len = -1
+        for other_id, other_dir in room_dirs.items():
+            if other_id == card_id or len(other_dir) <= best_len:
+                continue
+            if not my_dir.startswith(other_dir + "/"):
+                continue
+            other_card = knowledge_cards.get(other_id) or {}
+            if is_enrollment_placeholder(_mapping(other_card.get("jurisdiction"))):
+                continue
+            best_id = other_id
+            best_len = len(other_dir)
+        if not best_id:
+            continue
+        parent_visual = f"{best_id}@{node.get('parent')}"
+        if parent_visual not in nodes:
+            continue
+        node["parent"] = parent_visual
+        node["layer"] = 3
+        nodes[parent_visual]["nested"] = True
+
     orphans = [card_id for card_id in knowledge_cards if card_id not in hung and card_id not in hidden_leftovers]
     if orphans:
         add_node(

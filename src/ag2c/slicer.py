@@ -175,6 +175,13 @@ def compile_slice(
             for target_id in freshness["target_ids"]:
                 expand_target(target_id, f"{prefix}:{card_id}")
 
+    # Cards selected up to this point are DIRECT hits (changed-artifact owners,
+    # scoped knowledge, explicit contracts, conservative floors). The relation
+    # walk below only adds CONTEXT (depends_on / explains / replacements): those
+    # cards are read by the agent but their checkers must not run — a test suite
+    # belongs to the room that owns the change, not to every neighbouring room.
+    direct_ids = set(reasons)
+
     queue = deque(sorted(reasons))
     visited: set[str] = set()
     while queue:
@@ -210,8 +217,14 @@ def compile_slice(
         ),
         key=lambda card: (CARD_ORDER[card["type"]], card["id"]),
     )
+    for card in cards:
+        # The household gate only demands checkers from directly-hit rooms;
+        # context rooms (relation walk) carry knowledge, not test obligations.
+        card["direct"] = card["id"] in direct_ids
     checker_reasons: dict[str, set[str]] = defaultdict(set)
     for card_id in reasons:
+        if card_id not in direct_ids:
+            continue
         for checker_id in policy.card(card_id).checkers:
             checker_reasons[checker_id].add(f"selected-card:{card_id}")
     for checker in policy.checkers:

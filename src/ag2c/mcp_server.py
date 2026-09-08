@@ -57,7 +57,7 @@ Hard rules learned in production:
 - A knowledge-card title is the 摘要: 20 characters max, Chinese allowed; the English id is not the display name.
 - ag2c_task_verify runs in the background: it answers within 45s, either with the result or with state "running" — call the same tool again to poll until the result arrives. The CLI `ag2c task verify` inside the worktree counts the same.
 - Checkers marked always:true run on every verify regardless of slice. Checkers with parse:unittest get a zero-regression gate: failures listed in the store baseline stay green, any NEW failure blocks verify, and fixed failures shrink the baseline automatically. Record the initial debt once with `ag2c govern test-baseline --actor ... --reason ...`; tune checkers with `ag2c govern checker --id ... --always on|off --parse unittest|none`.
-- Large suites can be split per room: bind a parse:unittest checker to a directory household (ag2c_household checker/command) and it runs only when the slice touches that room.
+- Test scripts belong to rooms, not floors: create a suite checker with `ag2c govern checker --id check.suite-<name> --command '["python","-B","tests/suites.py","<name>"]' --stage floor --parse unittest` (suite names live in tests/suites.py), then bind it to a directory household (ag2c_household checker) so it runs only when the slice touches that room. Keep one small always-on fast suite as the floor-level baseline.
 - ag2c_task_finish runs from the canonical checkout, never from the worktree.
 
 Fail closed: dirty canonical blocks start; writes outside the worktree block verify; leftover deletion needs retire then a dedicated task. Full Skill text is in resources ag2c://skill/<name>. The generic connect prompt is ag2c://connect.

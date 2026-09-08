@@ -282,6 +282,136 @@ class CheckerTests(unittest.TestCase):
             result = next(item for item in report["results"] if item["id"] == "check.tests")
             self.assertEqual("passed", result["status"])
 
+    def test_neighbour_room_checkers_stay_out_of_the_check_plan(self) -> None:
+        jurisdiction = {
+            "capability": "worker",
+            "implementation": "worker.main",
+            "status": "current",
+            "entrypoints": [],
+            "grain": "subtree",
+            "meaning": "named",
+            "contract": "none",
+            "decider": "none",
+            "span": "folder",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root)
+            _add_checker(root, _unittest_checker("print('ok')"), bind_to="knowledge.worker")
+            policy_path = root / ".ag2c" / "policy.json"
+            raw = json.loads(policy_path.read_text(encoding="utf-8"))
+            for card in raw["cards"]:
+                if card.get("id") == "knowledge.worker":
+                    card["jurisdiction"] = jurisdiction
+            # Both rooms explain the SAME floor, like every src room explains floor.src.
+            raw["relations"].append({"source": "knowledge.worker", "type": "explains", "target": "floor.api"})
+            # The api side needs its own household so the enforce-mode gate sees owned code.
+            raw["cards"].append(
+                {
+                    "id": "knowledge.api",
+                    "type": "knowledge",
+                    "title": "API navigation",
+                    "summary": "Explains api source.",
+                    "scopes": [{"target": "app", "include": ["src/api/**"], "ownership": "reference"}],
+                    "references": [],
+                    "jurisdiction": {**jurisdiction, "capability": "api", "implementation": "api.main"},
+                }
+            )
+            raw["relations"].append({"source": "knowledge.api", "type": "explains", "target": "floor.api"})
+            policy_path.write_text(json.dumps(raw), encoding="utf-8")
+            manifest, policy = _reload(root)
+            build_index(manifest, policy)
+
+            api_slice = compile_slice(manifest, policy, path_specs=["app:src/api/service.py"])
+            # The neighbour room is still knowledge context for the agent...
+            self.assertIn("knowledge.worker", {card["id"] for card in api_slice["cards"]})
+            # ...but a suite belongs to the room that owns the change: it must not run.
+            self.assertNotIn("check.tests", {item["id"] for item in api_slice["check_plan"]})
+
+            worker_slice = compile_slice(manifest, policy, path_specs=["app:src/worker/job.py"])
+            self.assertIn("check.tests", {item["id"] for item in worker_slice["check_plan"]})
+
+            # The household gate owes nothing from a context room, but a directly
+            # touched room must have every bound checker selected.
+            from ag2c.households import enforce_households
+
+            raw["household_required"] = True
+            policy_path.write_text(json.dumps(raw), encoding="utf-8")
+            manifest, policy = _reload(root)
+            build_index(manifest, policy)
+            import subprocess
+
+            subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, capture_output=True)
+            from ag2c.household_commands import review_census
+
+            review_census(root, card_ids=["knowledge.api"], all_cards=False, actor="tester", reason="record api room")
+            manifest, policy = _reload(root)
+            build_index(manifest, policy)
+            api_slice = compile_slice(manifest, policy, path_specs=["app:src/api/service.py"])
+            enforce_households(manifest, policy, api_slice, {item["id"] for item in api_slice["check_plan"]})
+            worker_slice = compile_slice(manifest, policy, path_specs=["app:src/worker/job.py"])
+            with self.assertRaisesRegex(AG2CError, "implementation-check-not-selected:knowledge.worker"):
+                enforce_households(manifest, policy, worker_slice, {"check.floor"})
+
+    def test_room_tool_checkers_never_mismatch_the_household_implementation(self) -> None:
+        from ag2c.households import census_report
+
+        jurisdiction = {
+            "capability": "worker",
+            "implementation": "worker.main",
+            "status": "current",
+            "entrypoints": [],
+            "grain": "subtree",
+            "meaning": "named",
+            "contract": "none",
+            "decider": "none",
+            "span": "folder",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root)
+            # A plain unittest suite (no implementation claim) bound to a room
+            # whose jurisdiction names a product implementation.
+            _add_checker(root, _unittest_checker("print('ok')"), bind_to="knowledge.worker")
+            policy_path = root / ".ag2c" / "policy.json"
+            raw = json.loads(policy_path.read_text(encoding="utf-8"))
+            for card in raw["cards"]:
+                if card.get("id") == "knowledge.worker":
+                    card["jurisdiction"] = jurisdiction
+            policy_path.write_text(json.dumps(raw), encoding="utf-8")
+            manifest, policy = _reload(root)
+            build_index(manifest, policy)
+
+            report = census_report(manifest, policy)
+            household = next(item for item in report["households"] if item["id"] == "knowledge.worker")
+            self.assertNotIn("implementation-check-mismatch", {issue["code"] for issue in household["issues"]})
+
+            # A checker claiming a DIFFERENT implementation still mismatches.
+            _add_checker(root, _unittest_checker("print('ok')", id="check.other", implementation="other.impl"), bind_to="knowledge.worker")
+            manifest, policy = _reload(root)
+            build_index(manifest, policy)
+            report = census_report(manifest, policy)
+            household = next(item for item in report["households"] if item["id"] == "knowledge.worker")
+            self.assertIn("implementation-check-mismatch", {issue["code"] for issue in household["issues"]})
+
+            # A machine-contract room is not satisfied by room tools alone.
+            raw = json.loads(policy_path.read_text(encoding="utf-8"))
+            for card in raw["cards"]:
+                if card.get("id") == "knowledge.worker":
+                    card["jurisdiction"] = {**jurisdiction, "contract": "machine"}
+                    card["checkers"] = ["check.tests"]
+            for checker in raw["checkers"]:
+                if checker.get("id") == "check.other":
+                    raw["checkers"].remove(checker)
+            policy_path.write_text(json.dumps(raw), encoding="utf-8")
+            manifest, policy = _reload(root)
+            build_index(manifest, policy)
+            report = census_report(manifest, policy)
+            household = next(item for item in report["households"] if item["id"] == "knowledge.worker")
+            codes = {issue["code"] for issue in household["issues"]}
+            self.assertIn("implementation-check-missing", codes)
+            self.assertNotIn("implementation-check-mismatch", codes)
+
     def test_update_checker_adjusts_gate_behavior(self) -> None:
         import subprocess
 
@@ -308,6 +438,76 @@ class CheckerTests(unittest.TestCase):
                 update_checker(root, checker_id="check.nope", actor="tester", reason="x", always=True)
             with self.assertRaisesRegex(AG2CError, "nothing to change"):
                 update_checker(root, checker_id="check.tests", actor="tester", reason="x")
+
+    def test_update_checker_creates_room_suite_checkers(self) -> None:
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root)
+            subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, capture_output=True)
+
+            # Unknown id without a command is still refused.
+            with self.assertRaisesRegex(AG2CError, "pass --command to create"):
+                update_checker(root, checker_id="check.suite-worker", actor="tester", reason="x", parse="unittest")
+
+            # Policy forbids orphaned checkers: creating requires a binding.
+            with self.assertRaisesRegex(AG2CError, "must be bound to a card"):
+                update_checker(root, checker_id="check.suite-worker", actor="tester", reason="x", command=["python", "-B", "tests/suites.py", "worker"])
+            with self.assertRaisesRegex(AG2CError, "unknown cards: floor.nope"):
+                update_checker(root, checker_id="check.suite-worker", actor="tester", reason="x", command=["python", "-B", "tests/suites.py", "worker"], bind=["floor.nope"])
+
+            # Unknown id + command + bind creates a floor checker with the gate fields applied.
+            result = update_checker(
+                root,
+                checker_id="check.suite-worker",
+                actor="tester",
+                reason="split worker suite out of the full run",
+                command=["python", "-B", "tests/suites.py", "worker"],
+                parse="unittest",
+                timeout=300,
+                bind=["floor.api"],
+            )
+            self.assertEqual("create", result["action"])
+            self.assertTrue(result["changes"]["created"])
+            self.assertEqual(["floor.api"], result["changes"]["bound"])
+            _, policy = _reload(root)
+            checker = policy.checker("check.suite-worker")
+            self.assertEqual("floor", checker.stage)
+            self.assertEqual(("python", "-B", "tests/suites.py", "worker"), checker.command)
+            self.assertEqual("unittest", checker.parse)
+            self.assertEqual(300, checker.timeout)
+            self.assertFalse(checker.always)
+            self.assertIn("check.suite-worker", list(policy.card("floor.api").checkers))
+
+            # A created checker's command can be updated in place.
+            result = update_checker(
+                root,
+                checker_id="check.suite-worker",
+                actor="tester",
+                reason="point at the api suite",
+                command=["python", "-B", "tests/suites.py", "api"],
+            )
+            self.assertEqual("update", result["action"])
+            _, policy = _reload(root)
+            checker = policy.checker("check.suite-worker")
+            self.assertEqual(("python", "-B", "tests/suites.py", "api"), checker.command)
+
+            # Floor cards may only bind floor checkers: moving the stage while
+            # bound is refused by policy validation AND rolled back on disk.
+            with self.assertRaisesRegex(AG2CError, "can only bind floor checkers"):
+                update_checker(root, checker_id="check.suite-worker", actor="tester", reason="bad stage move", stage="boundary")
+            _, policy = _reload(root)
+            self.assertEqual("floor", policy.checker("check.suite-worker").stage)
+
+            # Re-binding to a card that already owns the checker is idempotent.
+            result = update_checker(root, checker_id="check.suite-worker", actor="tester", reason="re-bind is a no-op", bind=["floor.api"])
+            self.assertNotIn("bound", result["changes"])
+
+            with self.assertRaisesRegex(AG2CError, "nonempty JSON array of strings"):
+                update_checker(root, checker_id="check.suite-worker", actor="tester", reason="x", command=[])
+            with self.assertRaisesRegex(AG2CError, "unsupported checker stage"):
+                update_checker(root, checker_id="check.suite-worker", actor="tester", reason="x", stage="outer-space")
 
 
 if __name__ == "__main__":

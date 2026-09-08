@@ -602,6 +602,9 @@ def apply_change(
     }
 
 
+CHECKER_STAGES = ("static", "floor", "boundary", "scenario")
+
+
 def update_checker(
     start: Path,
     *,
@@ -611,25 +614,63 @@ def update_checker(
     always: bool | None = None,
     parse: str | None = None,
     timeout: int | None = None,
+    command: list[str] | None = None,
+    stage: str | None = None,
+    bind: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Adjust a policy checker's gate behavior without hand-editing policy.json."""
+    """Create or adjust a policy checker without hand-editing policy.json.
+
+    Unknown id + --command creates the checker (default stage floor); a known
+    id updates only the fields passed. Policy forbids orphaned checkers, so
+    creating requires --bind <card> (repeatable); binding also works on an
+    existing checker and unions into each card's checker list.
+    """
     actor = actor.strip()
     reason = reason.strip()
     checker_id = checker_id.strip()
     if not actor or not reason or not checker_id:
         raise AG2CError("governance checker requires --actor, --reason, and --id")
-    if always is None and parse is None and timeout is None:
-        raise AG2CError("nothing to change; pass --always, --parse, or --timeout")
+    if always is None and parse is None and timeout is None and command is None and stage is None and not bind:
+        raise AG2CError("nothing to change; pass --always, --parse, --timeout, --command, --stage, or --bind")
     if parse is not None and parse not in {"unittest", "none", ""}:
         raise AG2CError(f"unsupported parse mode: {parse}")
+    if command is not None and (not command or any(not isinstance(item, str) or not item for item in command)):
+        raise AG2CError("checker command must be a nonempty JSON array of strings")
+    if stage is not None and stage not in CHECKER_STAGES:
+        raise AG2CError(f"unsupported checker stage: {stage}; expected one of {', '.join(CHECKER_STAGES)}")
     root = repository_root(start)
     manifest = load_manifest(discover_manifest(root), project_root=root)
     raw = _read_json(manifest.policy_path)
     checkers = [item for item in raw.get("checkers", []) if isinstance(item, dict)]
     target = next((item for item in checkers if str(item.get("id")) == checker_id), None)
-    if target is None:
-        raise AG2CError(f"unknown checker: {checker_id}")
     changes: dict[str, Any] = {}
+    action = "update"
+    if target is None:
+        if command is None:
+            raise AG2CError(f"unknown checker: {checker_id}; pass --command to create it")
+        if not bind:
+            raise AG2CError("a new checker must be bound to a card; pass --bind <card-id>")
+        target = {
+            "id": checker_id,
+            "stage": stage or "floor",
+            "target": "app",
+            "cwd": ".",
+            "command": list(command),
+            "timeout": 600,
+        }
+        checkers.append(target)
+        raw["checkers"] = checkers
+        action = "create"
+        changes["created"] = True
+        changes["command"] = list(command)
+        if stage is not None:
+            changes["stage"] = stage
+    elif command is not None:
+        target["command"] = list(command)
+        changes["command"] = list(command)
+    if stage is not None and action == "update":
+        target["stage"] = stage
+        changes["stage"] = stage
     if always is not None:
         target["always"] = always
         changes["always"] = always
@@ -645,20 +686,39 @@ def update_checker(
             raise AG2CError("timeout must be positive")
         target["timeout"] = timeout
         changes["timeout"] = timeout
+    if bind:
+        cards = [item for item in raw.get("cards", []) if isinstance(item, dict)]
+        known = {str(item.get("id")) for item in cards}
+        unknown = sorted({str(card_id).strip() for card_id in bind} - known)
+        if unknown:
+            raise AG2CError("cannot bind checker; unknown cards: " + ", ".join(unknown))
+        bound: list[str] = []
+        for card in cards:
+            if str(card.get("id")) not in {str(card_id).strip() for card_id in bind}:
+                continue
+            owned = [str(item) for item in card.get("checkers", []) if str(item)]
+            if checker_id not in owned:
+                owned.append(checker_id)
+                card["checkers"] = owned
+                bound.append(str(card.get("id")))
+        if bound:
+            changes["bound"] = bound
+    before = manifest.policy_path.read_text(encoding="utf-8")
     _atomic_json(manifest.policy_path, raw)
     try:
         policy = load_policy(manifest)
     except ConfigurationError as exc:
-        raise AG2CError(f"updated policy is invalid: {exc}") from exc
+        manifest.policy_path.write_text(before, encoding="utf-8")
+        raise AG2CError(f"updated policy is invalid (rolled back): {exc}") from exc
     build_index(manifest, policy, index_path(manifest))
     event = append_event(
         manifest.ledger_path,
         "governance-applied",
-        {"action": "update", "kind": "checker", "id": checker_id, "changes": changes, "actor": actor, "reason": reason},
+        {"action": action, "kind": "checker", "id": checker_id, "changes": changes, "actor": actor, "reason": reason},
     )
     pending_updates(root)
     return {
-        "action": "update",
+        "action": action,
         "kind": "checker",
         "id": checker_id,
         "changes": changes,

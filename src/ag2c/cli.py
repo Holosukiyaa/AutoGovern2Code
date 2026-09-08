@@ -345,11 +345,14 @@ def build_parser() -> argparse.ArgumentParser:
     enforcement.add_argument("--actor", required=True)
     enforcement.add_argument("--reason", required=True)
     enforcement.add_argument("--format", choices=("text", "json"), default="json")
-    checker_cmd = govern_commands.add_parser("checker", help="adjust a policy checker's gate behavior (always / parse / timeout)")
+    checker_cmd = govern_commands.add_parser("checker", help="create or adjust a policy checker (always / parse / timeout / command / stage)")
     checker_cmd.add_argument("--id", required=True)
     checker_cmd.add_argument("--always", choices=("on", "off"), default="")
     checker_cmd.add_argument("--parse", choices=("unittest", "none"), default="")
     checker_cmd.add_argument("--timeout", type=int, default=0)
+    checker_cmd.add_argument("--command", dest="checker_command", default="", help='JSON argv array, e.g. ["python","-B","tests/suites.py","fast"]; creates the checker when the id is unknown')
+    checker_cmd.add_argument("--stage", choices=("static", "floor", "boundary", "scenario"), default="")
+    checker_cmd.add_argument("--bind", action="append", default=[], help="card id to bind the checker to (repeatable); required when creating")
     checker_cmd.add_argument("--actor", required=True)
     checker_cmd.add_argument("--reason", required=True)
     checker_cmd.add_argument("--format", choices=("text", "json"), default="json")
@@ -763,6 +766,14 @@ def main(argv: list[str] | None = None) -> int:
             elif args.govern_command == "checker":
                 from .govern import update_checker
 
+                command = None
+                if args.checker_command:
+                    try:
+                        command = json.loads(args.checker_command)
+                    except json.JSONDecodeError as exc:
+                        raise AG2CError(f"--command must be a JSON array of strings: {exc}") from exc
+                    if not isinstance(command, list):
+                        raise AG2CError("--command must be a JSON array of strings")
                 result = update_checker(
                     Path.cwd(),
                     checker_id=args.id,
@@ -771,6 +782,9 @@ def main(argv: list[str] | None = None) -> int:
                     always={"on": True, "off": False}.get(args.always) if args.always else None,
                     parse=args.parse or None,
                     timeout=args.timeout or None,
+                    command=command,
+                    stage=args.stage or None,
+                    bind=list(args.bind),
                 )
             elif args.govern_command == "test-baseline":
                 from .checks import accept_test_baseline

@@ -616,11 +616,18 @@ def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
                 issues.append({"code": "replacement-missing"})
             if declaration["status"] == "retired" and any(item["code"] for item in matched):
                 issues.append({"code": "retired-code-remains"})
-            if declaration.get("contract") == "machine" and not card.checkers:
+            if declaration.get("contract") == "machine" and not any(
+                policy.checker(checker_id).implementation == declaration["implementation"] for checker_id in card.checkers
+            ):
                 issues.append({"code": "implementation-check-missing"})
             for checker_id in card.checkers:
                 checker = policy.checker(checker_id)
-                if checker.implementation != declaration["implementation"] or checker.command[:3] == ("git", "diff", "--check"):
+                # A checker with no implementation claim is a room tool (e.g. a
+                # unittest suite), not an implementation proof: it never mismatches.
+                # A bare git-diff checker is toothless either way.
+                if checker.command[:3] == ("git", "diff", "--check"):
+                    issues.append({"code": "implementation-check-mismatch", "checker": checker_id})
+                elif checker.implementation and checker.implementation != declaration["implementation"]:
                     issues.append({"code": "implementation-check-mismatch", "checker": checker_id})
                 if any(
                     other.implementation
@@ -731,7 +738,11 @@ def required_households(report: dict, entry_slice: dict) -> list[dict]:
     if not paths:
         return [item for item in report["households"] if item["jurisdiction"]]
     qualified = {f'{item["target"]}:{item["path"]}' for item in paths}
-    return [item for item in report["households"] if item["jurisdiction"] and (qualified.intersection(item["files"]) or item["id"] in {card["id"] for card in entry_slice.get("cards", [])})]
+    # A household is required when its files are touched or its card is a
+    # DIRECT slice hit. Context cards (relation walk, marked direct=False)
+    # carry knowledge only and owe no checker runs.
+    direct_cards = {card["id"] for card in entry_slice.get("cards", []) if card.get("direct", True)}
+    return [item for item in report["households"] if item["jurisdiction"] and (qualified.intersection(item["files"]) or item["id"] in direct_cards)]
 
 
 def enforce_households(manifest: Manifest, policy: Policy, entry_slice: dict, checker_ids: set[str]) -> None:

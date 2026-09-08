@@ -59,6 +59,19 @@ class CLITests(unittest.TestCase):
             self.assertTrue(item["digest"])
 
 
+class GovernCheckerParserTests(unittest.TestCase):
+    def test_checker_command_flag_does_not_clobber_the_subcommand(self) -> None:
+        from ag2c.cli import build_parser
+
+        args = build_parser().parse_args(
+            ["govern", "checker", "--id", "check.suite-x", "--command", '["python","-B","tests/suites.py","x"]', "--bind", "knowledge.room", "--actor", "a", "--reason", "r"]
+        )
+        self.assertEqual("govern", args.command)
+        self.assertEqual("checker", args.govern_command)
+        self.assertEqual('["python","-B","tests/suites.py","x"]', args.checker_command)
+        self.assertEqual(["knowledge.room"], args.bind)
+
+
 class ResultGateCliTests(unittest.TestCase):
     def test_task_start_requires_the_portrait(self) -> None:
         with redirect_stderr(io.StringIO()):

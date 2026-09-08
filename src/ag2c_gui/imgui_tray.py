@@ -208,10 +208,33 @@ class AppState:
         self.file_tree: dict[str, list[tuple[str, str, str, dict[str, Any]]]] | None = None
         self.tree_files: object | None = None
         self.audit_lines: list[str] = []
-        self.audit_open = False
-        # Floating operator panels (AI 入口 / 实际记录 / 施工), draggable like 操作日志.
-        self.panel_open: dict[str, bool] = {"gate": False, "records": False, "worktrees": False}
+        # Drawer visibility lives on the DockableWindow objects (registered in
+        # dock_windows by _windows); ops_tab requests which 运维 tab gets focus.
+        self.dock_windows: dict[str, Any] = {}
+        self.ops_tab = ""
+        self.ops_active = ""
         self.panel_fields: dict[str, dict[str, Any]] = {}
+
+    def dock_visible(self, label: str) -> bool:
+        window = self.dock_windows.get(label)
+        return bool(window is not None and window.is_visible)
+
+    def set_dock_visible(self, label: str, visible: bool) -> None:
+        window = self.dock_windows.get(label)
+        if window is not None:
+            window.is_visible = visible
+
+    def toggle_dock(self, label: str) -> bool:
+        window = self.dock_windows.get(label)
+        if window is None:
+            return False
+        window.is_visible = not window.is_visible
+        return bool(window.is_visible)
+
+    def open_ops(self, tab: str) -> None:
+        """Open the 运维 drawer focused on one tab (audit / worktrees / records / gate)."""
+        self.ops_tab = tab
+        self.set_dock_visible("运维", True)
 
     def clear_focus(self) -> None:
         self.inspect = empty_inspect()
@@ -343,7 +366,7 @@ def main(argv: list[str] | None = None) -> int:
     runner.app_window_params.window_geometry.size_auto = False
     runner.app_window_params.window_geometry.window_size_state = hello_imgui.WindowSizeState.standard
     runner.ini_folder_type = hello_imgui.IniFolderType.app_user_config_folder
-    runner.ini_filename = "AutoGovern2Code/tray-v14.ini"
+    runner.ini_filename = "AutoGovern2Code/tray-v15.ini"
     runner.fps_idling.enable_idling = False
     runner.fps_idling.remember_enable_idling = False
     runner.fps_idling.fps_idle = 60.0
@@ -374,7 +397,7 @@ def main(argv: list[str] | None = None) -> int:
     runner.callbacks.before_imgui_render = _logged("before_frame", lambda: _before_frame(state))
     runner.callbacks.before_exit = _logged("before_exit", lambda: _shutdown(state))
     runner.docking_params.layout_condition = hello_imgui.DockingLayoutCondition.application_start
-    runner.docking_params.layout_name = "tray-v14"
+    runner.docking_params.layout_name = "tray-v15"
     runner.docking_params.main_dock_space_node_flags = imgui.DockNodeFlags_.no_undocking
     runner.docking_params.docking_splits = _splits()
     runner.docking_params.dockable_windows = _windows(state)
@@ -591,31 +614,33 @@ def _splits():
         return item
 
     return [
-        split("MainDockSpace", "FileTreeSpace", imgui.Dir.left, 0.26, tree_lock),
-        split("MainDockSpace", "InspectorSpace", imgui.Dir.right, 0.38),
-        split("InspectorSpace", "CardSpace", imgui.Dir.down, 0.50),
+        split("MainDockSpace", "FileTreeSpace", imgui.Dir.left, 0.24, tree_lock),
+        split("MainDockSpace", "InspectorSpace", imgui.Dir.right, 0.32),
+        split("MainDockSpace", "OpsSpace", imgui.Dir.down, 0.30),
     ]
 
 
 def _windows(state: AppState):
+    """Map-first orchestration: 谱系 owns the stage; the three drawers start hidden."""
     from imgui_bundle import hello_imgui, imgui
 
-    def window(label: str, space: str, gui) -> hello_imgui.DockableWindow:
+    def window(label: str, space: str, gui, *, closable: bool) -> hello_imgui.DockableWindow:
         item = hello_imgui.DockableWindow()
         item.label = label
         item.dock_space_name = space
-        item.can_be_closed = False
-        item.remember_is_visible = False
-        item.is_visible = True
+        item.can_be_closed = closable
+        item.remember_is_visible = closable
+        item.is_visible = not closable
         item.imgui_window_flags = imgui.WindowFlags_.no_collapse
         item.gui_function = gui
+        state.dock_windows[label] = item
         return item
 
     return [
-        window("文件树", "FileTreeSpace", lambda: _guarded(state, "文件树", lambda: _gui_tree(state))),
-        window("谱系", "MainDockSpace", lambda: _guarded(state, "谱系", lambda: _gui_lineage(state))),
-        window("详情", "InspectorSpace", lambda: _guarded(state, "详情", lambda: _gui_inspect(state))),
-        window("知识卡片", "CardSpace", lambda: _guarded(state, "知识卡片", lambda: _gui_cards(state))),
+        window("谱系", "MainDockSpace", lambda: _guarded(state, "谱系", lambda: _gui_lineage(state)), closable=False),
+        window("文件树", "FileTreeSpace", lambda: _guarded(state, "文件树", lambda: _gui_tree(state)), closable=True),
+        window("检查器", "InspectorSpace", lambda: _guarded(state, "检查器", lambda: _gui_inspector(state)), closable=True),
+        window("运维", "OpsSpace", lambda: _guarded(state, "运维", lambda: _gui_ops(state)), closable=True),
     ]
 
 
@@ -696,7 +721,8 @@ def _status_bar(state: AppState) -> None:
     meter = f"{fps:.0f} fps  {dt:.1f} ms"
     if parts:
         meter += "  ·  " + "  ".join(parts)
-    btn_w = float(imgui.calc_text_size("操作日志").x) + 18.0
+    drawer_labels = ("文件树", "检查器", "运维")
+    btn_w = sum(float(imgui.calc_text_size(label).x) + 18.0 for label in drawer_labels) + 8.0 * (len(drawer_labels) - 1)
     meter_w = float(imgui.calc_text_size(meter).x)
     width = float(imgui.get_window_width())
     avail_meter = width - meter_w - 16.0
@@ -705,15 +731,18 @@ def _status_bar(state: AppState) -> None:
         imgui.same_line(avail_btn)
     else:
         imgui.same_line()
-    if state.audit_open:
-        imgui.push_style_color(imgui.Col_.button, (0.28, 0.50, 0.78, 0.70))
-        imgui.push_style_color(imgui.Col_.button_hovered, (0.32, 0.56, 0.84, 0.85))
-    clicked = imgui.small_button("操作日志")
-    if state.audit_open:
-        imgui.pop_style_color(2)
-    if clicked:
-        state.audit_open = not state.audit_open
-        audit(state, "打开操作日志" if state.audit_open else "关闭操作日志", "状态栏", "")
+    for label in drawer_labels:
+        visible = state.dock_visible(label)
+        if visible:
+            imgui.push_style_color(imgui.Col_.button, (0.28, 0.50, 0.78, 0.70))
+            imgui.push_style_color(imgui.Col_.button_hovered, (0.32, 0.56, 0.84, 0.85))
+        clicked = imgui.small_button(label)
+        if visible:
+            imgui.pop_style_color(2)
+        if clicked:
+            now = state.toggle_dock(label)
+            audit(state, ("打开" if now else "关闭") + label, "状态栏", "")
+        imgui.same_line()
     if avail_meter > float(imgui.get_cursor_pos_x()) + 8.0:
         imgui.same_line(avail_meter)
     else:
@@ -722,52 +751,35 @@ def _status_bar(state: AppState) -> None:
 
 
 def _gui_overlays(state: AppState) -> None:
-    """Floating windows drawn after the dock panes: operation log + operator panels + splash."""
-    _gui_audit(state)
-    _gui_panels(state)
+    """Only the splash floats now; 操作日志 and the operator panels live in the 运维 drawer."""
     _gui_splash(state)
 
 
-def _gui_audit(state: AppState) -> None:
-    """Floating operation log. Not a dock pane; drawn after the four windows."""
+def _audit_body(state: AppState) -> None:
+    """Operation log content, rendered inside the 运维 drawer's tab."""
     from imgui_bundle import imgui
 
-    if not state.audit_open:
-        return
-    flags = imgui.WindowFlags_.no_docking | imgui.WindowFlags_.no_saved_settings
-    imgui.set_next_window_size(imgui.ImVec2(560.0, 420.0), imgui.Cond_.first_use_ever)
-    imgui.set_next_window_pos(imgui.ImVec2(72.0, 72.0), imgui.Cond_.first_use_ever)
-    visible, opened = imgui.begin("操作日志", True, flags)
-    try:
-        if opened is False:
-            state.audit_open = False
-            audit(state, "关闭操作日志", "操作日志", "窗口")
-            return
-        if not visible:
-            return
-        path = str(_audit_log_path())
-        imgui.text_disabled(f"{len(state.audit_lines)} 条 · {path}")
-        if imgui.small_button("清空"):
-            state.audit_lines.clear()
-        imgui.same_line()
-        if imgui.small_button("打开日志文件"):
-            try:
-                if Path(path).is_file():
-                    os.startfile(path)  # noqa: S606
-            except OSError:
-                pass
-        imgui.separator()
-        imgui.begin_child("##audit-body", imgui.ImVec2(0.0, 0.0), 1)
+    path = str(_audit_log_path())
+    imgui.text_disabled(f"{len(state.audit_lines)} 条 · {path}")
+    if imgui.small_button("清空"):
+        state.audit_lines.clear()
+    imgui.same_line()
+    if imgui.small_button("打开日志文件"):
         try:
-            if not state.audit_lines:
-                imgui.text_disabled("还没有操作。点击文件、知识卡或谱系节点后会出现在这里。")
-            else:
-                for line in reversed(state.audit_lines):
-                    imgui.text_wrapped(line)
-        finally:
-            imgui.end_child()
+            if Path(path).is_file():
+                os.startfile(path)  # noqa: S606
+        except OSError:
+            pass
+    imgui.separator()
+    imgui.begin_child("##audit-body", imgui.ImVec2(0.0, 0.0), 1)
+    try:
+        if not state.audit_lines:
+            imgui.text_disabled("还没有操作。点击文件、知识卡或谱系节点后会出现在这里。")
+        else:
+            for line in reversed(state.audit_lines):
+                imgui.text_wrapped(line)
     finally:
-        imgui.end()
+        imgui.end_child()
 
 
 def _gate_panel_content(state: AppState, fields: dict[str, Any]) -> None:
@@ -885,45 +897,65 @@ def _work_panel_content(state: AppState, fields: dict[str, Any]) -> None:
             imgui.text(f"{label}  ·  {goal}")
 
 
-_PANEL_SIZES = {"gate": (560.0, 380.0), "records": (560.0, 420.0), "worktrees": (520.0, 300.0)}
+_OPS_TABS = (("audit", "操作日志"), ("worktrees", "施工"), ("records", "实际记录"), ("gate", "AI 入口"))
 
 
-def _gui_panels(state: AppState) -> None:
-    """Floating operator panels (AI 入口 / 实际记录 / 施工), draggable like 操作日志."""
+def _gui_ops(state: AppState) -> None:
+    """运维 drawer: one dockable window, four tabs — no more floating windows."""
     from imgui_bundle import imgui
 
-    with state.lock:
-        open_kinds = [kind for kind, is_open in state.panel_open.items() if is_open]
-    for index, kind in enumerate(open_kinds):
-        title = PANEL_TITLES.get(kind, kind)
-        flags = imgui.WindowFlags_.no_docking | imgui.WindowFlags_.no_saved_settings
-        width, height = _PANEL_SIZES.get(kind, (520.0, 320.0))
-        imgui.set_next_window_size(imgui.ImVec2(width, height), imgui.Cond_.first_use_ever)
-        imgui.set_next_window_pos(
-            imgui.ImVec2(96.0 + 28.0 * index, 96.0 + 28.0 * index),
-            imgui.Cond_.first_use_ever,
-        )
-        visible, opened = imgui.begin(widget_id(title, "panel:" + kind), True, flags)
-        try:
-            if opened is False:
-                with state.lock:
-                    state.panel_open[kind] = False
-                audit(state, "关闭" + title, "浮窗", "窗口")
-                continue
-            if not visible:
-                continue
-            with state.lock:
-                fields = dict(state.panel_fields.get(kind) or {})
-            if not fields:
-                imgui.text_disabled("点项目栏的按钮刷新这里的内容")
-            elif kind == "gate":
-                _gate_panel_content(state, fields)
-            elif kind == "records":
-                _records_panel_content(state, fields)
-            elif kind == "worktrees":
-                _work_panel_content(state, fields)
-        finally:
-            imgui.end()
+    if not imgui.begin_tab_bar("##ops-tabs"):
+        return
+    try:
+        for kind, title in _OPS_TABS:
+            flags = 0
+            if state.ops_tab == kind:
+                flags |= int(imgui.TabItemFlags_.set_selected)
+                state.ops_tab = ""
+            selected, _ = imgui.begin_tab_item(title, None, flags)
+            if selected:
+                state.ops_active = kind
+                try:
+                    if kind == "audit":
+                        _audit_body(state)
+                    else:
+                        with state.lock:
+                            fields = dict(state.panel_fields.get(kind) or {})
+                        if not fields:
+                            imgui.text_disabled("点项目栏的门状态行刷新这里的内容")
+                        elif kind == "gate":
+                            _gate_panel_content(state, fields)
+                        elif kind == "records":
+                            _records_panel_content(state, fields)
+                        elif kind == "worktrees":
+                            _work_panel_content(state, fields)
+                finally:
+                    imgui.end_tab_item()
+    finally:
+        imgui.end_tab_bar()
+
+
+def _gui_inspector(state: AppState) -> None:
+    """检查器 drawer: 详情 + 知识卡片 as tabs of one dockable window."""
+    from imgui_bundle import imgui
+
+    if not imgui.begin_tab_bar("##inspector-tabs"):
+        return
+    try:
+        selected, _ = imgui.begin_tab_item("详情", None, 0)
+        if selected:
+            try:
+                _gui_inspect(state)
+            finally:
+                imgui.end_tab_item()
+        selected, _ = imgui.begin_tab_item("知识卡片", None, 0)
+        if selected:
+            try:
+                _gui_cards(state)
+            finally:
+                imgui.end_tab_item()
+    finally:
+        imgui.end_tab_bar()
 
 
 def _gui_project_bar(state: AppState) -> None:
@@ -999,12 +1031,11 @@ GATE_BUTTON_LABELS = {"gate": "MCP 链接", "records": "实际记录", "worktree
 
 
 def _gui_gate_strip(state: AppState, project: dict[str, Any]) -> None:
-    """Always-visible operator pulse. Each row is a clickable text line toggling a floating panel."""
+    """Always-visible operator pulse. Each row focuses one tab of the 运维 drawer."""
     from imgui_bundle import imgui
 
     with state.lock:
         details = state.details
-        panel_open = dict(state.panel_open)
     rows = project_gate_rows(project, details)
     if not rows:
         return
@@ -1016,19 +1047,21 @@ def _gui_gate_strip(state: AppState, project: dict[str, Any]) -> None:
         warn = bool(row.get("warn"))
         name = GATE_BUTTON_LABELS.get(kind, label)
         shown = f"{name} · {value}"
+        active = state.dock_visible("运维") and state.ops_active == kind
         pushed = 0
         if warn:
             imgui.push_style_color(imgui.Col_.text, _WARN_COLOR)
             pushed += 1
-        clicked = _selectable(widget_id(shown, "gate:" + kind), panel_open.get(kind))
+        clicked = _selectable(widget_id(shown, "gate:" + kind), active)
         if pushed:
             imgui.pop_style_color(pushed)
         if clicked:
-            opening = not panel_open.get(kind)
-            audit(state, ("打开" if opening else "关闭") + name, "项目栏", value)
-            with state.lock:
-                state.panel_open[kind] = opening
-            if opening:
+            if active:
+                state.set_dock_visible("运维", False)
+                audit(state, "关闭运维", "项目栏", value)
+            else:
+                audit(state, "打开运维·" + name, "项目栏", value)
+                state.open_ops(kind)
                 _refresh_panel(state, kind, project, details)
 
 
@@ -1093,15 +1126,18 @@ def _refresh_panel(
 
 
 def _refresh_open_panels(state: AppState) -> None:
-    """Keep open floating panels in sync after a details reload."""
+    """Keep the 运维 drawer's tabs in sync after a details reload."""
+    if not state.dock_visible("运维"):
+        return
     with state.lock:
-        open_kinds = [kind for kind, is_open in state.panel_open.items() if is_open]
         root = state.selected_root
         details = state.details
         project = next((row for row in state.projects if text(row, "root") == root), None)
     if project is None:
         return
-    for kind in open_kinds:
+    for kind, _title in _OPS_TABS:
+        if kind == "audit":
+            continue
         _refresh_panel(state, kind, project, details)
 
 
@@ -1243,12 +1279,17 @@ def _focus_card(state: AppState, card: dict[str, Any], *, pan_lineage: bool = Tr
     title = text(card, "title") or text(card, "id")
     audit(state, "点击知识卡", where, title)
     with state.lock:
+        previous_key = state.selected_card_key
         files, _cards = _all_rows(state.details)
         state.apply_focus(focus_card(files, card))
         _reveal_lineage_owners(state)
         if not pan_lineage:
             state.lineage_nav_id = ""
             state.lineage_nav_ids = []
+        # Selecting a card summons the inspector drawer; a repeated click on the
+        # same card does not reopen it after the user closed it.
+        if state.selected_card_key and state.selected_card_key != previous_key:
+            state.set_dock_visible("检查器", True)
 
 
 def _activate_owner(state: AppState, owner: str, *, where: str = "详情") -> None:

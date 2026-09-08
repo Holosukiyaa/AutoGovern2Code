@@ -53,7 +53,8 @@ class McpServerTests(unittest.TestCase):
         # Hard rules learned in production must ship in the auto-injected instructions.
         self.assertIn("census-stale", result["instructions"])
         self.assertIn("20 characters max", result["instructions"])
-        self.assertIn("exceed the MCP timeout", result["instructions"])
+        self.assertIn("runs in the background", result["instructions"])
+        self.assertIn("zero-regression", result["instructions"])
         self.assertIn("canonical checkout", result["instructions"])
 
     def test_census_tool_schema_exposes_record_all(self) -> None:
@@ -240,6 +241,64 @@ class McpServerTests(unittest.TestCase):
         tool = _rpc("tools/call", {"name": "ag2c_mcp_health", "arguments": {"handshake": False}})
         payload = json.loads(tool["result"]["content"][0]["text"])
         self.assertTrue(payload["skills_internalized"])
+
+
+class AsyncVerifyTests(unittest.TestCase):
+    def setUp(self) -> None:
+        from ag2c import mcp_server
+
+        self.server = mcp_server
+        self._jobs = dict(mcp_server._VERIFY_JOBS)
+        mcp_server._VERIFY_JOBS.clear()
+        self.addCleanup(self._restore_jobs)
+
+    def _restore_jobs(self) -> None:
+        self.server._VERIFY_JOBS.clear()
+        self.server._VERIFY_JOBS.update(self._jobs)
+
+    def _verify(self, cwd: Path):
+        return self.server._call_verify({"cwd": str(cwd)})
+
+    def test_fast_verify_returns_the_result_inline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("ag2c.tasks.verify_task", return_value={"passed": True}) as mocked:
+                result = self._verify(Path(directory))
+            self.assertEqual({"passed": True}, result)
+            self.assertEqual(1, mocked.call_count)
+            self.assertEqual({}, self.server._VERIFY_JOBS)
+
+    def test_slow_verify_returns_running_then_delivers_once(self) -> None:
+        import threading
+
+        release = threading.Event()
+
+        def slow(_cwd):
+            release.wait(10)
+            return {"passed": True}
+
+        with tempfile.TemporaryDirectory() as directory:
+            cwd = Path(directory)
+            with patch("ag2c.tasks.verify_task", side_effect=slow) as mocked:
+                with patch.object(self.server, "VERIFY_WAIT_SECONDS", 0.05):
+                    first = self._verify(cwd)
+                    self.assertEqual("running", first["state"])
+                    second = self._verify(cwd)  # polls the same job, no duplicate run
+                    self.assertEqual("running", second["state"])
+                    release.set()
+                    with patch.object(self.server, "VERIFY_WAIT_SECONDS", 5):
+                        third = self._verify(cwd)
+            self.assertEqual({"passed": True}, third)
+            self.assertEqual(1, mocked.call_count)
+            self.assertEqual({}, self.server._VERIFY_JOBS)
+
+    def test_verify_errors_surface_on_the_poll(self) -> None:
+        from ag2c.errors import AG2CError
+
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("ag2c.tasks.verify_task", side_effect=AG2CError("household gate blocked")):
+                with self.assertRaisesRegex(AG2CError, "household gate blocked"):
+                    self._verify(Path(directory))
+            self.assertEqual({}, self.server._VERIFY_JOBS)
 
 
 if __name__ == "__main__":

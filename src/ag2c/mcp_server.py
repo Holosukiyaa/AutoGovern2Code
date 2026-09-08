@@ -7,6 +7,8 @@ import os
 import re
 import subprocess
 import sys
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -46,7 +48,7 @@ Hard rules learned in production:
 - Governance writes (ag2c_census record, ag2c_span, ag2c_household, ag2c_apply, ag2c_settle) require a reason; pass actor to name yourself.
 - After editing files, verify blocks on census-stale: record the census first (ag2c_census with record=true, all=true).
 - A knowledge-card title is the 摘要: 20 characters max, Chinese allowed; the English id is not the display name.
-- ag2c_task_verify runs the full suite and can exceed the MCP timeout; on timeout rerun `ag2c task verify` via CLI inside the worktree — it counts the same.
+- ag2c_task_verify runs in the background: it answers within 45s, either with the result or with state "running" — call the same tool again to poll until the result arrives. The CLI `ag2c task verify` inside the worktree counts the same.
 - Checkers marked always:true run on every verify regardless of slice. Checkers with parse:unittest get a zero-regression gate: failures listed in the store baseline stay green, any NEW failure blocks verify, and fixed failures shrink the baseline automatically. Record the initial debt once with `ag2c govern test-baseline --actor ... --reason ...`; tune checkers with `ag2c govern checker --id ... --always on|off --parse unittest|none`.
 - Large suites can be split per room: bind a parse:unittest checker to a directory household (ag2c_household checker/command) and it runs only when the slice touches that room.
 - ag2c_task_finish runs from the canonical checkout, never from the worktree.
@@ -396,10 +398,55 @@ def _call_start(args: dict[str, Any]) -> Any:
     )
 
 
+_VERIFY_JOBS: dict[str, dict[str, Any]] = {}
+_VERIFY_LOCK = threading.Lock()
+VERIFY_WAIT_SECONDS = 45.0  # stay under typical MCP client timeouts; poll to keep waiting
+
+
 def _call_verify(args: dict[str, Any]) -> Any:
+    """Run verify_task on a worker thread so long suites never hit the MCP timeout.
+
+    The first call starts the job and waits up to VERIFY_WAIT_SECONDS; a still-running
+    job returns a "running" marker and later calls poll. Results (and raised AG2CErrors)
+    are delivered exactly once, then the job is forgotten.
+    """
     from .tasks import verify_task
 
-    return verify_task(_cwd(args))
+    cwd = _cwd(args).resolve()
+    key = str(cwd)
+    with _VERIFY_LOCK:
+        job = _VERIFY_JOBS.get(key)
+        if job is None:
+            job = {
+                "state": "running",
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "event": threading.Event(),
+                "result": None,
+                "error": None,
+            }
+            _VERIFY_JOBS[key] = job
+
+            def runner() -> None:
+                try:
+                    job["result"] = verify_task(cwd)
+                except BaseException as exc:  # delivered on the polling call
+                    job["error"] = exc
+                finally:
+                    job["state"] = "done"
+                    job["event"].set()
+
+            threading.Thread(target=runner, daemon=True, name=f"ag2c-verify-{key[-12:]}").start()
+    if not job["event"].wait(VERIFY_WAIT_SECONDS):
+        return {
+            "state": "running",
+            "started_at": job["started_at"],
+            "hint": "verify is still running in the background; call ag2c_task_verify again to poll the result",
+        }
+    with _VERIFY_LOCK:
+        _VERIFY_JOBS.pop(key, None)
+    if job["error"] is not None:
+        raise job["error"]
+    return job["result"]
 
 
 def _call_finish(args: dict[str, Any]) -> Any:

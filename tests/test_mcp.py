@@ -36,6 +36,52 @@ def _rpc(method: str, params: dict | None = None, req_id: int = 1) -> dict:
     return reply
 
 
+class LaunchSrcTests(unittest.TestCase):
+    """mcp_launch_spec must never point client configs at a task worktree."""
+
+    def _fixture(self, directory: str) -> tuple[Path, Path]:
+        from ag2c.enrollment import enroll_project
+        from support import git_project
+
+        root = git_project(Path(directory) / "repo")
+        enroll_project(root)
+        (root / "src" / "ag2c").mkdir()  # canonical src must look like an AG2C install
+        return root, root / "src"
+
+    def test_worktree_module_redirects_to_canonical_src(self) -> None:
+        from ag2c.config import discover_manifest, load_manifest
+        from ag2c.mcp_server import _launch_src
+
+        with tempfile.TemporaryDirectory() as directory:
+            root, canonical_src = self._fixture(directory)
+            manifest = load_manifest(discover_manifest(root))
+            module_file = (
+                manifest.state_dir.parent / "worktrees" / "task-x" / "src" / "ag2c" / "mcp_server.py"
+            )
+            module_file.parent.mkdir(parents=True)
+            module_file.write_text("", encoding="utf-8")
+            self.assertEqual(canonical_src.resolve(), _launch_src(module_file, root))
+
+    def test_canonical_module_stays_put(self) -> None:
+        from ag2c.mcp_server import _launch_src
+
+        with tempfile.TemporaryDirectory() as directory:
+            root, canonical_src = self._fixture(directory)
+            module_file = canonical_src / "ag2c" / "mcp_server.py"
+            module_file.parent.mkdir(parents=True, exist_ok=True)
+            module_file.write_text("", encoding="utf-8")
+            self.assertEqual(canonical_src.resolve(), _launch_src(module_file, root))
+
+    def test_no_discoverable_project_falls_back_to_module_src(self) -> None:
+        from ag2c.mcp_server import _launch_src
+
+        with tempfile.TemporaryDirectory() as directory:
+            module_file = Path(directory) / "nowhere" / "src" / "ag2c" / "mcp_server.py"
+            module_file.parent.mkdir(parents=True)
+            module_file.write_text("", encoding="utf-8")
+            self.assertEqual(module_file.parents[1], _launch_src(module_file, Path(directory)))
+
+
 class ResultGateTests(unittest.TestCase):
     def test_task_start_schema_requires_the_portrait(self) -> None:
         start = next(item for item in tool_defs() if item["name"] == "ag2c_task_start")

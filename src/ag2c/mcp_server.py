@@ -76,9 +76,34 @@ def mcp_stdio_command() -> list[str]:
     return [str(exe), "-m", "ag2c", "mcp"]
 
 
+def _launch_src(module_file: Path, cwd: Path) -> Path:
+    """Resolve the src dir MCP clients should put on PYTHONPATH.
+
+    The running module may live in an AG2C task worktree (e.g. a tray or
+    preview launched from one). Writing that path into client configs leaves
+    a dead pointer once the task merges and the worktree is deleted. When the
+    module sits under the discovered project's worktrees directory, redirect
+    to the canonical checkout's src. Any discovery failure falls back to the
+    module's own src.
+    """
+    module_src = module_file.resolve().parents[1]
+    try:
+        from .config import discover_manifest, load_manifest
+
+        manifest = load_manifest(discover_manifest(cwd))
+        worktrees = manifest.state_dir.parent / "worktrees"
+        if module_src.is_relative_to(worktrees):
+            canonical_src = Path(manifest.project_root) / "src"
+            if (canonical_src / "ag2c").is_dir():
+                return canonical_src
+    except Exception:
+        pass
+    return module_src
+
+
 def mcp_launch_spec() -> dict[str, Any]:
     command = mcp_stdio_command()
-    src = str(Path(__file__).resolve().parents[1])
+    src = str(_launch_src(Path(__file__), Path.cwd()))
     return {"command": command[0], "args": command[1:], "env": {"PYTHONPATH": src}}
 
 

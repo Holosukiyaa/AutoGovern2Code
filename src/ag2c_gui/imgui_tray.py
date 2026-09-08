@@ -93,6 +93,7 @@ class AppState:
         self.filter_index = 0
         self.busy = False
         self.digest = ""
+        self.guard_warning = ""
         self.next_poll_at = 0.0
         self._worker: threading.Thread | None = None
         self._dialog_lock = False
@@ -588,6 +589,9 @@ def _status_bar(state: AppState) -> None:
         status = state.status
         busy = state.busy
         loading = state.loading
+        guard_warning = state.guard_warning
+    if guard_warning:
+        imgui.text_colored((0.95, 0.35, 0.30, 1.0), guard_warning)
     prefix = ""
     if loading or busy:
         spin = "|/-\\"[int(imgui.get_time() * 8) % 4]
@@ -2228,8 +2232,18 @@ def _poll_digest(state: AppState, root: str) -> None:
         return
     payload = state.api.request("POST", "api/project/digest", {"path": root})
     digest = str(payload.get("digest") or "")
+    guard = payload.get("guard") if isinstance(payload.get("guard"), dict) else {}
+    dirty = bool(guard.get("canonicalDirty")) and not guard.get("error")
+    open_tasks = int(guard.get("openTasks") or 0)
+    if dirty and open_tasks == 0:
+        warning = "⚠ canonical 在非任务窗口被修改——可能有改动绕开了治理流程"
+    else:
+        warning = ""
     with state.lock:
         known = state.digest
+        if warning and warning != state.guard_warning:
+            audit(state, "看门狗报警", "项目栏", root)
+        state.guard_warning = warning
     if known and digest and digest != known:
         audit(state, "自动刷新", "项目栏", root)
         _load_projects(state)

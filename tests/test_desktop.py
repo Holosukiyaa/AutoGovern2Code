@@ -244,6 +244,76 @@ class ProjectDigestTests(unittest.TestCase):
         self.assertIn("检测到项目变更，已自动刷新", ui)
         self.assertIn("_maybe_auto_refresh(state)", ui)
 
+    def test_canonical_guard_reports_dirty_outside_task_windows(self) -> None:
+        from support import git_project
+
+        from ag2c.enrollment import enroll_project
+        from ag2c.tasks import TASK_SCHEMA
+        from ag2c_gui import desktop
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = git_project(base / "demo")
+            data = base / "ag2c-data"
+            with patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False):
+                enroll_project(root, skill_root=base / "skills", harnesses=("agents",))
+                desktop._GUARD_CACHE.clear()
+                clean = desktop._canonical_guard(root)
+                self.assertEqual({"canonicalDirty": False, "openTasks": 0}, clean)
+
+                (root / "src" / "value.py").write_text("VALUE = 2\n", encoding="utf-8")
+                desktop._GUARD_CACHE.clear()
+                dirty = desktop._canonical_guard(root)
+                self.assertTrue(dirty["canonicalDirty"])
+                self.assertEqual(0, dirty["openTasks"])
+
+                from ag2c.config import discover_manifest, load_manifest
+
+                manifest = load_manifest(discover_manifest(root), project_root=root)
+                tasks_dir = manifest.state_dir / "tasks"
+                tasks_dir.mkdir(parents=True, exist_ok=True)
+                (tasks_dir / "t1.json").write_text(
+                    json.dumps({"schema": TASK_SCHEMA, "id": "t1", "state": "open"}), encoding="utf-8"
+                )
+                desktop._GUARD_CACHE.clear()
+                tasked = desktop._canonical_guard(root)
+                self.assertTrue(tasked["canonicalDirty"])
+                self.assertEqual(1, tasked["openTasks"])
+
+    def test_canonical_guard_is_ttl_cached_and_never_breaks_digest(self) -> None:
+        from support import git_project
+
+        from ag2c.enrollment import enroll_project
+        from ag2c_gui import desktop
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = git_project(base / "demo")
+            data = base / "ag2c-data"
+            with patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False):
+                enroll_project(root, skill_root=base / "skills", harnesses=("agents",))
+                desktop._GUARD_CACHE.clear()
+                calls = []
+                with patch("ag2c.gitops.status_entries", side_effect=lambda p: calls.append(p) or []):
+                    first = desktop._canonical_guard(root)
+                    second = desktop._canonical_guard(root)
+                self.assertEqual(first, second)
+                self.assertEqual(1, len(calls))
+                desktop._GUARD_CACHE.clear()
+                with patch("ag2c.gitops.status_entries", side_effect=OSError("git gone")):
+                    broken = desktop._canonical_guard(root)
+                self.assertTrue(broken.get("error"))
+                payload = desktop._project_digest(root)
+                self.assertIn("digest", payload)
+                self.assertIn("guard", payload)
+
+    def test_tray_watchdog_banner_source(self) -> None:
+        ui = (Path(__file__).resolve().parents[1] / "src" / "ag2c_gui" / "imgui_tray.py").read_text(encoding="utf-8")
+        self.assertIn("guard_warning", ui)
+        self.assertIn("canonicalDirty", ui)
+        self.assertIn("看门狗报警", ui)
+        self.assertIn("canonical 在非任务窗口被修改", ui)
+
 
 class TrayHostSourceTests(unittest.TestCase):
     def test_tray_host_is_hello_imgui_without_webview2_or_pyside(self) -> None:

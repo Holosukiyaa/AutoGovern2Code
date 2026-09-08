@@ -206,10 +206,45 @@ class DesktopHandler(BaseHTTPRequestHandler):
         self._error(HTTPStatus.NOT_FOUND, "not found")
 
 
-def _project_digest(root: Path) -> dict[str, str]:
+_GUARD_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
+_GUARD_TTL_S = 10.0
+
+
+def _canonical_guard(root: Path) -> dict[str, object]:
+    """Watchdog: is the canonical checkout dirty outside any open task window?
+
+    Runs `git status` plus a task-table scan, so it is TTL-cached — the digest
+    endpoint itself stays subprocess-free for its every-few-seconds polling.
+    """
+    import time
+
+    key = str(root)
+    now = time.monotonic()
+    cached = _GUARD_CACHE.get(key)
+    if cached and now - cached[0] < _GUARD_TTL_S:
+        return dict(cached[1])
+    guard: dict[str, object] = {"canonicalDirty": False, "openTasks": 0}
+    try:
+        from ag2c.config import discover_manifest, load_manifest
+        from ag2c.gitops import status_entries
+        from ag2c.tasks import TERMINAL_TASK_STATES, task_records
+
+        guard["canonicalDirty"] = bool(status_entries(root))
+        manifest = load_manifest(discover_manifest(root), project_root=root)
+        guard["openTasks"] = sum(
+            1 for task in task_records(root, manifest=manifest) if task.get("state") not in TERMINAL_TASK_STATES
+        )
+    except Exception:  # watchdog must never break the digest endpoint
+        guard["error"] = True
+    _GUARD_CACHE[key] = (now, dict(guard))
+    return guard
+
+
+def _project_digest(root: Path) -> dict[str, object]:
     """Cheap fingerprint of everything the tray displays: git HEAD plus the
     governance state files (policy, ledger, journal, census). File IO only —
-    no subprocess — so the tray can poll it every few seconds."""
+    no subprocess — so the tray can poll it every few seconds. The guard field
+    is separately TTL-cached because it needs a git subprocess."""
     import hashlib
 
     from ag2c.config import discover_manifest, load_manifest
@@ -243,7 +278,7 @@ def _project_digest(root: Path) -> dict[str, str]:
     for path in (manifest.policy_path, manifest.ledger_path, journal_path(manifest), census_path(manifest)):
         _file_part(path)
     digest = hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()
-    return {"digest": digest, "version": __version__}
+    return {"digest": digest, "version": __version__, "guard": _canonical_guard(root)}
 
 
 def serve_desktop(*, port: int, token: str, on_ready: Callable[[int], object] | None = None) -> int:

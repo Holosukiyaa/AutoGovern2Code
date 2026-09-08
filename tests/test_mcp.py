@@ -109,6 +109,95 @@ class ResultGateTests(unittest.TestCase):
         self.assertIn("随便的答案", MCP_INSTRUCTIONS)
 
 
+class PortraitLintTests(unittest.TestCase):
+    GOOD = (
+        "Done looks like: 状态条开关点击后抽屉真实出现（机器验证：test_desktop 断言 toggle_dock 翻转 "
+        "is_visible；实机：预览实例点击截图）。Out of result: 抽屉内容。"
+    )
+
+    def test_good_portrait_passes(self) -> None:
+        from ag2c.tasks import lint_portrait
+
+        self.assertEqual([], lint_portrait(self.GOOD))
+
+    def test_thin_portrait_is_refused(self) -> None:
+        from ag2c.tasks import lint_portrait
+
+        violations = lint_portrait("修好它")
+        self.assertTrue(any(v.startswith("too-thin") for v in violations))
+
+    def test_missing_verification_layer_is_refused(self) -> None:
+        from ag2c.tasks import lint_portrait
+
+        portrait = "Done looks like: 抽屉可以打开关闭，状态条按钮生效，门状态行定位到对应面板，布局保持。"
+        violations = lint_portrait(portrait)
+        self.assertTrue(any(v.startswith("no-verification-layer") for v in violations))
+
+    def test_vague_phrase_is_refused_and_named(self) -> None:
+        from ag2c.tasks import lint_portrait
+
+        portrait = "Done looks like: 谱系图正常工作，点击卡片详情正常显示（机器验证：测试）。"
+        violations = lint_portrait(portrait)
+        vague = [v for v in violations if v.startswith("vague-phrase")]
+        self.assertTrue(vague)
+        self.assertIn("正常工作", vague[0])
+
+    def test_english_vague_phrase_is_refused(self) -> None:
+        from ag2c.tasks import lint_portrait
+
+        portrait = "Done looks like: the drawer works as expected after the fix (verified by tests)."
+        violations = lint_portrait(portrait)
+        self.assertTrue(any(v.startswith("vague-phrase") for v in violations))
+
+    def test_constitution_named_vague_words_are_refused(self) -> None:
+        from ag2c.tasks import lint_portrait
+
+        # The constitution names 优化/完善/合理 as words that never pass.
+        for word in ("优化", "完善", "合理"):
+            portrait = f"Done looks like: 谱系加载性能{word}，响应更快（机器验证：测试断言）。"
+            violations = lint_portrait(portrait)
+            self.assertTrue(
+                any(v.startswith("vague-phrase") and word in v for v in violations),
+                f"{word} should be refused",
+            )
+
+    def test_negated_vague_phrase_is_exempt(self) -> None:
+        from ag2c.tasks import lint_portrait
+
+        portrait = (
+            "Done looks like: 抽屉开关生效，不再是按钮变蓝但面板不出现（机器验证：test_desktop 断言；"
+            "实机：点击截图对照）。"
+        )
+        self.assertEqual([], lint_portrait(portrait))
+
+    def test_mcp_start_refuses_vague_portrait(self) -> None:
+        from ag2c.errors import AG2CError
+        from ag2c.mcp_server import _call_start
+
+        with tempfile.TemporaryDirectory() as directory:
+            from ag2c.enrollment import enroll_project
+            from support import git_project
+
+            root = git_project(Path(directory) / "repo")
+            enroll_project(root)
+            with self.assertRaises(AG2CError) as raised:
+                _call_start(
+                    {
+                        "goal": "x",
+                        "paths": ["app:src/value.py"],
+                        "portrait": "Done looks like: 正常工作没问题（机器验证：测试）。",
+                        "cwd": str(root),
+                    }
+                )
+            self.assertIn("portrait lint failed", str(raised.exception))
+            # The lint fires before any worktree is created.
+            from ag2c.config import discover_manifest, load_manifest
+
+            manifest = load_manifest(discover_manifest(root))
+            worktrees = manifest.state_dir.parent / "worktrees"
+            self.assertEqual([], list(worktrees.iterdir()) if worktrees.is_dir() else [])
+
+
 class McpServerTests(unittest.TestCase):
     def test_initialize_embeds_skill_workflow(self) -> None:
         reply = _rpc(

@@ -364,6 +364,85 @@ def _default_portrait(goal: str) -> str:
     return f"完成态：{goal}"
 
 
+_PORTRAIT_MIN_CHARS = 60
+
+# A portrait must declare HOW its done-states will be checked (the
+# verification layer), not only WHAT will be true.
+_PORTRAIT_LAYER_MARKERS = (
+    "机器验证",
+    "实机",
+    "用户确认",
+    "验证",
+    "测试",
+    "输出",
+    "截图",
+    "断言",
+    "点击",
+    "assert",
+    "test",
+    "verify",
+    "verified",
+    "exit",
+    "screenshot",
+    "output",
+)
+
+# Vague phrases can never serve as acceptance criteria. A negated use
+# ("不再是…", "不…") is a checkable anti-claim and stays legal.
+_PORTRAIT_VAGUE_PHRASES = (
+    "正常工作",
+    "没有问题",
+    "没问题",
+    "正常运行",
+    "正常显示",
+    "能用",
+    "好用",
+    "优化",
+    "完善",
+    "合理",
+    "works as expected",
+    "work as expected",
+    "works correctly",
+    "works properly",
+    "as expected",
+    "no issues",
+    "it works",
+)
+
+
+def lint_portrait(portrait: str) -> list[str]:
+    """Result-gate lint: reject portraits an outsider could never check.
+
+    Three rules, each returning a named violation:
+    - too-thin: under _PORTRAIT_MIN_CHARS of substance;
+    - no-verification-layer: no marker saying how done-states get checked;
+    - vague-phrase: a weasel phrase used as a claim (negations exempt).
+    """
+    violations: list[str] = []
+    text = portrait.strip()
+    if len(text) < _PORTRAIT_MIN_CHARS:
+        violations.append(f"too-thin: portrait has {len(text)} chars, need at least {_PORTRAIT_MIN_CHARS}")
+    lowered = text.lower()
+    if not any(marker in text or marker in lowered for marker in _PORTRAIT_LAYER_MARKERS):
+        violations.append(
+            "no-verification-layer: declare how each done-state gets checked "
+            "(机器验证 / 实机 / 用户确认 / 测试 / 输出 / assert / test / verify ...)"
+        )
+    for phrase in _PORTRAIT_VAGUE_PHRASES:
+        start = 0
+        haystack = lowered if phrase.isascii() else text
+        while True:
+            index = haystack.find(phrase, start)
+            if index < 0:
+                break
+            prefix = haystack[max(0, index - 5) : index]
+            if not any(neg in prefix for neg in ("不", "no ", "not ", "n't")):
+                violations.append(f"vague-phrase: '{phrase}' is not a checkable claim; state what an outsider can verify")
+                break
+            start = index + len(phrase)
+    return violations
+
+
 def start_task(
     start: Path,
     *,
@@ -385,6 +464,11 @@ def start_task(
     goal = goal.strip()
     if not goal:
         raise AG2CError("AG2C requires a concrete task goal")
+    portrait = portrait.strip()
+    if portrait:
+        violations = lint_portrait(portrait)
+        if violations:
+            raise AG2CError("portrait lint failed:\n- " + "\n- ".join(violations))
     dirty = status_entries(canonical)
     if dirty:
         raise AG2CError("canonical worktree is dirty; AG2C will not start: " + ", ".join(dirty))
@@ -418,7 +502,8 @@ def start_task(
     branch = f"ag2c/{task_id}"
     worktree.parent.mkdir(parents=True, exist_ok=True)
     git(canonical, "worktree", "add", "-b", branch, str(worktree), source_head)
-    portrait = portrait.strip() or _default_portrait(goal)
+    if not portrait:
+        portrait = _default_portrait(goal)
     task: dict[str, Any] = {
         "schema": TASK_SCHEMA,
         "id": task_id,

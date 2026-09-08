@@ -267,7 +267,7 @@ def tool_defs() -> list[dict[str, Any]]:
                 "goal": {"type": "string", "description": "What to implement or fix."},
                 "portrait": {
                     "type": "string",
-                    "description": "结果门: the checkable finished-state portrait, written from outside the implementation — Done looks like (2-4 sentences an outsider could accept/reject) / Surfaces (each observable surface with example + empty/error/success) / Out of result (what will NOT exist) / Inferences (each guessed detail marked INFERRED). Not steps, not files-to-edit, not architecture.",
+                    "description": "结果门: the checkable finished-state portrait, written from outside the implementation — Done looks like (2-4 sentences an outsider could accept/reject) / Surfaces (each observable surface with example + empty/error/success) / Out of result (what will NOT exist) / Inferences (each guessed detail marked INFERRED). Not steps, not files-to-edit, not architecture. Linted at start: too-thin (<60 chars), no-verification-layer (declare how each done-state gets checked: 机器验证/实机/用户确认/test/output...), and vague-phrase (正常工作/没问题/优化/完善/合理/works as expected...) are refused.",
                 },
                 "paths": {"type": "array", "items": {"type": "string"}, "description": "app:relative/path entries."},
                 "contracts": {"type": "array", "items": {"type": "string"}},

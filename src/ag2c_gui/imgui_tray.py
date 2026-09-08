@@ -95,6 +95,11 @@ class AppState:
         self.digest = ""
         self.guard_warning = ""
         self.next_poll_at = 0.0
+        # Drag-and-drop rehoming (谱系树拖拽搬家).
+        self.rehome_drag_id = ""
+        self.rehome_pending: dict[str, str] | None = None
+        self.rehome_job: dict[str, Any] | None = None
+        self.rehome_next_poll = 0.0
         self._worker: threading.Thread | None = None
         self._dialog_lock = False
         self.stopping = False
@@ -338,6 +343,7 @@ def _before_frame(state: AppState) -> None:
     _apply_dark_caption()
     state.frame_ms["DWM"] = (time.perf_counter() - t0) * 1000.0
     _maybe_auto_refresh(state)
+    _maybe_poll_rehome(state)
 
 
 def _post_init(state: AppState) -> None:
@@ -1675,6 +1681,35 @@ def _lineage_draw_links(
         _cubic_arrow(dl, imgui, px1, py1, cx, cy, link_color)
 
 
+def _lineage_rehome_drag_drop(
+    imgui: Any,
+    node: dict[str, Any],
+    heading: str,
+    drag: list[str],
+    drops: list[tuple[str, str, str, str, str]],
+) -> None:
+    """Mark a node as a drag source (file card) and/or drop target (room/group).
+
+    The payload itself is a marker; the dragged card id travels through
+    ``drag`` because the source node may be drawn after the target on the
+    drop frame.
+    """
+    source_id = str(node.get("rehomeSource") or "")
+    if source_id:
+        if imgui.begin_drag_drop_source():
+            drag[0] = source_id
+            imgui.set_drag_drop_payload("AG2C_REHOME", source_id.encode("utf-8"))
+            imgui.text(f"搬到其他房间: {heading}")
+            imgui.end_drag_drop_source()
+    room_id = str(node.get("rehomeRoom") or "")
+    if room_id:
+        if imgui.begin_drag_drop_target():
+            payload = imgui.accept_drag_drop_payload("AG2C_REHOME")
+            if payload is not None and drag[0] and drag[0] != room_id:
+                drops.append((drag[0], room_id, str(node.get("rehomeSubdir") or ""), heading, ""))
+            imgui.end_drag_drop_target()
+
+
 def _lineage_draw_nodes(
     ed: Any,
     imgui: Any,
@@ -1689,6 +1724,8 @@ def _lineage_draw_nodes(
     inspect_key: str,
     has_modules: bool,
     toggles: list[str],
+    drag: list[str],
+    drops: list[tuple[str, str, str, str, str]],
 ) -> None:
     imgui.push_style_var(imgui.StyleVar_.item_spacing, imgui.ImVec2(4.0, 1.0))
     try:
@@ -1707,6 +1744,7 @@ def _lineage_draw_nodes(
                 ed.begin_node(nid)
                 if can_expand:
                     _lineage_toggle(imgui, visual_id, True, toggles)
+                _lineage_rehome_drag_drop(imgui, node, lineage_heading(node) or str(visual_id), drag, drops)
                 ed.end_node()
                 ed.pop_style_color(2)
                 continue
@@ -1718,8 +1756,10 @@ def _lineage_draw_nodes(
             imgui.dummy((content_w, 1.0))
             if can_expand:
                 _lineage_toggle(imgui, visual_id, opened, toggles)
-            imgui.text(_lineage_label(lineage_heading(node) or str(visual_id), content_w - 28))
+            heading = lineage_heading(node) or str(visual_id)
+            imgui.text(_lineage_label(heading, content_w - 28))
             imgui.text_disabled(str(node.get("status") or "还没有知识卡"))
+            _lineage_rehome_drag_drop(imgui, node, heading, drag, drops)
             ed.end_node()
             ed.pop_style_color(2)
         for node in cards:
@@ -1747,6 +1787,7 @@ def _lineage_draw_nodes(
                     imgui.text_colored((0.90, 0.55, 0.38, 1.0), line)
                 else:
                     imgui.text_disabled(line)
+            _lineage_rehome_drag_drop(imgui, node, heading, drag, drops)
             ed.end_node()
             ed.pop_style_color(2)
         if project is not None:
@@ -1951,7 +1992,8 @@ def _gui_lineage(state: AppState) -> None:
     if not lineage["nodes"]:
         imgui.text_disabled("还没有可画的知识卡谱系")
         return
-    imgui.text_disabled("点 + / − 展开或收起。每一层向右一列；点文件树哪一层就映射哪一层。")
+    imgui.text_disabled("点 + / − 展开或收起。每一层向右一列；点文件树哪一层就映射哪一层。拖动文件卡到房间或子目录可搬家。")
+    _lineage_rehome_confirm_strip(state)
     avail = imgui.get_content_region_avail()
     if float(getattr(avail, "x", 0) or 0) < 40.0 or float(getattr(avail, "y", 0) or 0) < 40.0:
         return
@@ -1975,6 +2017,8 @@ def _gui_lineage(state: AppState) -> None:
     combos = modules + groups
     has_modules = any(node.get("kind") == "module" for node in lineage["nodes"])
     toggles: list[str] = []
+    drag = [state.rehome_drag_id]
+    drops: list[tuple[str, str, str, str, str]] = []
     canvas_nodes = visible
 
     ed.set_current_editor(state.lineage_editor)
@@ -1998,10 +2042,16 @@ def _gui_lineage(state: AppState) -> None:
             inspect_key=inspect_key,
             has_modules=has_modules,
             toggles=toggles,
+            drag=drag,
+            drops=drops,
         )
         pending_click = _lineage_handle_input(ed, imgui, combos, cards, marker_hits, toggles)
     finally:
         ed.end()
+    with state.lock:
+        state.rehome_drag_id = drag[0]
+    if drops:
+        _queue_rehome_drop(state, lineage, drops[-1])
     _lineage_apply_results(state, toggles, pending_click, canvas_nodes, selected, placed)
     _lineage_navigate(state, ed, lineage, canvas_nodes, nav_id, nav_ids, fit)
 
@@ -2257,6 +2307,128 @@ def _poll_digest(state: AppState, root: str) -> None:
                 state.status = "检测到项目变更，已自动刷新"
     with state.lock:
         state.digest = digest
+
+
+def _queue_rehome_drop(
+    state: AppState,
+    lineage: dict[str, Any],
+    drop: tuple[str, str, str, str, str],
+) -> None:
+    source_id, room_id, subdir, target_heading, _ = drop
+    source_title = source_id
+    for node in lineage.get("nodes") or []:
+        if str(node.get("id") or "") == source_id:
+            source_title = str(node.get("title") or source_id)
+            break
+    target_label = target_heading + (f" ({subdir}/)" if subdir else "")
+    with state.lock:
+        if state.rehome_job is not None:
+            state.status = "上一个搬家任务还没结束，等它跑完再拖"
+            return
+        state.rehome_pending = {
+            "card": source_id,
+            "room": room_id,
+            "subdir": subdir,
+            "sourceTitle": source_title,
+            "targetLabel": target_label,
+        }
+    audit(state, "拖拽搬家待确认", "谱系", f"{source_title} → {target_label}")
+
+
+def _lineage_rehome_confirm_strip(state: AppState) -> None:
+    from imgui_bundle import imgui
+
+    with state.lock:
+        pending = dict(state.rehome_pending) if state.rehome_pending else None
+        job = dict(state.rehome_job) if state.rehome_job else None
+    if job is not None:
+        spin = "|/-\\"[int(imgui.get_time() * 8) % 4]
+        imgui.text_colored((0.55, 0.78, 0.95, 1.0), f"{spin} 搬家进行中：{job.get('label', '')}（治理任务在后台跑测试验证）")
+        return
+    if pending is None:
+        return
+    imgui.text_colored(_WARN_COLOR, f"把 {pending['sourceTitle']} 搬到 {pending['targetLabel']}？")
+    imgui.text_disabled("将开治理任务自动完成：git mv + 全仓 import 重写 + 测试验证，失败自动回滚")
+    if imgui.small_button("确认搬家"):
+        root = ""
+        with state.lock:
+            root = state.selected_root
+            state.rehome_pending = None
+        if root and state.api is not None:
+            try:
+                payload = state.api.request(
+                    "POST",
+                    "api/household/rehome",
+                    {
+                        "path": root,
+                        "id": pending["card"],
+                        "targetRoom": pending["room"],
+                        "targetSubdir": pending["subdir"],
+                    },
+                )
+                job_id = str(payload.get("job") or "")
+                label = f"{pending['sourceTitle']} → {pending['targetLabel']}"
+                with state.lock:
+                    state.rehome_job = {"job": job_id, "label": label}
+                    state.rehome_next_poll = 0.0
+                    state.status = f"搬家进行中：{label}"
+                audit(state, "确认搬家", "谱系", label)
+            except Exception as exc:
+                with state.lock:
+                    state.status = f"搬家没能启动：{exc}"
+                audit(state, "搬家启动失败", "谱系", str(exc))
+    imgui.same_line()
+    if imgui.small_button("取消"):
+        with state.lock:
+            state.rehome_pending = None
+
+
+def _maybe_poll_rehome(state: AppState) -> None:
+    if state.api is None or state.stopping:
+        return
+    now = time.monotonic()
+    with state.lock:
+        job = dict(state.rehome_job) if state.rehome_job else None
+        if job is None or now < state.rehome_next_poll:
+            return
+        state.rehome_next_poll = now + 2.0
+    state.run_job(lambda: _poll_rehome(state, str(job.get("job") or "")))
+
+
+def _poll_rehome(state: AppState, job_id: str) -> None:
+    if state.api is None or not job_id:
+        return
+    try:
+        payload = state.api.request("GET", f"api/household/rehome-status?id={job_id}")
+    except Exception as exc:
+        with state.lock:
+            state.rehome_job = None
+            state.status = f"搬家状态查询失败：{exc}"
+        return
+    status = str(payload.get("state") or "")
+    if status == "running":
+        return
+    with state.lock:
+        job = state.rehome_job or {}
+        label = str(job.get("label") or "")
+        state.rehome_job = None
+        root = state.selected_root
+    if status == "done":
+        result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+        moved = f"{result.get('from', '')} → {result.get('to', '')}"
+        audit(state, "搬家完成", "谱系", moved or label)
+        if root:
+            _load_projects(state)
+            _load_details(state, root, refresh=True)
+        with state.lock:
+            if not state.stopping:
+                state.status = f"搬家完成：{moved or label}"
+    else:
+        error = str(payload.get("error") or "未知错误")
+        audit(state, "搬家失败已回滚", "谱系", f"{label}: {error}")
+        with state.lock:
+            if not state.stopping:
+                state.status = f"搬家失败（已自动回滚）：{error}"
 
 
 def _refresh(state: AppState) -> None:

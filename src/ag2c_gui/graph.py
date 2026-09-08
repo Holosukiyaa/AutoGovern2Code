@@ -1242,6 +1242,36 @@ def build_lineage(
         node["layer"] = 3
         nodes[parent_visual]["nested"] = True
 
+    # Drag-and-drop rehoming metadata: real rooms are drop targets, single-file
+    # Python cards are drag sources. The tray reads these fields instead of
+    # re-deriving scopes; exploring households never accept drops.
+    for node in list(nodes.values()):
+        if node.get("kind") != "knowledge":
+            continue
+        card_id = _text(node.get("id"))
+        card = knowledge_cards.get(card_id)
+        if card is None:
+            continue
+        if is_document_knowledge(card):
+            include_files = [
+                _normalize_path(path)
+                for path in _scope_paths(card)
+                if "*" not in str(path)
+            ]
+            if (
+                len(include_files) == 1
+                and include_files[0].endswith(".py")
+                and not include_files[0].endswith("/__init__.py")
+            ):
+                node["rehomeSource"] = card_id
+            continue
+        if not room_dirs.get(card_id):
+            continue
+        if is_enrollment_placeholder(_mapping(card.get("jurisdiction"))):
+            continue
+        node["rehomeRoom"] = card_id
+        node["rehomeSubdir"] = ""
+
     # Crowded 一文件一张 rooms: fold file cards into one collapsible group node
     # per subdirectory (routers/ under backend), so 60+ flat cards stay readable.
     # Group nodes are presentation-only: kind "group", never auto-expanded.
@@ -1283,6 +1313,8 @@ def build_lineage(
                         "statusTag": "",
                         "path": f"{room_dir}/{subdir}",
                         "parent": room_visual,
+                        "rehomeRoom": room_id,
+                        "rehomeSubdir": subdir,
                         "layer": 3,
                         "empty": False,
                         "replaced_by": "",

@@ -452,6 +452,47 @@ class GovernanceGraphTests(unittest.TestCase):
             self.assertIn(by_id[card_id]["visual_id"], visible_ids)
         self.assertEqual([], lineage_step_overlaps(lineage["nodes"], expanded))
 
+    def test_lineage_marks_rehome_sources_and_drop_targets(self) -> None:
+        room = _card("knowledge.backend", "knowledge", "后端服务层", include=["src/backend/**"])
+        room["jurisdiction"] = {"span": "file", "meaning": "named", "status": "current", "implementation": "cf.backend"}
+        exploring = _card("knowledge.src", "knowledge", "src exploring household", include=["src/**"])
+        exploring["jurisdiction"] = {"span": "none", "meaning": "none", "status": "current", "implementation": "src.exploring"}
+        cards = [
+            _card("constitution.project", "constitution", "宪章"),
+            _card("floor.src", "floor", "src", include=["src/**"]),
+            room,
+            exploring,
+        ]
+        relations = [
+            {"source": "knowledge.backend", "type": "explains", "target": "floor.src"},
+            {"source": "knowledge.src", "type": "explains", "target": "floor.src"},
+        ]
+        files = ["main.py", "state.py", "store.py", "a.py", "b.py", "c.py"]
+        for name in files:
+            rel = f"src/backend/routers/{name}"
+            card_id = "knowledge.backend-" + name.removesuffix(".py")
+            cards.append(_card(card_id, "knowledge", name, include=[rel], references=[rel]))
+            relations.append({"source": card_id, "type": "explains", "target": "floor.src"})
+        lineage = build_lineage(
+            {
+                "project": {"name": "CartridgeFlow"},
+                "cards": cards,
+                "relations": relations,
+                "graph": {"nodes": []},
+            }
+        )
+        by_id = {node["id"]: node for node in lineage["nodes"]}
+        # Real rooms accept drops; exploring households never do.
+        self.assertEqual("knowledge.backend", by_id["knowledge.backend"].get("rehomeRoom"))
+        self.assertEqual("", by_id["knowledge.backend"].get("rehomeSubdir"))
+        self.assertNotIn("rehomeRoom", by_id["knowledge.src"])
+        # Single-file Python cards are drag sources.
+        self.assertEqual("knowledge.backend-main", by_id["knowledge.backend-main"].get("rehomeSource"))
+        # Group nodes drop into their real subdirectory.
+        group = next(node for node in lineage["nodes"] if node.get("kind") == "group")
+        self.assertEqual("knowledge.backend", group.get("rehomeRoom"))
+        self.assertEqual("routers", group.get("rehomeSubdir"))
+
     def test_lineage_skips_grouping_for_small_rooms(self) -> None:
         room = _card("knowledge.backend", "knowledge", "后端服务层", include=["src/backend/**"])
         room["jurisdiction"] = {"span": "file", "meaning": "named", "status": "current", "implementation": "cf.backend"}

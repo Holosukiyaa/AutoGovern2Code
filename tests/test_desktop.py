@@ -363,6 +363,15 @@ class RehomeJobTests(unittest.TestCase):
     def test_unknown_job_poll_returns_none(self) -> None:
         self.assertIsNone(self._desktop._rehome_job("no-such-job"))
 
+    def test_tray_rehome_drag_drop_source(self) -> None:
+        ui = (Path(__file__).resolve().parents[1] / "src" / "ag2c_gui" / "imgui_tray.py").read_text(encoding="utf-8")
+        self.assertIn("AG2C_REHOME", ui)
+        self.assertIn("api/household/rehome", ui)
+        self.assertIn("api/household/rehome-status", ui)
+        self.assertIn("确认搬家", ui)
+        self.assertIn("_maybe_poll_rehome", ui)
+        self.assertIn("搬家失败（已自动回滚）", ui)
+
 
 class TrayHostSourceTests(unittest.TestCase):
     def test_tray_host_is_hello_imgui_without_webview2_or_pyside(self) -> None:

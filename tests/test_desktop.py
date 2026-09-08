@@ -315,6 +315,55 @@ class ProjectDigestTests(unittest.TestCase):
         self.assertIn("canonical 在非任务窗口被修改", ui)
 
 
+class RehomeJobTests(unittest.TestCase):
+    def setUp(self) -> None:
+        from ag2c_gui import desktop
+
+        self._desktop = desktop
+        self._saved = dict(desktop._REHOME_JOBS)
+        desktop._REHOME_JOBS.clear()
+
+    def tearDown(self) -> None:
+        self._desktop._REHOME_JOBS.clear()
+        self._desktop._REHOME_JOBS.update(self._saved)
+
+    def test_job_completes_and_reports_the_result(self) -> None:
+        with patch("ag2c.rehome.rehome_file_card", return_value={"merged": True, "to": "src/pkg/sub/a.py"}) as run:
+            job = self._desktop._start_rehome_job(
+                Path("demo"), card_id="knowledge.pkg-a", target_room="knowledge.pkg", target_subdir="sub", reason="test"
+            )
+            job_id = str(job["job"])
+            for _ in range(200):
+                polled = self._desktop._rehome_job(job_id)
+                if polled and polled.get("state") != "running":
+                    break
+                time.sleep(0.01)
+            polled = self._desktop._rehome_job(job_id)
+            self.assertEqual("done", polled["state"])
+            self.assertEqual({"merged": True, "to": "src/pkg/sub/a.py"}, polled["result"])
+            run.assert_called_once()
+
+    def test_job_failure_surfaces_the_error(self) -> None:
+        from ag2c.errors import AG2CError
+
+        with patch("ag2c.rehome.rehome_file_card", side_effect=AG2CError("target file already exists")):
+            job = self._desktop._start_rehome_job(
+                Path("demo"), card_id="knowledge.pkg-a", target_room="knowledge.pkg", target_subdir="", reason="test"
+            )
+            job_id = str(job["job"])
+            for _ in range(200):
+                polled = self._desktop._rehome_job(job_id)
+                if polled and polled.get("state") != "running":
+                    break
+                time.sleep(0.01)
+            polled = self._desktop._rehome_job(job_id)
+            self.assertEqual("failed", polled["state"])
+            self.assertIn("target file already exists", str(polled["error"]))
+
+    def test_unknown_job_poll_returns_none(self) -> None:
+        self.assertIsNone(self._desktop._rehome_job("no-such-job"))
+
+
 class TrayHostSourceTests(unittest.TestCase):
     def test_tray_host_is_hello_imgui_without_webview2_or_pyside(self) -> None:
         root = Path(__file__).resolve().parents[1]

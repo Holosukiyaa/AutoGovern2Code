@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import threading
+import uuid
 from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from ag2c import __version__
 from ag2c.errors import AG2CError
@@ -126,6 +127,14 @@ class DesktopHandler(BaseHTTPRequestHandler):
                 },
             )
             return
+        if path == "/api/household/rehome-status":
+            job_id = parse_qs(urlparse(self.path).query).get("id", [""])[0]
+            job = _rehome_job(job_id)
+            if job is None:
+                self._error(HTTPStatus.NOT_FOUND, "unknown rehome job")
+                return
+            self._json(HTTPStatus.OK, job)
+            return
         self._error(HTTPStatus.NOT_FOUND, "not found")
 
     def do_POST(self) -> None:
@@ -173,6 +182,26 @@ class DesktopHandler(BaseHTTPRequestHandler):
             if path == "/api/projects/resume":
                 self._json(HTTPStatus.OK, {"project": repair_and_check_project(self._request_path(body))})
                 return
+            if path == "/api/household/rehome":
+                card_id = body.get("id")
+                target_room = body.get("targetRoom")
+                if not isinstance(card_id, str) or not card_id.strip():
+                    raise AG2CError("card id is required")
+                if not isinstance(target_room, str) or not target_room.strip():
+                    raise AG2CError("target room is required")
+                target_subdir = body.get("targetSubdir")
+                reason = body.get("reason")
+                self._json(
+                    HTTPStatus.OK,
+                    _start_rehome_job(
+                        self._request_path(body),
+                        card_id=card_id.strip(),
+                        target_room=target_room.strip(),
+                        target_subdir=str(target_subdir).strip() if isinstance(target_subdir, str) else "",
+                        reason=str(reason).strip() if isinstance(reason, str) and reason.strip() else "operator rehomed a file card from the tray",
+                    ),
+                )
+                return
             if path == "/api/household/span":
                 from ag2c.household_commands import set_household_span
 
@@ -208,6 +237,56 @@ class DesktopHandler(BaseHTTPRequestHandler):
 
 _GUARD_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
 _GUARD_TTL_S = 10.0
+
+_REHOME_JOBS: dict[str, dict[str, object]] = {}
+_REHOME_LOCK = threading.Lock()
+
+
+def _rehome_job(job_id: str) -> dict[str, object] | None:
+    with _REHOME_LOCK:
+        job = _REHOME_JOBS.get(job_id)
+        return dict(job) if job is not None else None
+
+
+def _start_rehome_job(
+    root: Path,
+    *,
+    card_id: str,
+    target_room: str,
+    target_subdir: str,
+    reason: str,
+) -> dict[str, object]:
+    """Run a file-card rehome on a daemon thread; the tray polls the job.
+
+    The move itself rides the governed loop (task start → verify → finish, or
+    abandon + scope rollback), so it can take minutes while the test suite
+    runs; the HTTP answer is just the job handle.
+    """
+    from ag2c.rehome import rehome_file_card
+
+    job_id = uuid.uuid4().hex[:12]
+    with _REHOME_LOCK:
+        _REHOME_JOBS[job_id] = {"job": job_id, "state": "running", "card": card_id, "targetRoom": target_room}
+
+    def runner() -> None:
+        try:
+            result = rehome_file_card(
+                root,
+                card_id=card_id,
+                target_room=target_room,
+                target_subdir=target_subdir,
+                actor="tray",
+                reason=reason,
+            )
+        except Exception as exc:  # surfaced to the tray on the next poll
+            with _REHOME_LOCK:
+                _REHOME_JOBS[job_id].update({"state": "failed", "error": str(exc)})
+            return
+        with _REHOME_LOCK:
+            _REHOME_JOBS[job_id].update({"state": "done", "result": result})
+
+    threading.Thread(target=runner, daemon=True).start()
+    return _rehome_job(job_id) or {"job": job_id, "state": "running"}
 
 
 def _canonical_guard(root: Path) -> dict[str, object]:

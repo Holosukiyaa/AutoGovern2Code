@@ -189,6 +189,8 @@ def load_policy(manifest: Manifest) -> Policy:
                 provides=_provides(item.get("provides"), f"card {card_id} provides"),
                 conventions=str(item.get("conventions", "") or "").strip(),
                 budget_lines=max(0, int(item.get("budget_lines", 0) or 0)),
+                budget_chars=max(0, int(item.get("budget_chars", 0) or 0)),
+                budget_ast_nodes=max(0, int(item.get("budget_ast_nodes", 0) or 0)),
                 optional=bool(item.get("optional", False)),
                 maturity=str(item.get("maturity", "") or "").strip(),
             )

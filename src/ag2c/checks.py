@@ -103,8 +103,52 @@ def parse_unittest_failures(output: str) -> list[str]:
 DOCS_ONLY_SUFFIXES = frozenset({".md", ".markdown", ".rst", ".txt", ".adoc"})
 
 
+# Derived-density ceilings: when a room sets only budget_lines, the chars and
+# AST-node budgets are derived from it. Normal Python averages ~30-60 chars/line
+# and ~5-10 AST nodes/line; the derived ceilings are deliberately generous so
+# only deliberate density-gaming (200-char lines, semicolon-packed statements)
+# trips them. Explicit budget_chars / budget_ast_nodes on the card override.
+DERIVED_CHARS_PER_LINE = 160
+DERIVED_AST_NODES_PER_LINE = 15
+
+
+def _room_code_measurements(manifest: Manifest, item: dict[str, Any]) -> dict[str, int]:
+    """Measure a census household's code in three dimensions: lines, chars, AST nodes."""
+    lines = int(item.get("code_count") or 0)
+    chars = 0
+    ast_nodes = 0
+    for entry in item.get("files") or []:
+        if not isinstance(entry, str) or ":" not in entry:
+            continue
+        target_id, rel = entry.split(":", 1)
+        try:
+            root = manifest.target_root(target_id)
+        except StopIteration:
+            continue
+        path = root / rel
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        chars += len(text)
+        if rel.endswith(".py"):
+            try:
+                tree = ast.parse(text)
+            except SyntaxError:
+                continue
+            ast_nodes += sum(1 for _ in ast.walk(tree))
+    return {"lines": lines, "chars": chars, "ast_nodes": ast_nodes}
+
+
 def _budget_warnings(manifest: Manifest, policy: Policy, entry_slice: dict[str, Any]) -> list[dict[str, str]]:
-    """Soft budget: warn when a room's code exceeds its budget_lines. Never blocks."""
+    """Soft budget, multi-dimensional: lines + chars + AST nodes. Never blocks.
+
+    Anti-gaming (钉子厂): a room that only declares budget_lines still gets
+    chars/AST ceilings derived from it, so packing code dense to stay under the
+    line budget trips the other two dimensions.
+    """
     warnings: list[dict[str, str]] = []
     from .households import census_report
     try:
@@ -114,16 +158,32 @@ def _budget_warnings(manifest: Manifest, policy: Policy, entry_slice: dict[str, 
     for item in report.get("households") or []:
         if not isinstance(item, dict):
             continue
-        card = policy.card(str(item.get("id") or ""))
-        if card is None or card.budget_lines <= 0:
+        try:
+            card = policy.card(str(item.get("id") or ""))
+        except StopIteration:
             continue
-        code_count = int(item.get("code_count") or 0)
-        if code_count > card.budget_lines:
-            warnings.append({
-                "kind": "over-budget",
-                "room": str(item.get("id") or ""),
-                "detail": f"{code_count} 行代码，预算 {card.budget_lines} 行（超出 {code_count - card.budget_lines} 行）",
-            })
+        if card is None:
+            continue
+        budget_lines = card.budget_lines
+        budget_chars = card.budget_chars or (budget_lines * DERIVED_CHARS_PER_LINE if budget_lines else 0)
+        budget_ast = card.budget_ast_nodes or (budget_lines * DERIVED_AST_NODES_PER_LINE if budget_lines else 0)
+        if budget_lines <= 0 and budget_chars <= 0 and budget_ast <= 0:
+            continue
+        room = str(item.get("id") or "")
+        measured = _room_code_measurements(manifest, item)
+        dimensions = (
+            ("lines", measured["lines"], budget_lines, "行"),
+            ("chars", measured["chars"], budget_chars, "字符"),
+            ("ast_nodes", measured["ast_nodes"], budget_ast, "AST 节点"),
+        )
+        for dimension, actual, budget, unit in dimensions:
+            if budget > 0 and actual > budget:
+                warnings.append({
+                    "kind": "over-budget",
+                    "room": room,
+                    "dimension": dimension,
+                    "detail": f"{actual} {unit}，预算 {budget}（超出 {actual - budget}，维度 {dimension}）",
+                })
     return warnings
 
 

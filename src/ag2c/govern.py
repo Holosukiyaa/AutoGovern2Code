@@ -511,6 +511,8 @@ def apply_change(
     provides: list[str] | None = None,
     conventions: str | None = None,
     budget_lines: int | None = None,
+    budget_chars: int | None = None,
+    budget_ast_nodes: int | None = None,
     optional: bool | None = None,
     maturity: str | None = None,
 ) -> dict[str, Any]:
@@ -583,6 +585,10 @@ def apply_change(
             current["conventions"] = conventions.strip()
         if budget_lines is not None:
             current["budget_lines"] = max(0, int(budget_lines))
+        if budget_chars is not None:
+            current["budget_chars"] = max(0, int(budget_chars))
+        if budget_ast_nodes is not None:
+            current["budget_ast_nodes"] = max(0, int(budget_ast_nodes))
         if optional is not None:
             current["optional"] = bool(optional)
         if maturity is not None:

@@ -659,7 +659,7 @@ def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
         replacements = [relation.target for relation in policy.relations if relation.source == card.card_id and relation.relation_type == "replaced_by"]
         # Exclude metadata fields that don't affect jurisdiction/behavior,
         # so adding new optional fields doesn't invalidate all census records.
-        card_dict = {k: v for k, v in asdict(card).items() if k not in ("budget_lines", "optional", "maturity")}
+        card_dict = {k: v for k, v in asdict(card).items() if k not in ("budget_lines", "budget_chars", "budget_ast_nodes", "optional", "maturity")}
         declaration_digest = digest_json({"card": card_dict, "floors": floors, "replacements": replacements, "checkers": [asdict(policy.checker(checker)) for checker in card.checkers]})
         scope_digest = digest_json([{key: item[key] for key in ("target", "path", "digest")} for item in matched])
         previous = latest.get(card.card_id)

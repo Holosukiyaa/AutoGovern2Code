@@ -210,6 +210,13 @@ def _optional_string_list(args: Mapping[str, Any], key: str) -> list[str] | None
     return _string_list(args, key)
 
 
+def _optional_int(args: Mapping[str, Any], key: str) -> int | None:
+    """None when the caller omitted the key, so the engine preserves existing values."""
+    if key not in args or args.get(key) is None:
+        return None
+    return int(args[key])
+
+
 def _skill_resources() -> list[dict[str, str]]:
     rows = [
         {
@@ -402,6 +409,9 @@ def tool_defs() -> list[dict[str, Any]]:
                 "include": {"type": "array", "items": {"type": "string"}},
                 "provides": {"type": "array", "items": {"type": "string"}, "description": "Reusable capabilities this module offers (货架). Omit to keep existing; pass to replace."},
                 "conventions": {"type": "string", "description": "写法约定: how code in this module is written. Omit to keep existing."},
+                "budget_lines": {"type": "integer", "description": "Soft budget: max lines of code. Omit to keep existing. Setting it also derives chars/AST ceilings (anti-density-gaming)."},
+                "budget_chars": {"type": "integer", "description": "Soft budget: max characters. 0 = derive from budget_lines. Omit to keep existing."},
+                "budget_ast_nodes": {"type": "integer", "description": "Soft budget: max AST nodes (Python files). 0 = derive from budget_lines. Omit to keep existing."},
                 "reason": {"type": "string"},
                 "actor": {"type": "string"},
                 "cwd": _cwd_prop(),
@@ -728,6 +738,9 @@ def _call_apply(args: dict[str, Any]) -> Any:
         include=_string_list(args, "include"),
         provides=_optional_string_list(args, "provides"),
         conventions=str(args["conventions"]) if args.get("conventions") is not None else None,
+        budget_lines=_optional_int(args, "budget_lines"),
+        budget_chars=_optional_int(args, "budget_chars"),
+        budget_ast_nodes=_optional_int(args, "budget_ast_nodes"),
     )
 
 

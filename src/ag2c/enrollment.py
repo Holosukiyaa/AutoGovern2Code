@@ -264,11 +264,11 @@ def _native_checkers(root: Path) -> list[dict[str, Any]]:
     ]
     if (root / "go.mod").is_file():
         checkers.append(
-            {"id": "check.go", "stage": "floor", "target": "app", "command": ["go", "test", "./..."], "cwd": ".", "timeout": 600}
+            {"id": "check.go", "stage": "floor", "target": "app", "command": ["go", "test", "./..."], "cwd": ".", "timeout": 600, "always": True}
         )
     if (root / "Cargo.toml").is_file():
         checkers.append(
-            {"id": "check.rust", "stage": "floor", "target": "app", "command": ["cargo", "test"], "cwd": ".", "timeout": 900}
+            {"id": "check.rust", "stage": "floor", "target": "app", "command": ["cargo", "test"], "cwd": ".", "timeout": 900, "always": True}
         )
     package_json = root / "package.json"
     if package_json.is_file():
@@ -284,7 +284,7 @@ def _native_checkers(root: Path) -> list[dict[str, Any]]:
                 else ["npm", "test"]
             )
             checkers.append(
-                {"id": "check.node", "stage": "floor", "target": "app", "command": command, "cwd": ".", "timeout": 900}
+                {"id": "check.node", "stage": "floor", "target": "app", "command": command, "cwd": ".", "timeout": 900, "always": True}
             )
     if (root / "tests").is_dir() and any(root.glob("**/test*.py")):
         pyproject = root / "pyproject.toml"
@@ -298,9 +298,10 @@ def _native_checkers(root: Path) -> list[dict[str, Any]]:
             if uses_pytest
             else ["python", "-B", "-m", "unittest", "discover", "-s", "tests"]
         )
-        checkers.append(
-            {"id": "check.python", "stage": "floor", "target": "app", "command": command, "cwd": ".", "timeout": 900}
-        )
+        checker = {"id": "check.python", "stage": "floor", "target": "app", "command": command, "cwd": ".", "timeout": 900, "always": True}
+        if not uses_pytest:
+            checker["parse"] = "unittest"
+        checkers.append(checker)
     return checkers
 
 

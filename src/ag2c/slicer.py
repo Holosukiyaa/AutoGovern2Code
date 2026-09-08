@@ -214,6 +214,9 @@ def compile_slice(
     for card_id in reasons:
         for checker_id in policy.card(card_id).checkers:
             checker_reasons[checker_id].add(f"selected-card:{card_id}")
+    for checker in policy.checkers:
+        if checker.always:
+            checker_reasons[checker.checker_id].add("always")
     check_plan = [
         {
             "id": checker.checker_id,

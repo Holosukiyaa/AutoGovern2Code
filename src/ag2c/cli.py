@@ -335,6 +335,19 @@ def build_parser() -> argparse.ArgumentParser:
     enforcement.add_argument("--actor", required=True)
     enforcement.add_argument("--reason", required=True)
     enforcement.add_argument("--format", choices=("text", "json"), default="json")
+    checker_cmd = govern_commands.add_parser("checker", help="adjust a policy checker's gate behavior (always / parse / timeout)")
+    checker_cmd.add_argument("--id", required=True)
+    checker_cmd.add_argument("--always", choices=("on", "off"), default="")
+    checker_cmd.add_argument("--parse", choices=("unittest", "none"), default="")
+    checker_cmd.add_argument("--timeout", type=int, default=0)
+    checker_cmd.add_argument("--actor", required=True)
+    checker_cmd.add_argument("--reason", required=True)
+    checker_cmd.add_argument("--format", choices=("text", "json"), default="json")
+    baseline_cmd = govern_commands.add_parser("test-baseline", help="record current unittest failures as the zero-regression baseline")
+    baseline_cmd.add_argument("--checker", action="append", default=[])
+    baseline_cmd.add_argument("--actor", required=True)
+    baseline_cmd.add_argument("--reason", required=True)
+    baseline_cmd.add_argument("--format", choices=("text", "json"), default="json")
 
     doctor = subparsers.add_parser("doctor", help="check configuration, activation, tools, index, and ledger")
     doctor.add_argument("--repair", action="store_true", help="restore the Skill, Git guard, activation, and index")
@@ -736,6 +749,22 @@ def main(argv: list[str] | None = None) -> int:
                 result = pending_updates(Path.cwd())
             elif args.govern_command == "settle":
                 result = settle_pending(Path.cwd(), actor=args.actor, reason=args.reason)
+            elif args.govern_command == "checker":
+                from .govern import update_checker
+
+                result = update_checker(
+                    Path.cwd(),
+                    checker_id=args.id,
+                    actor=args.actor,
+                    reason=args.reason,
+                    always={"on": True, "off": False}.get(args.always) if args.always else None,
+                    parse=args.parse or None,
+                    timeout=args.timeout or None,
+                )
+            elif args.govern_command == "test-baseline":
+                from .checks import accept_test_baseline
+
+                result = accept_test_baseline(manifest, policy, list(args.checker), actor=args.actor, reason=args.reason)
             elif args.govern_command == "apply":
                 result = apply_change(
                     Path.cwd(),

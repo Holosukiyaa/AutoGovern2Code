@@ -47,6 +47,7 @@ Hard rules learned in production:
 - After editing files, verify blocks on census-stale: record the census first (ag2c_census with record=true, all=true).
 - A knowledge-card title is the 摘要: 20 characters max, Chinese allowed; the English id is not the display name.
 - ag2c_task_verify runs the full suite and can exceed the MCP timeout; on timeout rerun `ag2c task verify` via CLI inside the worktree — it counts the same.
+- Checkers marked always:true run on every verify regardless of slice. Checkers with parse:unittest get a zero-regression gate: failures listed in the store baseline stay green, any NEW failure blocks verify, and fixed failures shrink the baseline automatically. Record the initial debt once with `ag2c govern test-baseline --actor ... --reason ...`; tune checkers with `ag2c govern checker --id ... --always on|off --parse unittest|none`.
 - ag2c_task_finish runs from the canonical checkout, never from the worktree.
 
 Fail closed: dirty canonical blocks start; writes outside the worktree block verify; leftover deletion needs retire then a dedicated task. Full Skill text is in resources ag2c://skill/<name>. The generic connect prompt is ag2c://connect.

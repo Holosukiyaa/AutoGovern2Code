@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Verify is now a quality gate, not only a process gate. Checkers marked `always: true` join every verify check plan regardless of the slice, and enrollment marks native test checkers (`check.python` / `check.go` / `check.rust` / `check.node`) always-on. Checkers with `parse: unittest` get a zero-regression gate: failures recorded in the project store baseline stay green, any NEW failure blocks verify, and failures that start passing shrink the baseline automatically. Record existing debt once with `ag2c govern test-baseline`; tune checkers without hand-editing policy via `ag2c govern checker --id ... --always on|off --parse unittest|none --timeout N`.
+- The tray lineage tree nests directory rooms under their longest-prefix parent room, mirroring the real directory hierarchy (core/* rooms under the core room, frontend pages/styles under the frontend room). Exploring households never act as nesting parents, so census scaffolding cannot swallow named rooms.
+
 - Packaged a fifth Skill, `ag2c-full-liquidation` (全量清算): an opt-in-only pipeline distilled from a production rebuild — assess and gate on explicit user decisions, physical cleanup through governed tasks (wedged-policy escape, retirement-references refactoring, generated-artifact locks with logical digests), ingest re-baseline, proper-subset re-census, room cards, per-file cards for core rooms, an evidence-backed audit document, and a prioritized cleanup queue. The Skill, the MCP initialize instructions, and the connect prompt all state it runs only when the user explicitly asks — never proactively.
 
 ## 0.9.0 - 2026-09-07

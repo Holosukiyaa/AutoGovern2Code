@@ -602,6 +602,72 @@ def apply_change(
     }
 
 
+def update_checker(
+    start: Path,
+    *,
+    checker_id: str,
+    actor: str,
+    reason: str,
+    always: bool | None = None,
+    parse: str | None = None,
+    timeout: int | None = None,
+) -> dict[str, Any]:
+    """Adjust a policy checker's gate behavior without hand-editing policy.json."""
+    actor = actor.strip()
+    reason = reason.strip()
+    checker_id = checker_id.strip()
+    if not actor or not reason or not checker_id:
+        raise AG2CError("governance checker requires --actor, --reason, and --id")
+    if always is None and parse is None and timeout is None:
+        raise AG2CError("nothing to change; pass --always, --parse, or --timeout")
+    if parse is not None and parse not in {"unittest", "none", ""}:
+        raise AG2CError(f"unsupported parse mode: {parse}")
+    root = repository_root(start)
+    manifest = load_manifest(discover_manifest(root), project_root=root)
+    raw = _read_json(manifest.policy_path)
+    checkers = [item for item in raw.get("checkers", []) if isinstance(item, dict)]
+    target = next((item for item in checkers if str(item.get("id")) == checker_id), None)
+    if target is None:
+        raise AG2CError(f"unknown checker: {checker_id}")
+    changes: dict[str, Any] = {}
+    if always is not None:
+        target["always"] = always
+        changes["always"] = always
+    if parse is not None:
+        value = "" if parse in {"none", ""} else parse
+        if value:
+            target["parse"] = value
+        else:
+            target.pop("parse", None)
+        changes["parse"] = value
+    if timeout is not None:
+        if timeout < 1:
+            raise AG2CError("timeout must be positive")
+        target["timeout"] = timeout
+        changes["timeout"] = timeout
+    _atomic_json(manifest.policy_path, raw)
+    try:
+        policy = load_policy(manifest)
+    except ConfigurationError as exc:
+        raise AG2CError(f"updated policy is invalid: {exc}") from exc
+    build_index(manifest, policy, index_path(manifest))
+    event = append_event(
+        manifest.ledger_path,
+        "governance-applied",
+        {"action": "update", "kind": "checker", "id": checker_id, "changes": changes, "actor": actor, "reason": reason},
+    )
+    pending_updates(root)
+    return {
+        "action": "update",
+        "kind": "checker",
+        "id": checker_id,
+        "changes": changes,
+        "actor": actor,
+        "reason": reason,
+        "ledger_event_digest": event["event_digest"],
+    }
+
+
 def retrieve_guidance(start: Path, *, path_specs: list[str], contract_specs: list[str] | None = None, goal: str = "", all_mode: bool = False) -> dict[str, Any]:
     root = repository_root(start)
     manifest = load_manifest(discover_manifest(root), project_root=root)

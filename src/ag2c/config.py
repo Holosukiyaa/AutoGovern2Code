@@ -17,6 +17,7 @@ IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 CARD_TYPES = {"constitution", "floor", "boundary", "knowledge", "scenario", "task"}
 OWNERSHIP_TYPES = {"primary", "reference", "supporting"}
 CHECK_STAGES = {"static", "floor", "boundary", "scenario"}
+CHECK_PARSE_MODES = {"", "unittest"}
 RELATION_TYPES = {"depends_on", "explains", "producer", "consumer", "governs", "related_to", "replaced_by"}
 COVERAGE_LEVELS = {"baseline", "structured"}
 
@@ -235,7 +236,13 @@ def load_policy(manifest: Manifest) -> Policy:
         if timeout < 1:
             raise ConfigurationError(f"checker {checker_id} timeout must be positive")
         cwd = relative_config_path(str(item.get("cwd", ".")), f"checker {checker_id} cwd")
-        checkers.append(Checker(checker_id, stage, target_id, command, cwd, timeout, str(item.get("implementation") or "")))
+        always = item.get("always", False)
+        if not isinstance(always, bool):
+            raise ConfigurationError(f"checker {checker_id} always must be a boolean")
+        parse = str(item.get("parse") or "").strip()
+        if parse not in CHECK_PARSE_MODES:
+            raise ConfigurationError(f"checker {checker_id} has unsupported parse mode: {parse}")
+        checkers.append(Checker(checker_id, stage, target_id, command, cwd, timeout, str(item.get("implementation") or ""), always, parse))
     checker_ids = [checker.checker_id for checker in checkers]
     if len(checker_ids) != len(set(checker_ids)):
         raise ConfigurationError("policy checker ids must be unique")

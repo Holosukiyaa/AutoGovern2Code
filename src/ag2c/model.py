@@ -78,6 +78,8 @@ class Checker:
     cwd: str
     timeout: int
     implementation: str = ""
+    always: bool = False
+    parse: str = ""
 
 
 @dataclass(frozen=True)

@@ -52,6 +52,7 @@ RECORD_BLOCK_ISSUES = frozenset(
         "grain-overflow",
         "span-unlabeled",
         "span-file-gap",
+        "exploring-expired",
     }
 )
 GRAIN_RANK = {"subtree": 0, "directory": 1, "module": 2}
@@ -66,6 +67,7 @@ STRATEGY_RANKS = {
 }
 RENEWAL_SCHEMA = "ag2c.household-renewal.v1"
 RENEWAL_FILENAME = "household-renewals.json"
+DEFAULT_SUNSET_DAYS = 30
 
 
 def coerce_jurisdiction(value: Any) -> dict[str, Any] | None:
@@ -224,12 +226,19 @@ def load_renewals(manifest: Manifest) -> dict[str, Any]:
     return {str(key): value for key, value in raw["cards"].items() if isinstance(value, dict)}
 
 
-def acknowledge_exploring(manifest: Manifest, policy: Policy, *, actor: str, reason: str) -> int:
-    """Record the current child set of exploring households without naming them."""
+def acknowledge_exploring(manifest: Manifest, policy: Policy, *, actor: str, reason: str, sunset_days: int = DEFAULT_SUNSET_DAYS) -> int:
+    """Record the current child set of exploring households without naming them.
+
+    Each renewal carries an expires_at sunset date; after it passes the
+    household is treated as unrenewed and blocks census recording.
+    """
     report = census_report(manifest, policy)
     cards = load_renewals(manifest)
     added = 0
-    timestamp = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc)
+    timestamp = now.isoformat()
+    from datetime import timedelta
+    expires = (now + timedelta(days=sunset_days)).isoformat()
     for item in report.get("households") or []:
         if item.get("identity") != "exploring":
             continue
@@ -238,6 +247,7 @@ def acknowledge_exploring(manifest: Manifest, policy: Policy, *, actor: str, rea
             continue
         cards[card_id] = {
             "renewed_at": timestamp,
+            "expires_at": expires,
             "actor": actor,
             "reason": reason,
             "child_directories": list(item.get("child_directories") or []),
@@ -254,6 +264,22 @@ def acknowledge_exploring(manifest: Manifest, policy: Policy, *, actor: str, rea
     )
     os.replace(temporary, path)
     return added
+
+
+def expired_renewals(manifest: Manifest) -> list[str]:
+    """Card ids whose exploring renewal has passed its sunset date."""
+    now = datetime.now(timezone.utc)
+    expired: list[str] = []
+    for card_id, record in load_renewals(manifest).items():
+        expires = str(record.get("expires_at") or "")
+        if not expires:
+            continue  # legacy record without sunset — treat as still valid
+        try:
+            if datetime.fromisoformat(expires) < now:
+                expired.append(card_id)
+        except ValueError:
+            continue
+    return expired
 
 
 def directory_scope(pattern: str) -> str:
@@ -611,6 +637,7 @@ def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
     jurisdictions = [card for card in policy.cards if card.jurisdiction is not None]
     records = _history(manifest)["records"]
     latest = {record["card_id"]: record for record in records if isinstance(record, dict) and "card_id" in record}
+    expired_set = set(expired_renewals(manifest))
     gaps: list[dict] = []
     directories: dict[tuple[str, str], dict] = {}
     for artifact in artifacts:
@@ -714,6 +741,10 @@ def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
                 identity = "named"
             else:
                 identity = "exploring"
+                # Sunset clause: expired exploring renewals block census recording.
+                if card.card_id in expired_set:
+                    issues.append({"code": "exploring-expired"})
+                    identity = "opaque"
         if any(item["digest"] == "outside-target" for item in matched):
             issues.append({"code": "source-outside-target"})
         scoped_signals = [item for item in signals if _matches(card, item["target"], item["path"])]

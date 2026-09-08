@@ -1,0 +1,148 @@
+"""Sunset clause and canary tests."""
+
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from ag2c.checks import load_test_baseline, _save_test_baseline
+from ag2c.households import expired_renewals, load_renewals, RENEWAL_SCHEMA, RENEWAL_FILENAME
+from ag2c.model import Manifest
+
+
+def _manifest(root: Path) -> Manifest:
+    return Manifest(
+        path=root / "manifest.json",
+        project_id="test-proj",
+        project_root=root,
+        targets=[],
+        ledger_path=root / "ledger.jsonl",
+        policy_path=root / "policy.json",
+        state_dir=root / "state",
+    )
+
+
+class SunsetRenewalTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = Path(tempfile.mkdtemp())
+        self._manifest = _manifest(self._tmp)
+        (self._tmp / "state").mkdir(parents=True, exist_ok=True)
+
+    def test_no_renewals_no_expired(self) -> None:
+        self.assertEqual([], expired_renewals(self._manifest))
+
+    def test_fresh_renewal_not_expired(self) -> None:
+        cards = {
+            "knowledge.a": {
+                "renewed_at": datetime.now(timezone.utc).isoformat(),
+                "expires_at": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
+                "actor": "test",
+                "reason": "test",
+                "child_directories": [],
+            }
+        }
+        path = self._tmp / "state" / RENEWAL_FILENAME
+        path.write_text(json.dumps({"schema": RENEWAL_SCHEMA, "cards": cards}), encoding="utf-8")
+        self.assertEqual([], expired_renewals(self._manifest))
+
+    def test_expired_renewal_detected(self) -> None:
+        cards = {
+            "knowledge.old": {
+                "renewed_at": (datetime.now(timezone.utc) - timedelta(days=60)).isoformat(),
+                "expires_at": (datetime.now(timezone.utc) - timedelta(days=30)).isoformat(),
+                "actor": "test",
+                "reason": "test",
+                "child_directories": [],
+            }
+        }
+        path = self._tmp / "state" / RENEWAL_FILENAME
+        path.write_text(json.dumps({"schema": RENEWAL_SCHEMA, "cards": cards}), encoding="utf-8")
+        self.assertEqual(["knowledge.old"], expired_renewals(self._manifest))
+
+    def test_legacy_record_without_expires_still_valid(self) -> None:
+        cards = {
+            "knowledge.legacy": {
+                "renewed_at": datetime.now(timezone.utc).isoformat(),
+                "actor": "test",
+                "reason": "test",
+                "child_directories": [],
+            }
+        }
+        path = self._tmp / "state" / RENEWAL_FILENAME
+        path.write_text(json.dumps({"schema": RENEWAL_SCHEMA, "cards": cards}), encoding="utf-8")
+        self.assertEqual([], expired_renewals(self._manifest))
+
+
+class SunsetBaselineTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = Path(tempfile.mkdtemp())
+        self._manifest = _manifest(self._tmp)
+        (self._tmp / "state").mkdir(parents=True, exist_ok=True)
+
+    def test_fresh_baseline_loaded(self) -> None:
+        _save_test_baseline(
+            self._manifest,
+            {"check.python": ["test_a", "test_b"]},
+            actor="test",
+            reason="test",
+        )
+        baseline = load_test_baseline(self._manifest)
+        self.assertEqual(["test_a", "test_b"], baseline["check.python"])
+
+    def test_expired_baseline_not_loaded(self) -> None:
+        # Write a baseline with an expired expires_at directly.
+        path = self._tmp / "state" / "test-baseline.json"
+        expired = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        payload = {
+            "schema": "ag2c.test-baseline.v1",
+            "checkers": {
+                "check.python": {
+                    "failures": ["test_a"],
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "expires_at": expired,
+                    "actor": "test",
+                }
+            },
+        }
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        baseline = load_test_baseline(self._manifest)
+        self.assertEqual({}, baseline)
+
+    def test_baseline_without_expires_still_loaded(self) -> None:
+        # Legacy baseline without expires_at should still work.
+        path = self._tmp / "state" / "test-baseline.json"
+        payload = {
+            "schema": "ag2c.test-baseline.v1",
+            "checkers": {
+                "check.python": {
+                    "failures": ["test_a"],
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "actor": "test",
+                }
+            },
+        }
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        baseline = load_test_baseline(self._manifest)
+        self.assertEqual(["test_a"], baseline["check.python"])
+
+    def test_save_includes_expires_at(self) -> None:
+        _save_test_baseline(
+            self._manifest,
+            {"check.python": ["test_a"]},
+            actor="test",
+            reason="test",
+        )
+        path = self._tmp / "state" / "test-baseline.json"
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        record = raw["checkers"]["check.python"]
+        self.assertIn("expires_at", record)
+        expires = datetime.fromisoformat(record["expires_at"])
+        self.assertGreater(expires, datetime.now(timezone.utc))
+
+
+if __name__ == "__main__":
+    unittest.main()

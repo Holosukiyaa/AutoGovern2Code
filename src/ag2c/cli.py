@@ -370,7 +370,76 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--repair", action="store_true", help="restore the Skill, Git guard, activation, and index")
     doctor.add_argument("--skill-destination", type=Path)
     _add_harness_arguments(doctor)
+
+    canary = subparsers.add_parser("canary", help="plant a known defect and verify the gate catches it")
+    canary.add_argument("--actor", required=True)
+    canary.add_argument("--reason", required=True)
+    canary.add_argument("--format", choices=("text", "json"), default="json")
     return parser
+
+
+def _canary(manifest, policy, *, actor: str, reason: str, output_format: str = "json") -> int:
+    """Plant a known defect in a governed directory and verify the gate catches it.
+
+    The canary proves the gate still bites: if the defect passes verification,
+    the governance loop is broken and the result is canary-failed.
+    """
+    import tempfile
+    from .checks import run_checks
+    from .gitops import change_digest, changed_paths, head
+    from .slicer import compile_slice
+
+    root = manifest.project_root
+    # Find a governed directory with at least one code file.
+    target = manifest.targets[0] if manifest.targets else None
+    if target is None:
+        print("AG2C error: no targets in manifest", file=sys.stderr)
+        return 2
+    target_root = manifest.target_root(target.target_id)
+    # Plant a canary file with a known defect.
+    canary_path = target_root / "__ag2c_canary__.py"
+    canary_content = '"""AG2C canary: known defect for gate validation."""\n\n\ndef canary_broken():\n    assert False, "canary: this defect must be caught"\n'
+    canary_rel = f"{target.target_id}:__ag2c_canary__.py"
+    try:
+        canary_path.write_text(canary_content, encoding="utf-8")
+        # Build a minimal slice for the canary file.
+        entry_slice = compile_slice(
+            manifest,
+            policy,
+            path_specs=[canary_rel],
+            contract_specs=[],
+            goal="canary: gate validation",
+            all_mode=False,
+        )
+        report = run_checks(
+            manifest,
+            policy,
+            entry_slice,
+            all_mode=False,
+            ledger_path=manifest.ledger_path,
+            task_id="canary",
+        )
+        # The canary passes if any checker failed (gate caught the defect).
+        failed = [r for r in report["results"] if r["status"] not in {"passed", "skipped"}]
+        caught = bool(failed)
+        result = {
+            "schema": "ag2c.canary.v1",
+            "canary": "passed" if caught else "failed",
+            "caught_by": [r["id"] for r in failed],
+            "checkers_run": len(report["results"]),
+            "actor": actor,
+            "reason": reason,
+        }
+        from .ledger import append_event
+        append_event(manifest.ledger_path, "canary", result)
+        if output_format == "json":
+            print(_json(result))
+        else:
+            label = "金丝雀存活（门禁有效）" if caught else "金丝雀死亡（门禁失效！）"
+            print(f"{label}: {len(failed)}/{len(report['results'])} 检查拦截")
+        return 0 if caught else 1
+    finally:
+        canary_path.unlink(missing_ok=True)
 
 
 def _doctor(manifest, policy) -> int:
@@ -925,6 +994,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "doctor":
             return _doctor(manifest, policy)
+        if args.command == "canary":
+            return _canary(manifest, policy, actor=args.actor, reason=args.reason, output_format=args.format)
         parser.error("unhandled command")
     except (AG2CError, OSError, ValueError) as exc:
         print(f"AG2C error: {exc}", file=sys.stderr)

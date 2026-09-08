@@ -25,6 +25,7 @@ PROCESS_CHECK_STATUSES = frozenset({"passed", "skipped"})
 TEST_BASELINE_SCHEMA = "ag2c.test-baseline.v1"
 TEST_BASELINE_FILENAME = "test-baseline.json"
 _UNITTEST_FAILURE_RE = re.compile(r"^(?:FAIL|ERROR):\s+(\S+(?:\s+\([^)]*\))?)\s*$", re.MULTILINE)
+DEFAULT_BASELINE_SUNSET_DAYS = 30
 
 
 def test_baseline_path(manifest: Manifest) -> Path:
@@ -43,18 +44,31 @@ def load_test_baseline(manifest: Manifest) -> dict[str, list[str]]:
     if not isinstance(checkers, dict):
         return {}
     baseline: dict[str, list[str]] = {}
+    now = datetime.now(timezone.utc)
     for checker_id, record in checkers.items():
         failures = record.get("failures") if isinstance(record, dict) else None
         if isinstance(failures, list):
+            # Sunset: expired baseline entries are treated as new failures.
+            expires = str(record.get("expires_at") or "")
+            if expires:
+                try:
+                    if datetime.fromisoformat(expires) < now:
+                        continue  # expired — do not exempt
+                except ValueError:
+                    pass
             baseline[str(checker_id)] = sorted({str(item) for item in failures})
     return baseline
 
 
-def _save_test_baseline(manifest: Manifest, baseline: dict[str, list[str]], *, actor: str, reason: str) -> None:
+def _save_test_baseline(manifest: Manifest, baseline: dict[str, list[str]], *, actor: str, reason: str, sunset_days: int = DEFAULT_BASELINE_SUNSET_DAYS) -> None:
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    expires = (now + timedelta(days=sunset_days)).isoformat()
     records = {
         checker_id: {
             "failures": sorted(failures),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": now.isoformat(),
+            "expires_at": expires,
             "actor": actor,
             "reason": reason,
         }

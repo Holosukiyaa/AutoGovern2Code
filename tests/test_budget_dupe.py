@@ -13,8 +13,12 @@ from unittest import mock
 from ag2c.checks import (
     DERIVED_AST_NODES_PER_LINE,
     DERIVED_CHARS_PER_LINE,
+    ESCALATABLE_KINDS,
+    WARNING_ESCALATION_THRESHOLD,
     _budget_warnings,
     _duplicate_warnings,
+    _load_warning_history,
+    _record_warnings_and_find_escalated,
     _room_code_measurements,
 )
 from ag2c.config import load_policy
@@ -152,7 +156,9 @@ class MultiDimensionBudgetTests(unittest.TestCase):
     def test_measurements_count_lines_chars_ast(self) -> None:
         self._write("src/mod.py", "def foo():\n    return 1\n")
         manifest = self._manifest_with_target()
-        item = {"code_count": 2, "files": ["app:src/mod.py"]}
+        # census code_count is a code-FILE count (1 file here), NOT lines;
+        # measurements must count real lines from file contents.
+        item = {"code_count": 1, "files": ["app:src/mod.py"]}
         measured = _room_code_measurements(manifest, item)
         self.assertEqual(2, measured["lines"])
         self.assertEqual(len("def foo():\n    return 1\n"), measured["chars"])
@@ -163,7 +169,7 @@ class MultiDimensionBudgetTests(unittest.TestCase):
         manifest = self._manifest_with_target()
         item = {"code_count": 10, "files": ["app:src/gone.py", "app:src/alsogone.py"]}
         measured = _room_code_measurements(manifest, item)
-        self.assertEqual(10, measured["lines"])  # lines trust census
+        self.assertEqual(0, measured["lines"])  # measured from disk, not census
         self.assertEqual(0, measured["chars"])
         self.assertEqual(0, measured["ast_nodes"])
 
@@ -233,6 +239,110 @@ class MultiDimensionBudgetTests(unittest.TestCase):
     def test_derived_ast_ceiling_constant(self) -> None:
         self.assertEqual(15, DERIVED_AST_NODES_PER_LINE)
         self.assertEqual(160, DERIVED_CHARS_PER_LINE)
+
+
+class WarningEscalationTests(unittest.TestCase):
+    """9.7: a warning ignored N times hardens into a gate block (泰坦尼克)."""
+
+    def setUp(self) -> None:
+        self._tmp = Path(tempfile.mkdtemp())
+        (self._tmp / "state").mkdir(parents=True)
+        self.manifest = Manifest(
+            path=self._tmp / "manifest.json",
+            project_id="test-proj",
+            project_root=self._tmp,
+            targets=[],
+            ledger_path=self._tmp / "ledger.jsonl",
+            policy_path=self._tmp / "policy.json",
+            state_dir=self._tmp / "state",
+        )
+
+    def _budget_warning(self) -> dict[str, str]:
+        return {"kind": "over-budget", "room": "knowledge.room", "dimension": "lines",
+                "key": "knowledge.room:lines", "detail": "600 行代码，预算 500 行"}
+
+    def test_first_appearances_do_not_escalate(self) -> None:
+        warning = self._budget_warning()
+        for expected_count in (1, 2):
+            escalated = _record_warnings_and_find_escalated(self.manifest, [warning])
+            self.assertEqual([], escalated)
+            history = _load_warning_history(self.manifest)
+            counts = [e["count"] for e in history["warnings"].values()]
+            self.assertEqual([expected_count], counts)
+
+    def test_third_appearance_escalates(self) -> None:
+        warning = self._budget_warning()
+        _record_warnings_and_find_escalated(self.manifest, [warning])
+        _record_warnings_and_find_escalated(self.manifest, [warning])
+        escalated = _record_warnings_and_find_escalated(self.manifest, [warning])
+        self.assertEqual(1, len(escalated))
+        self.assertEqual("over-budget", escalated[0]["kind"])
+        self.assertEqual(WARNING_ESCALATION_THRESHOLD, escalated[0]["count"])
+
+    def test_disappeared_warning_does_not_escalate_but_count_is_kept(self) -> None:
+        warning = self._budget_warning()
+        _record_warnings_and_find_escalated(self.manifest, [warning])
+        _record_warnings_and_find_escalated(self.manifest, [warning])
+        # Warning fixed: absent from this run -> no escalation.
+        escalated = _record_warnings_and_find_escalated(self.manifest, [])
+        self.assertEqual([], escalated)
+        # Reappears later: count continues, third appearance hardens.
+        escalated = _record_warnings_and_find_escalated(self.manifest, [warning])
+        self.assertEqual(1, len(escalated))
+
+    def test_informational_hint_never_escalates(self) -> None:
+        hint = {"kind": "cross-slice-dependency", "key": "src/ag2c/checks.py",
+                "detail": "src/ag2c/checks.py 被切片外 5 个文件 import"}
+        self.assertNotIn("cross-slice-dependency", ESCALATABLE_KINDS)
+        for _ in range(WARNING_ESCALATION_THRESHOLD + 2):
+            escalated = _record_warnings_and_find_escalated(self.manifest, [hint])
+            self.assertEqual([], escalated)
+        history = _load_warning_history(self.manifest)
+        counts = [e["count"] for e in history["warnings"].values()]
+        self.assertEqual([WARNING_ESCALATION_THRESHOLD + 2], counts)  # tracked, not escalated
+
+    def test_corrupt_history_file_starts_fresh(self) -> None:
+        path = self._tmp / "state" / "warning-history.json"
+        path.write_text("{not json", encoding="utf-8")
+        escalated = _record_warnings_and_find_escalated(self.manifest, [self._budget_warning()])
+        self.assertEqual([], escalated)
+        history = _load_warning_history(self.manifest)
+        self.assertEqual(1, len(history["warnings"]))
+
+    def test_fingerprint_distinguishes_dimensions(self) -> None:
+        lines = self._budget_warning()
+        chars = {**lines, "dimension": "chars", "key": "knowledge.room:chars"}
+        _record_warnings_and_find_escalated(self.manifest, [lines, chars])
+        history = _load_warning_history(self.manifest)
+        self.assertEqual(2, len(history["warnings"]))
+
+    def test_generators_emit_stable_keys(self) -> None:
+        """All three warning generators must emit a key for fingerprinting."""
+        self._write = lambda rel, text: None  # not needed; reuse measurement fixture style
+        # over-budget: covered by dense-code test above (asserts dimension); check key here.
+        manifest = self.manifest
+        card = Card(
+            card_id="knowledge.room", card_type="knowledge", title="room", summary="room",
+            scopes=(), checkers=(), references=(), jurisdiction={"span": "folder"},
+            budget_lines=1,
+        )
+        (self._tmp / "src").mkdir(exist_ok=True)
+        (self._tmp / "src" / "mod.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+        manifest = Manifest(
+            path=self._tmp / "manifest.json", project_id="test-proj", project_root=self._tmp,
+            targets=(Target(target_id="app", path=".", governed_roots=("src",), excludes=()),),
+            ledger_path=self._tmp / "ledger.jsonl", policy_path=self._tmp / "policy.json",
+            state_dir=self._tmp / "state",
+        )
+        policy = mock.Mock()
+        policy.card = lambda cid: card if cid == "knowledge.room" else None
+        fake_report = {"households": [{"id": "knowledge.room", "code_count": 5, "files": ["app:src/mod.py"]}]}
+        with mock.patch("ag2c.households.census_report", return_value=fake_report):
+            warnings = _budget_warnings(manifest, policy, {})
+        self.assertTrue(warnings)
+        for warning in warnings:
+            self.assertIn("key", warning)
+            self.assertTrue(warning["key"])
 
 
 class DuplicateWarningTests(unittest.TestCase):

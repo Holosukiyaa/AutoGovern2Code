@@ -17,7 +17,7 @@ from .gitops import git_command_env, git_executable, peek_git_executable
 from .index import index_path, summary as index_summary, verify_freshness
 from .ledger import append_event
 from .model import Checker, Manifest, Policy
-from .util import digest_file, hidden_process_kwargs
+from .util import digest_file, digest_json, hidden_process_kwargs
 
 SKIP_EXIT_CODE = 78
 SKIP_MARK = "AG2C_SKIP:"
@@ -113,8 +113,13 @@ DERIVED_AST_NODES_PER_LINE = 15
 
 
 def _room_code_measurements(manifest: Manifest, item: dict[str, Any]) -> dict[str, int]:
-    """Measure a census household's code in three dimensions: lines, chars, AST nodes."""
-    lines = int(item.get("code_count") or 0)
+    """Measure a census household's code in three dimensions: lines, chars, AST nodes.
+
+    All three dimensions are measured from real file contents. (The census
+    ``code_count`` is a code-FILE count, not a line count — do not trust it
+    for the lines dimension.)
+    """
+    lines = 0
     chars = 0
     ast_nodes = 0
     for entry in item.get("files") or []:
@@ -132,6 +137,7 @@ def _room_code_measurements(manifest: Manifest, item: dict[str, Any]) -> dict[st
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
+        lines += len(text.splitlines())
         chars += len(text)
         if rel.endswith(".py"):
             try:
@@ -182,6 +188,7 @@ def _budget_warnings(manifest: Manifest, policy: Policy, entry_slice: dict[str, 
                     "kind": "over-budget",
                     "room": room,
                     "dimension": dimension,
+                    "key": f"{room}:{dimension}",
                     "detail": f"{actual} {unit}，预算 {budget}（超出 {actual - budget}，维度 {dimension}）",
                 })
     return warnings
@@ -248,6 +255,7 @@ def _duplicate_warnings(manifest: Manifest, entry_slice: dict[str, Any]) -> list
             if new_name == old_name and new_args == old_args:
                 warnings.append({
                     "kind": "possible-duplicate",
+                    "key": f"{new_file}:{new_name}",
                     "detail": f"同名函数 {new_name}（{new_file}）与 {old_file} 参数数相同",
                 })
                 break
@@ -256,10 +264,76 @@ def _duplicate_warnings(manifest: Manifest, entry_slice: dict[str, Any]) -> list
                 if ratio >= 0.8 and abs(new_lines - old_lines) <= 5:
                     warnings.append({
                         "kind": "possible-duplicate",
+                        "key": f"{new_file}:{new_name}",
                         "detail": f"相似函数 {new_name}（{new_file}，{new_lines}行）与 {old_name}（{old_file}，{old_lines}行）",
                     })
                     break
     return warnings
+
+
+# --- 9.7: warning auto-escalation (泰坦尼克: ignored warnings must harden) ---
+#
+# Every warning carries a stable "key". Appearances are counted in
+# state/warning-history.json; a defect-class warning that appears for the Nth
+# time while still present hardens into a gate block. Informational hints
+# (cross-slice-dependency) describe blast radius, not defects — a hub module
+# cannot "fix" being imported — so they are tracked but never escalate.
+WARNING_ESCALATION_THRESHOLD = 3
+WARNING_HISTORY_SCHEMA = "ag2c.warning-history.v1"
+ESCALATABLE_KINDS = frozenset({"over-budget", "possible-duplicate"})
+
+
+def _warning_history_path(manifest: Manifest) -> Path:
+    return manifest.state_dir / "warning-history.json"
+
+
+def _warning_fingerprint(warning: dict[str, str]) -> str:
+    return digest_json({"kind": warning.get("kind"), "key": warning.get("key") or warning.get("detail")})
+
+
+def _load_warning_history(manifest: Manifest) -> dict[str, Any]:
+    path = _warning_history_path(manifest)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"schema": WARNING_HISTORY_SCHEMA, "warnings": {}}
+    if not isinstance(raw, dict) or raw.get("schema") != WARNING_HISTORY_SCHEMA:
+        return {"schema": WARNING_HISTORY_SCHEMA, "warnings": {}}
+    if not isinstance(raw.get("warnings"), dict):
+        raw["warnings"] = {}
+    return raw
+
+
+def _record_warnings_and_find_escalated(manifest: Manifest, warnings: list[dict[str, str]]) -> list[dict[str, Any]]:
+    """Persist this run's warning appearances; return the ones that just hardened.
+
+    A warning escalates when its cumulative appearance count reaches
+    WARNING_ESCALATION_THRESHOLD and it is still present in this run. A warning
+    that disappears stops blocking; its count is kept, so a recurring problem
+    does not reset the clock.
+    """
+    history = _load_warning_history(manifest)
+    store = history["warnings"]
+    now = datetime.now(timezone.utc).isoformat()
+    escalated: list[dict[str, Any]] = []
+    for warning in warnings:
+        fingerprint = _warning_fingerprint(warning)
+        entry = store.get(fingerprint)
+        if not isinstance(entry, dict):
+            entry = {"kind": warning.get("kind"), "key": warning.get("key"), "count": 0, "first_seen": now}
+            store[fingerprint] = entry
+        entry["count"] = int(entry.get("count") or 0) + 1
+        entry["last_seen"] = now
+        entry["detail"] = str(warning.get("detail") or "")
+        if str(entry.get("kind") or "") in ESCALATABLE_KINDS and entry["count"] >= WARNING_ESCALATION_THRESHOLD:
+            escalated.append({**warning, "count": entry["count"]})
+    try:
+        path = _warning_history_path(manifest)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(history, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        return []  # best-effort: without persistence there is no memory, so no escalation
+    return escalated
 
 
 def _module_name_for(rel_path: str, target_root: str) -> str:
@@ -360,6 +434,7 @@ def _cross_slice_warnings(manifest: Manifest, entry_slice: dict[str, Any]) -> li
             suffix = f" 等{count}个文件" if count > 5 else ""
             warnings.append({
                 "kind": "cross-slice-dependency",
+                "key": changed_file,
                 "detail": f"{changed_file} 被切片外 {count} 个文件 import（{examples}{suffix}）",
             })
     return warnings
@@ -667,6 +742,10 @@ def run_checks(
     warnings.extend(_cross_slice_warnings(manifest, entry_slice))
     if warnings:
         report["warnings"] = warnings
+    # 9.7: count appearances; defect-class warnings harden into gate blocks.
+    escalated = _record_warnings_and_find_escalated(manifest, warnings)
+    if escalated:
+        report["escalated_warnings"] = escalated
     # Maturity summary: count rooms at each L0-L3 level.
     maturity_counts: dict[str, int] = {}
     for card in policy.cards:
@@ -679,4 +758,12 @@ def run_checks(
     event = append_event(ledger_path or manifest.ledger_path, "check-run", report)
     report["ledger_sequence"] = event["sequence"]
     report["ledger_event_digest"] = event["event_digest"]
+    if escalated:
+        raise AG2CError(
+            "warnings escalated to gate after repeated ignores (警告自动升级):\n- "
+            + "\n- ".join(
+                f'{item.get("kind")}[{item.get("key")}] 已出现 {item.get("count")} 次: {item.get("detail")}'
+                for item in escalated
+            )
+        )
     return report

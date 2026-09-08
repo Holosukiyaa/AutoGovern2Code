@@ -54,6 +54,7 @@ def build_receipt(manifest, policy, task: dict[str, Any]) -> dict[str, Any]:
         },
         "checks": verification["checker_results"],
         "acceptance": verification["acceptance"],
+        "regulator": verification.get("regulator"),
         "verification_attempts": len(task["verifications"]),
         "failed_attempts": sum(not item.get("passed", False) for item in task["verifications"]),
         "correction_proven": any(

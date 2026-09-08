@@ -33,6 +33,7 @@ FAST = [
     "test_ledger",
     "test_mcp",
     "test_notify",
+    "test_review",
     "test_slicer",
     "test_suites",
     "test_sunset",

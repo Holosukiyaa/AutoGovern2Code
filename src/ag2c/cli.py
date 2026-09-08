@@ -368,6 +368,16 @@ def build_parser() -> argparse.ArgumentParser:
     baseline_cmd.add_argument("--actor", required=True)
     baseline_cmd.add_argument("--reason", required=True)
     baseline_cmd.add_argument("--format", choices=("text", "json"), default="json")
+    regulator_cmd = govern_commands.add_parser("regulator", help="configure the AI regulator (agent-review): endpoint / model / strict / enable")
+    regulator_cmd.add_argument("--enable", choices=("on", "off"), default="")
+    regulator_cmd.add_argument("--endpoint", default="")
+    regulator_cmd.add_argument("--model", default="")
+    regulator_cmd.add_argument("--api-key-env", default="")
+    regulator_cmd.add_argument("--strict", choices=("on", "off"), default="")
+    regulator_cmd.add_argument("--timeout", type=int, default=0)
+    regulator_cmd.add_argument("--actor", required=True)
+    regulator_cmd.add_argument("--reason", required=True)
+    regulator_cmd.add_argument("--format", choices=("text", "json"), default="json")
 
     doctor = subparsers.add_parser("doctor", help="check configuration, activation, tools, index, and ledger")
     doctor.add_argument("--repair", action="store_true", help="restore the Skill, Git guard, activation, and index")
@@ -923,6 +933,20 @@ def main(argv: list[str] | None = None) -> int:
                 from .checks import accept_test_baseline
 
                 result = accept_test_baseline(manifest, policy, list(args.checker), actor=args.actor, reason=args.reason)
+            elif args.govern_command == "regulator":
+                from .govern import configure_regulator
+
+                result = configure_regulator(
+                    Path.cwd(),
+                    actor=args.actor,
+                    reason=args.reason,
+                    enabled={"on": True, "off": False}.get(args.enable) if args.enable else None,
+                    endpoint=args.endpoint or None,
+                    model=args.model or None,
+                    api_key_env=args.api_key_env or None,
+                    strict={"on": True, "off": False}.get(args.strict) if args.strict else None,
+                    timeout=args.timeout or None,
+                )
             elif args.govern_command == "apply":
                 result = apply_change(
                     Path.cwd(),

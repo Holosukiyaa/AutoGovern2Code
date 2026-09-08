@@ -105,16 +105,27 @@ class VerificationEvidenceTests(unittest.TestCase):
     def test_unknown_extension_keys_tolerated(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             manifest, task, verification, valid = self._fixture(
-                Path(directory), extra={"regulator": {"outcome": "passed"}}
+                Path(directory), extra={"future-field": {"new": True}}
             )
             self.assertTrue(valid(manifest, task, verification))
 
     def test_tampered_known_key_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             manifest, task, verification, valid = self._fixture(
-                Path(directory), extra={"regulator": {"outcome": "passed"}}
+                Path(directory), extra={"future-field": {"new": True}}
             )
             verification["change_digest"] = "tampered"
+            self.assertFalse(valid(manifest, task, verification))
+
+    def test_regulator_verdict_is_bound(self) -> None:
+        # agent-review 落地后 regulator 是已知键：payload 与任务记录必须一致
+        with tempfile.TemporaryDirectory() as directory:
+            manifest, task, verification, valid = self._fixture(
+                Path(directory), extra={"regulator": {"outcome": "passed"}}
+            )
+            verification["regulator"] = {"outcome": "passed"}
+            self.assertTrue(valid(manifest, task, verification))
+            verification["regulator"] = {"outcome": "rejected"}
             self.assertFalse(valid(manifest, task, verification))
 
     def test_missing_known_key_rejected(self) -> None:

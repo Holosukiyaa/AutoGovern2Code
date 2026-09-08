@@ -219,6 +219,10 @@ def _verification_evidence_valid(
         "checker_results": verification.get("checker_results"),
         "acceptance": verification.get("acceptance"),
         "check_ledger_event_digest": verification.get("check_ledger_event_digest"),
+        # None for verifications recorded before agent-review existed; the
+        # subset match below reads a missing payload key as None, so old
+        # events still bind while new ones bind the regulator verdict exactly.
+        "regulator": verification.get("regulator"),
     }
     # Forward compatibility: the ledger event digest covers the whole payload,
     # so keys this validator does not know cannot be forged after the fact.
@@ -807,6 +811,29 @@ def verify_task(start: Path) -> dict[str, Any]:
         and any(item["status"] == "passed" for item in report["results"])
         and not checker_mutated_change
     )
+    regulator_result: dict[str, Any] | None = None
+    if passed:
+        from .review import run_agent_review
+
+        regulator_result = run_agent_review(worktree, task, policy, report)
+        if regulator_result["outcome"] == "rejected":
+            passed = False
+        elif (
+            regulator_result["outcome"] == "unavailable"
+            and policy.regulator is not None
+            and policy.regulator.strict
+        ):
+            _record_intervention(
+                canonical,
+                canonical_manifest,
+                task,
+                "regulator-unavailable-strict",
+                {"reason": str(regulator_result.get("reason", ""))},
+            )
+            raise AG2CError(
+                "regulator unavailable and policy regulator.strict=true; refusing verification: "
+                + str(regulator_result.get("reason", ""))
+            )
     verification = {
         "attempt": len(task["verifications"]) + 1,
         "occurred_at": _now(),
@@ -823,6 +850,7 @@ def verify_task(start: Path) -> dict[str, Any]:
         ],
         "acceptance": report["acceptance"],
         "check_ledger_event_digest": report["ledger_event_digest"],
+        "regulator": regulator_result,
     }
     verification_event = append_event(
         canonical_manifest.ledger_path,

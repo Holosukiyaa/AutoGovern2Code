@@ -47,6 +47,14 @@ def open_tasks(details: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         worktree = task.get("worktree") if isinstance(task.get("worktree"), dict) else {}
         lifecycle = _text(worktree, "lifecycle")
+        regulator = ""
+        verifications = task.get("verifications")
+        if isinstance(verifications, list) and verifications:
+            last = verifications[-1]
+            if isinstance(last, dict):
+                reg = last.get("regulator")
+                if isinstance(reg, dict):
+                    regulator = _text(reg, "outcome")
         tasks.append(
             {
                 "id": _text(task, "id"),
@@ -56,6 +64,7 @@ def open_tasks(details: dict[str, Any]) -> list[dict[str, Any]]:
                 "lifecycle_label": LIFECYCLE_LABELS.get(lifecycle, lifecycle or state),
                 "diverged": bool(worktree.get("diverged")),
                 "created_at": _text(task, "created_at"),
+                "regulator": regulator,
             }
         )
     return tasks
@@ -157,6 +166,14 @@ def draw_dashboard(model: dict[str, Any]) -> None:
         imgui.text_colored(color, f"● {task['lifecycle_label']}")
         imgui.same_line(0.0, 10.0)
         imgui.text_wrapped(task["goal"] or task["id"])
+        regulator = task.get("regulator") or ""
+        if regulator:
+            label, reg_color = {
+                "passed": ("监管：通过", (0.45, 0.80, 0.50, 1.0)),
+                "rejected": ("监管：打回", (0.95, 0.35, 0.30, 1.0)),
+                "unavailable": ("监管：本次缺 AI 监管", (0.95, 0.70, 0.30, 1.0)),
+            }.get(regulator, (f"监管：{regulator}", (0.95, 0.70, 0.30, 1.0)))
+            imgui.text_colored(reg_color, label)
     imgui.separator()
 
     imgui.text("异常清单")

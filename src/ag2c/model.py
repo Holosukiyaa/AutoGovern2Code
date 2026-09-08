@@ -98,6 +98,18 @@ class Coverage:
 
 
 @dataclass(frozen=True)
+class RegulatorConfig:
+    """AI 监管（agent-review）配置：verify 机器项全过后调用的外部模型。"""
+
+    enabled: bool = False
+    endpoint: str = ""
+    model: str = ""
+    api_key_env: str = "AG2C_REGULATOR_API_KEY"
+    strict: bool = False
+    timeout: int = 180
+
+
+@dataclass(frozen=True)
 class Policy:
     path: Path
     cards: tuple[Card, ...]
@@ -106,6 +118,7 @@ class Policy:
     checkers: tuple[Checker, ...]
     coverage: Coverage
     household_required: bool = False
+    regulator: RegulatorConfig | None = None
 
     def card(self, card_id: str) -> Card:
         return next(card for card in self.cards if card.card_id == card_id)

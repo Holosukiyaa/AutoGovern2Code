@@ -7,7 +7,7 @@ from typing import Any
 
 from .errors import ConfigurationError, STALE_EXTERNAL_STORE
 from .households import coerce_jurisdiction
-from .model import Card, Checker, ContractBinding, Coverage, Manifest, Policy, Relation, Scope, Target
+from .model import Card, Checker, ContractBinding, Coverage, Manifest, Policy, RegulatorConfig, Relation, Scope, Target
 from .storage import configured_manifest, resolve_enrollment_binding
 from .util import relative_config_path
 
@@ -343,4 +343,40 @@ def load_policy(manifest: Manifest) -> Policy:
     household_required = raw.get("household_required", False)
     if not isinstance(household_required, bool):
         raise ConfigurationError("household_required must be a boolean")
-    return Policy(manifest.policy_path, tuple(cards), tuple(relations), tuple(contracts), tuple(checkers), coverage, household_required)
+    regulator = _regulator_config(raw.get("regulator"))
+    return Policy(manifest.policy_path, tuple(cards), tuple(relations), tuple(contracts), tuple(checkers), coverage, household_required, regulator)
+
+
+def _regulator_config(value: Any) -> RegulatorConfig | None:
+    """Parse policy.regulator — the AI reviewer called after machine checks pass.
+
+    Absent key means no regulator configured (verify degrades with a recorded
+    gap). An present object is validated strictly: enabled requires endpoint
+    and model; strict=true turns regulator-unavailable into a merge block.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ConfigurationError("policy.regulator must be an object")
+    enabled = value.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise ConfigurationError("policy.regulator.enabled must be a boolean")
+    strict = value.get("strict", False)
+    if not isinstance(strict, bool):
+        raise ConfigurationError("policy.regulator.strict must be a boolean")
+    endpoint = str(value.get("endpoint", "") or "").strip()
+    model = str(value.get("model", "") or "").strip()
+    api_key_env = str(value.get("api_key_env", "") or "").strip() or "AG2C_REGULATOR_API_KEY"
+    timeout = int(value.get("timeout", 180) or 180)
+    if timeout < 1:
+        raise ConfigurationError("policy.regulator.timeout must be positive")
+    if enabled and (not endpoint or not model):
+        raise ConfigurationError("policy.regulator requires endpoint and model when enabled")
+    return RegulatorConfig(
+        enabled=enabled,
+        endpoint=endpoint,
+        model=model,
+        api_key_env=api_key_env,
+        strict=strict,
+        timeout=timeout,
+    )

@@ -1,0 +1,235 @@
+"""AI 监管（agent-review）：verify 机器项全过后的对抗性复审。
+
+三条铁律（见《AG2C-监管者设计》）：
+1. 信息隔离——监管只看画像 + diff + 机器检查原始输出，永远看不到 worker 自述。
+2. 对抗性框架——任务是"找出这次交付失败的方式"，不是"检查是否合格"。
+3. 评语必须带证据——fail 项缺 file:line 引用的裁决被机器判作废。
+
+监管不可用（未配置 / 调用失败 / 裁决作废）时默认降级为仅机器检查并在证据里
+记录缺口"本次缺 AI 监管"；政策 regulator.strict=true 时不许合并（fail-closed），
+由 tasks.verify_task 负责拦截。
+
+V1 = 一次 LLM 调用：无工具循环、无联网、无多轮。prompt 是系统资产，随版本演进。
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import urllib.request
+from pathlib import Path
+from typing import Any
+
+from .gitops import git
+from .model import Policy, RegulatorConfig
+
+PROMPT_VERSION = "agent-review.v1"
+
+#: fail 项的证据位置必须形如 path:line（tasks.py:347）。
+_EVIDENCE_REF = re.compile(r"[\w./\\\-一-鿿]+:\d+")
+
+#: diff 与单文件内容的体积上限，防止提示词爆炸。
+_MAX_DIFF_CHARS = 100_000
+_MAX_FILE_CHARS = 20_000
+
+_SYSTEM_PROMPT = """你是交付监管，不是验收员。你的唯一任务是找出这次交付失败的方式。
+
+你只有三样物证：
+1. 画像——施工前锁定的承诺（做完后什么是真的）；
+2. diff——实际改动的全部代码；
+3. 机器检查的原始结果——测试、预算、查重等确定性检查的报告。
+
+你看不到施工者的任何自述、解释与辩解，也永远不要索要。评语只看物证。
+
+审查规则：
+- 逐条核对画像里的每个承诺：承诺 X，在 diff 或机器证据里真的兑现了吗？指得出位置吗？
+- 对抗性读 diff：专挑边界条件、错误处理、空输入、与既有代码的重复逻辑。
+- 每条 fail 必须给出证据位置（file:line）。没有证据的批评是废话，会被机器判作废。
+- 机器已经判过的事项（测试通过、预算达标）不要重复裁决，把注意力留给机器判不了的：承诺兑现、逻辑对错、复用与写法约定。
+
+只输出一个 JSON 对象，不要输出任何其他文字：
+{
+  "verdict": "pass 或 reject",
+  "items": [{"name": "检查项", "status": "pass 或 fail", "evidence": "path:line（fail 必填）", "comment": "评语"}],
+  "summary": "一句话总评；reject 时必须写明修哪、怎么算修好"
+}"""
+
+
+class RegulatorError(Exception):
+    """监管调用或裁决解析失败——由 run_agent_review 降级吸收。"""
+
+
+def build_messages(portrait: str, diff_text: str, machine_summary: str) -> list[dict[str, str]]:
+    """拼监管提示词。输入只有画像 + diff + 机器报告，物理上不含 worker 自述。"""
+    user = (
+        "## 画像（当初锁定的承诺）\n\n" + (portrait.strip() or "（无画像）")
+        + "\n\n## 机器检查结果\n\n" + (machine_summary.strip() or "（无机器检查记录）")
+        + "\n\n## diff（实际改动）\n\n" + (diff_text.strip() or "（无改动）")
+    )
+    return [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": user},
+    ]
+
+
+def parse_verdict(text: str) -> dict[str, Any]:
+    """从模型输出中提取裁决 JSON。容忍代码围栏，拒绝任何非 JSON 输出。"""
+    candidate = text.strip()
+    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", candidate, re.S)
+    if fence:
+        candidate = fence.group(1)
+    elif not candidate.startswith("{"):
+        start, end = candidate.find("{"), candidate.rfind("}")
+        if start == -1 or end <= start:
+            raise RegulatorError("regulator output is not JSON")
+        candidate = candidate[start : end + 1]
+    try:
+        value = json.loads(candidate)
+    except json.JSONDecodeError as exc:
+        raise RegulatorError(f"regulator verdict is malformed JSON: {exc}") from exc
+    if not isinstance(value, dict):
+        raise RegulatorError("regulator verdict must be a JSON object")
+    return value
+
+
+def verdict_problems(verdict: dict[str, Any]) -> list[str]:
+    """机器校验裁决。返回问题清单；空清单 = 裁决有效。
+
+    铁律 3 在这里强制执行：fail 项缺 file:line 证据 → 裁决作废。
+    """
+    problems: list[str] = []
+    outcome = str(verdict.get("verdict", "")).strip()
+    if outcome not in {"pass", "reject"}:
+        problems.append(f"verdict must be pass|reject, got {outcome!r}")
+    items = verdict.get("items")
+    if not isinstance(items, list) or not items:
+        problems.append("items must be a non-empty list")
+        items = [] if not isinstance(items, list) else items
+    fails = 0
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            problems.append(f"items[{index}] must be an object")
+            continue
+        status = str(item.get("status", "")).strip()
+        if status not in {"pass", "fail"}:
+            problems.append(f"items[{index}].status must be pass|fail, got {status!r}")
+            continue
+        if not str(item.get("comment", "") or "").strip():
+            problems.append(f"items[{index}] ({item.get('name', '?')}) has an empty comment")
+        if status == "fail":
+            fails += 1
+            evidence = str(item.get("evidence", "") or "").strip()
+            if not _EVIDENCE_REF.search(evidence):
+                problems.append(
+                    f"items[{index}] ({item.get('name', '?')}) is fail without a file:line evidence reference"
+                )
+    if outcome == "reject" and fails == 0:
+        problems.append("verdict is reject but no item is fail")
+    if outcome == "pass" and fails:
+        problems.append("verdict is pass but some items are fail")
+    return problems
+
+
+def call_chat(config: RegulatorConfig, messages: list[dict[str, str]]) -> str:
+    """一次 OpenAI 兼容调用。无重试、无流式——V1 故意保持哑。"""
+    url = config.endpoint.rstrip("/") + "/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    api_key = os.environ.get(config.api_key_env, "").strip()
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    payload = json.dumps(
+        {"model": config.model, "messages": messages, "temperature": 0},
+        ensure_ascii=False,
+    ).encode("utf-8")
+    request = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=config.timeout) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:  # 网络/HTTP/解析失败统一降级，不炸 verify
+        raise RegulatorError(f"regulator call failed: {exc}") from exc
+    try:
+        content = body["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise RegulatorError(f"regulator response has no message content: {body!r:.200}") from exc
+    if not isinstance(content, str) or not content.strip():
+        raise RegulatorError("regulator returned an empty message")
+    return content
+
+
+def _machine_summary(report: dict[str, Any]) -> str:
+    lines: list[str] = []
+    for item in report.get("results") or []:
+        lines.append(
+            f"[{item.get('status')}] {item.get('id')} (stage={item.get('stage')}, exit={item.get('exit_code')})"
+        )
+    acceptance = report.get("acceptance")
+    if acceptance:
+        lines.append("acceptance: " + str(acceptance))
+    return "\n".join(lines)
+
+
+def _collect_diff(worktree: Path, source_head: str) -> str:
+    """diff = 已跟踪改动的 git diff + 未跟踪新文件的全文（截断）。"""
+    parts = [git(worktree, "diff", source_head)]
+    porcelain = git(worktree, "status", "--porcelain")
+    for line in porcelain.splitlines():
+        if not line.startswith("?? "):
+            continue
+        relative = line[3:].strip().strip('"')
+        candidate = worktree / relative
+        if not candidate.is_file():
+            continue
+        try:
+            content = candidate.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        parts.append(f"--- 新文件（未跟踪）: {relative}\n{content[:_MAX_FILE_CHARS]}")
+    return "\n\n".join(part for part in parts if part.strip())[:_MAX_DIFF_CHARS]
+
+
+def run_agent_review(
+    worktree: Path,
+    task: dict[str, Any],
+    policy: Policy,
+    machine_report: dict[str, Any],
+) -> dict[str, Any]:
+    """跑一次监管。永不抛异常——不可用一律返回 outcome=unavailable 并记缺口。
+
+    outcome:
+    - passed      监管裁决 pass
+    - rejected    监管裁决 reject（打回；verify 不许过）
+    - unavailable 未配置 / 调用失败 / 裁决作废；证据里记"本次缺 AI 监管"
+    """
+    config = policy.regulator
+    if config is None or not config.enabled:
+        return {
+            "outcome": "unavailable",
+            "reason": "not-configured",
+            "prompt_version": PROMPT_VERSION,
+            "gap": "本次缺 AI 监管",
+        }
+    base: dict[str, Any] = {"prompt_version": PROMPT_VERSION, "model": config.model}
+    try:
+        diff_text = _collect_diff(worktree, str(task["source"]["head"]))
+        portrait = str(task.get("portrait") or "")
+        messages = build_messages(portrait, diff_text, _machine_summary(machine_report))
+        raw = call_chat(config, messages)
+        verdict = parse_verdict(raw)
+    except RegulatorError as exc:
+        return {**base, "outcome": "unavailable", "reason": str(exc), "gap": "本次缺 AI 监管"}
+    except Exception as exc:  # git 失败等意外同样降级，不炸 verify
+        return {**base, "outcome": "unavailable", "reason": f"unexpected: {exc}", "gap": "本次缺 AI 监管"}
+    problems = verdict_problems(verdict)
+    if problems:
+        return {
+            **base,
+            "outcome": "unavailable",
+            "reason": "invalid-verdict: " + "; ".join(problems),
+            "verdict": verdict,
+            "gap": "本次缺 AI 监管（裁决作废）",
+        }
+    return {
+        **base,
+        "outcome": "passed" if verdict["verdict"] == "pass" else "rejected",
+        "verdict": verdict,
+    }

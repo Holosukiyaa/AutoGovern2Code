@@ -751,6 +751,90 @@ def update_checker(
     }
 
 
+def configure_regulator(
+    start: Path,
+    *,
+    actor: str,
+    reason: str,
+    enabled: bool | None = None,
+    endpoint: str | None = None,
+    model: str | None = None,
+    api_key_env: str | None = None,
+    strict: bool | None = None,
+    timeout: int | None = None,
+) -> dict[str, Any]:
+    """Configure the AI regulator (agent-review) without hand-editing policy.json.
+
+    Only the fields passed are changed; disabling keeps endpoint/model so a
+    parked regulator can be re-enabled without retyping. Enabling without
+    endpoint/model fails policy validation and rolls back.
+    """
+    actor = actor.strip()
+    reason = reason.strip()
+    if not actor or not reason:
+        raise AG2CError("governance regulator requires --actor and --reason")
+    if (
+        enabled is None
+        and endpoint is None
+        and model is None
+        and api_key_env is None
+        and strict is None
+        and timeout is None
+    ):
+        raise AG2CError(
+            "nothing to change; pass --enable, --endpoint, --model, --api-key-env, --strict, or --timeout"
+        )
+    root = repository_root(start)
+    manifest = load_manifest(discover_manifest(root), project_root=root)
+    raw = _read_json(manifest.policy_path)
+    current = raw.get("regulator")
+    target = dict(current) if isinstance(current, dict) else {}
+    changes: dict[str, Any] = {}
+    if enabled is not None:
+        target["enabled"] = enabled
+        changes["enabled"] = enabled
+    if endpoint is not None:
+        target["endpoint"] = endpoint.strip()
+        changes["endpoint"] = target["endpoint"]
+    if model is not None:
+        target["model"] = model.strip()
+        changes["model"] = target["model"]
+    if api_key_env is not None:
+        target["api_key_env"] = api_key_env.strip()
+        changes["api_key_env"] = target["api_key_env"]
+    if strict is not None:
+        target["strict"] = strict
+        changes["strict"] = strict
+    if timeout is not None:
+        if timeout < 1:
+            raise AG2CError("timeout must be positive")
+        target["timeout"] = timeout
+        changes["timeout"] = timeout
+    raw["regulator"] = target
+    before = manifest.policy_path.read_text(encoding="utf-8")
+    _atomic_json(manifest.policy_path, raw)
+    try:
+        policy = load_policy(manifest)
+    except ConfigurationError as exc:
+        manifest.policy_path.write_text(before, encoding="utf-8")
+        raise AG2CError(f"updated policy is invalid (rolled back): {exc}") from exc
+    build_index(manifest, policy, index_path(manifest))
+    event = append_event(
+        manifest.ledger_path,
+        "governance-applied",
+        {"action": "update", "kind": "regulator", "id": "regulator", "changes": changes, "actor": actor, "reason": reason},
+    )
+    pending_updates(root)
+    return {
+        "action": "update",
+        "kind": "regulator",
+        "changes": changes,
+        "actor": actor,
+        "reason": reason,
+        "ledger_event_digest": event["event_digest"],
+    }
+
+
 def retrieve_guidance(start: Path, *, path_specs: list[str], contract_specs: list[str] | None = None, goal: str = "", all_mode: bool = False) -> dict[str, Any]:
     root = repository_root(start)
     manifest = load_manifest(discover_manifest(root), project_root=root)

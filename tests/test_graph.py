@@ -391,6 +391,115 @@ class GovernanceGraphTests(unittest.TestCase):
         }
         self.assertTrue(labels["knowledge.core-protocol"].startswith(labels["knowledge.core"] + "-"))
 
+    def test_lineage_groups_crowded_file_span_rooms_by_subdirectory(self) -> None:
+        room = _card("knowledge.backend", "knowledge", "后端服务层", include=["src/backend/**"])
+        room["jurisdiction"] = {"span": "file", "meaning": "named", "status": "current", "implementation": "cf.backend"}
+        root_files = ["main.py", "api_models.py", "state.py", "store.py"]
+        router_files = ["agent.py", "runs.py", "studio.py"]
+        cards = [
+            _card("constitution.project", "constitution", "宪章"),
+            _card("floor.src", "floor", "src", include=["src/**"]),
+            room,
+        ]
+        relations = [{"source": "knowledge.backend", "type": "explains", "target": "floor.src"}]
+        for name in root_files + router_files:
+            rel = f"src/backend/{name}" if name in root_files else f"src/backend/routers/{name}"
+            card_id = "knowledge.backend-" + name.removesuffix(".py")
+            cards.append(_card(card_id, "knowledge", name, include=[rel], references=[rel]))
+            relations.append({"source": card_id, "type": "explains", "target": "floor.src"})
+        lineage = build_lineage(
+            {
+                "project": {"name": "CartridgeFlow"},
+                "cards": cards,
+                "relations": relations,
+                "graph": {"nodes": []},
+            }
+        )
+        by_id = {node["id"]: node for node in lineage["nodes"]}
+        group = next((node for node in lineage["nodes"] if node.get("kind") == "group"), None)
+        self.assertIsNotNone(group)
+        self.assertEqual("knowledge.backend@floor.src", group["parent"])
+        self.assertEqual("routers/", group["title"])
+        self.assertEqual("3 张文件卡", group["status"])
+        self.assertEqual("src/backend/routers", group["path"])
+        for name in router_files:
+            card_id = "knowledge.backend-" + name.removesuffix(".py")
+            self.assertEqual(group["visual_id"], by_id[card_id]["parent"])
+            self.assertEqual(4, by_id[card_id]["layer"])
+        for name in root_files:
+            card_id = "knowledge.backend-" + name.removesuffix(".py")
+            self.assertEqual("knowledge.backend@floor.src", by_id[card_id]["parent"])
+        # The room status still counts every file card, grouped or not.
+        self.assertEqual("7 张文件卡", by_id["knowledge.backend"]["status"])
+        # Ordinals flow through the group node.
+        self.assertTrue(group.get("ordinal_label"))
+        child_labels = [by_id["knowledge.backend-" + n.removesuffix(".py")]["ordinal_label"] for n in router_files]
+        self.assertTrue(all(label.startswith(group["ordinal_label"] + "-") for label in child_labels))
+        # Groups stay collapsed by default but lay out cleanly when expanded.
+        from ag2c_gui.graph import LINEAGE_PROJECT_ID, layout_lineage_view
+
+        expanded = {node["visual_id"] for node in lineage["nodes"] if node.get("kind") == "module" and not node.get("empty")}
+        expanded.add(LINEAGE_PROJECT_ID)
+        self.assertNotIn(group["visual_id"], expanded)
+        expanded.add(group["visual_id"])
+        expanded.add("knowledge.backend@floor.src")
+        view = [dict(node) for node in lineage["nodes"]]
+        layout_lineage_view(view, expanded)
+        visible_ids = {node.get("visual_id") for node in view if not node.get("hidden")}
+        self.assertIn(group["visual_id"], visible_ids)
+        for name in router_files:
+            card_id = "knowledge.backend-" + name.removesuffix(".py")
+            self.assertIn(by_id[card_id]["visual_id"], visible_ids)
+        self.assertEqual([], lineage_step_overlaps(lineage["nodes"], expanded))
+
+    def test_lineage_skips_grouping_for_small_rooms(self) -> None:
+        room = _card("knowledge.backend", "knowledge", "后端服务层", include=["src/backend/**"])
+        room["jurisdiction"] = {"span": "file", "meaning": "named", "status": "current", "implementation": "cf.backend"}
+        cards = [
+            _card("constitution.project", "constitution", "宪章"),
+            _card("floor.src", "floor", "src", include=["src/**"]),
+            room,
+        ]
+        relations = [{"source": "knowledge.backend", "type": "explains", "target": "floor.src"}]
+        for name in ("main.py", "state.py"):
+            rel = f"src/backend/routers/{name}"
+            card_id = "knowledge.backend-" + name.removesuffix(".py")
+            cards.append(_card(card_id, "knowledge", name, include=[rel], references=[rel]))
+            relations.append({"source": card_id, "type": "explains", "target": "floor.src"})
+        lineage = build_lineage(
+            {
+                "project": {"name": "Demo"},
+                "cards": cards,
+                "relations": relations,
+                "graph": {"nodes": []},
+            }
+        )
+        self.assertEqual([], [node for node in lineage["nodes"] if node.get("kind") == "group"])
+
+    def test_floor_title_ignores_root_file_include_patterns(self) -> None:
+        lineage = build_lineage(
+            {
+                "project": {"name": "CartridgeFlow"},
+                "cards": [
+                    _card("constitution.project", "constitution", "宪章"),
+                    _card(
+                        "floor.root",
+                        "floor",
+                        "Project root files",
+                        include=[".gitattributes", "README.md", "VERSION"],
+                    ),
+                    _card("floor.src", "floor", "src area", include=["src/**"]),
+                    _card("floor.docs", "floor", "docs area", include=["docs/guide.md"]),
+                ],
+                "relations": [],
+                "graph": {"nodes": []},
+            }
+        )
+        titles = {node["id"]: node["title"] for node in lineage["nodes"] if node.get("kind") == "module"}
+        self.assertEqual("Project root files", titles["floor.root"])
+        self.assertEqual("src", titles["floor.src"])
+        self.assertEqual("docs", titles["floor.docs"])
+
     def test_lineage_ordinals_use_hyphenated_layer_paths(self) -> None:
         lineage = build_lineage(
             {

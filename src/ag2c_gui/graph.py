@@ -947,12 +947,15 @@ def assign_lineage_ordinals(nodes: Iterable[Mapping[str, Any]]) -> None:
     records = [item for item in nodes if isinstance(item, dict)]
     by_parent: dict[str, list[dict[str, Any]]] = {}
     for node in records:
-        if str(node.get("kind") or "") not in {"module", "knowledge"}:
+        if str(node.get("kind") or "") not in {"module", "knowledge", "group"}:
             continue
         by_parent.setdefault(str(node.get("parent") or ""), []).append(node)
 
     def sort_key(node: dict[str, Any]) -> tuple[Any, ...]:
-        if str(node.get("kind") or "") == "module":
+        kind = str(node.get("kind") or "")
+        if kind == "module":
+            return (0, str(node.get("title") or ""), str(node.get("id") or ""))
+        if kind == "group":
             return (0, str(node.get("title") or ""), str(node.get("id") or ""))
         return (1, int(node.get("index") or 0), str(node.get("title") or ""), str(node.get("id") or ""))
 
@@ -989,12 +992,28 @@ def lineage_uid(kind: str, key: str) -> int:
 
 
 def _card_module_path(card: Mapping[str, Any]) -> str:
+    root_files_only = False
     for scope in _items(card.get("scopes")):
         record = _mapping(scope)
         for pattern in _items(record.get("include") or record.get("includes")):
-            path = _normalize_path(str(pattern))
-            if path:
-                return path
+            raw = str(pattern).replace("\\", "/").strip()
+            if not raw:
+                continue
+            if ":" in raw and not raw.startswith(("http:", "https:")):
+                raw = raw.partition(":")[2]
+            if not raw:
+                continue
+            if "*" in raw:
+                # Directory glob: src/** names the src module.
+                return _normalize_path(raw)
+            if "/" in raw.lstrip("./"):
+                # A nested file pattern names its directory, not the file.
+                return _normalize_path(raw).rsplit("/", 1)[0]
+            # A root-level file pattern (".gitattributes", "README.md") is not a
+            # module path; keep looking for a directory pattern.
+            root_files_only = True
+    if root_files_only:
+        return ""
     return _normalize_path(_text(card.get("title")))
 
 
@@ -1223,6 +1242,57 @@ def build_lineage(
         node["layer"] = 3
         nodes[parent_visual]["nested"] = True
 
+    # Crowded 一文件一张 rooms: fold file cards into one collapsible group node
+    # per subdirectory (routers/ under backend), so 60+ flat cards stay readable.
+    # Group nodes are presentation-only: kind "group", never auto-expanded.
+    for room in file_span_households:
+        room_id = _text(room.get("id"))
+        room_dir = room_dirs.get(room_id) or ""
+        if not room_dir:
+            continue
+        room_visuals = [vid for vid, node in nodes.items() if node.get("id") == room_id]
+        for room_visual in room_visuals:
+            children = [
+                node
+                for node in nodes.values()
+                if node.get("parent") == room_visual and node.get("kind") == "knowledge"
+            ]
+            if len(children) < 6:
+                continue
+            subdirs: dict[str, list[dict[str, Any]]] = {}
+            for child in children:
+                rel = _normalize_path(_text(child.get("path")))
+                if rel.startswith(room_dir + "/"):
+                    rel = rel[len(room_dir) + 1 :]
+                if "/" not in rel:
+                    continue
+                subdirs.setdefault(rel.split("/", 1)[0], []).append(child)
+            for subdir, members in sorted(subdirs.items()):
+                if len(members) < 2:
+                    continue
+                group_visual = f"{room_visual}/dir:{subdir}"
+                add_node(
+                    group_visual,
+                    {
+                        "id": group_visual,
+                        "kind": "group",
+                        "kindLabel": "子目录",
+                        "title": subdir + "/",
+                        "summary": "",
+                        "status": f"{len(members)} 张文件卡",
+                        "statusTag": "",
+                        "path": f"{room_dir}/{subdir}",
+                        "parent": room_visual,
+                        "layer": 3,
+                        "empty": False,
+                        "replaced_by": "",
+                        "index": 0,
+                    },
+                )
+                for member in members:
+                    member["parent"] = group_visual
+                    member["layer"] = 4
+
     orphans = [card_id for card_id in knowledge_cards if card_id not in hung and card_id not in hidden_leftovers]
     if orphans:
         add_node(
@@ -1279,7 +1349,7 @@ def build_lineage(
     for _floor_id, node in list(nodes.items()):
         if node.get("kind") == "module" and node.get("empty") and not node.get("status"):
             node["status"] = "还没有知识卡"
-        if node.get("kind") in {"module", "knowledge"}:
+        if node.get("kind") in {"module", "knowledge", "group"}:
             kids = [
                 {
                     "id": child["id"],
@@ -1296,7 +1366,15 @@ def build_lineage(
                 node["empty"] = False
                 if node.get("kind") == "knowledge":
                     node["nested"] = True
-                    node["status"] = f"{len(kids)} 张文件卡"
+                    grouped = sum(
+                        1
+                        for child in nodes.values()
+                        if child.get("kind") == "group"
+                        and child.get("parent") == node.get("visual_id")
+                        for grand in nodes.values()
+                        if grand.get("kind") == "knowledge" and grand.get("parent") == child.get("visual_id")
+                    )
+                    node["status"] = f"{len(kids) + grouped} 张文件卡"
                 child_tags = [
                     _text(child.get("statusTag"))
                     for child in nodes.values()
@@ -1433,7 +1511,7 @@ def layout_lineage_view(nodes: list[dict[str, Any]], expanded: set[str]) -> None
     modules.sort(key=lambda item: str(item.get("title") or ""))
     kids_of: dict[str, list[dict[str, Any]]] = {}
     for node in nodes:
-        if node.get("kind") != "knowledge":
+        if node.get("kind") not in {"knowledge", "group"}:
             continue
         kids_of.setdefault(str(node.get("parent") or ""), []).append(node)
     for kids in kids_of.values():
@@ -1454,7 +1532,7 @@ def layout_lineage_view(nodes: list[dict[str, Any]], expanded: set[str]) -> None
             module["width"] = LINEAGE_COLLAPSED_W
             module["height"] = LINEAGE_COLLAPSED_H
         for node in nodes:
-            if node.get("kind") == "knowledge":
+            if node.get("kind") in {"knowledge", "group"}:
                 node["hidden"] = True
         return
     module_x = LINEAGE_ORIGIN_X + LINEAGE_PROJECT_W + LINEAGE_RANK_SEP

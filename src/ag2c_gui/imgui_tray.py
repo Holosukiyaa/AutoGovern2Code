@@ -1355,7 +1355,7 @@ def _focus_lineage_node(state: AppState, node: dict[str, Any]) -> None:
             return
     module_path = text(node, "path")
     prefixes: set[str] = set()
-    if kind == "module" and module_path:
+    if kind in {"module", "group"} and module_path:
         prefixes.add(module_path)
         prefixes.update(ancestor_prefixes(module_path))
     summary = text(node, "summary")
@@ -1363,6 +1363,8 @@ def _focus_lineage_node(state: AppState, node: dict[str, Any]) -> None:
         summary = "点这里看本项目宪章。下面按模块挂知识卡。"
     elif kind == "module" and not summary:
         summary = "这是项目里的一个模块。盒子里的知识卡说明这块代码为什么这样写。"
+    elif kind == "group" and not summary:
+        summary = "这是同一个子目录下的文件卡分组，方便在拥挤的房间里折叠浏览。"
     module_cards = node.get("cards") if isinstance(node.get("cards"), list) else []
     related = [
         {
@@ -1372,7 +1374,7 @@ def _focus_lineage_node(state: AppState, node: dict[str, Any]) -> None:
         for item in module_cards
         if isinstance(item, dict)
     ]
-    inspect_mode = "project" if kind == "project" else ("module" if kind == "module" else "card")
+    inspect_mode = "project" if kind == "project" else ("module" if kind in {"module", "group"} else "card")
     with state.lock:
         state.inspect = {
             "mode": inspect_mode,
@@ -1664,7 +1666,7 @@ def _lineage_draw_links(
     by_visual = {str(item.get("visual_id") or item.get("id") or ""): item for item in visible}
     for child in cards:
         parent = by_visual.get(str(child.get("parent") or ""))
-        if parent is None or parent.get("kind") != "knowledge":
+        if parent is None or parent.get("kind") not in {"knowledge", "group"}:
             continue
         px1 = float(parent.get("x") or 0) + float(parent.get("width") or 0)
         py1 = float(parent.get("y") or 0) + float(parent.get("height") or 40) * 0.5
@@ -1968,7 +1970,9 @@ def _gui_lineage(state: AppState) -> None:
     visible = [node for node in view if not node.get("hidden")]
     project = next((node for node in visible if node.get("kind") == "project"), None)
     modules = [node for node in visible if node.get("kind") == "module"]
+    groups = [node for node in visible if node.get("kind") == "group"]
     cards = [node for node in visible if node.get("kind") == "knowledge"]
+    combos = modules + groups
     has_modules = any(node.get("kind") == "module" for node in lineage["nodes"])
     toggles: list[str] = []
     canvas_nodes = visible
@@ -1979,13 +1983,13 @@ def _gui_lineage(state: AppState) -> None:
         dl = imgui.get_window_draw_list()
         link_color = imgui.get_color_u32(imgui.ImVec4(0.46, 0.62, 0.88, 0.90))
         marker_hits: list[tuple[str, float, float, float, float]] = []
-        _lineage_draw_hulls(dl, imgui, modules, cards, expanded, marker_hits)
+        _lineage_draw_hulls(dl, imgui, combos, cards, expanded, marker_hits)
         _lineage_draw_links(dl, imgui, project, modules, cards, visible, expanded, link_color)
         _lineage_draw_nodes(
             ed,
             imgui,
             project=project,
-            modules=modules,
+            modules=combos,
             cards=cards,
             visible=visible,
             expanded=expanded,
@@ -1995,7 +1999,7 @@ def _gui_lineage(state: AppState) -> None:
             has_modules=has_modules,
             toggles=toggles,
         )
-        pending_click = _lineage_handle_input(ed, imgui, modules, cards, marker_hits, toggles)
+        pending_click = _lineage_handle_input(ed, imgui, combos, cards, marker_hits, toggles)
     finally:
         ed.end()
     _lineage_apply_results(state, toggles, pending_click, canvas_nodes, selected, placed)

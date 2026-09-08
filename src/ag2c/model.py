@@ -47,6 +47,8 @@ class Card:
     checkers: tuple[str, ...]
     references: tuple[str, ...]
     jurisdiction: dict | None = None
+    provides: tuple[str, ...] = ()
+    conventions: str = ""
 
 
 @dataclass(frozen=True)

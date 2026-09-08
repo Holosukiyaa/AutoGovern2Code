@@ -508,6 +508,8 @@ def apply_change(
     title: str = "",
     summary: str = "",
     include: list[str] | None = None,
+    provides: list[str] | None = None,
+    conventions: str | None = None,
 ) -> dict[str, Any]:
     actor = actor.strip()
     reason = reason.strip()
@@ -570,6 +572,12 @@ def apply_change(
             current.pop("checkers", None)
         if current["type"] == "knowledge":
             current["references"] = includes
+        if provides is not None:
+            if not isinstance(provides, list) or any(not isinstance(item, str) or not item.strip() for item in provides):
+                raise AG2CError("provides must be a list of non-empty strings")
+            current["provides"] = [item.strip() for item in provides]
+        if conventions is not None:
+            current["conventions"] = conventions.strip()
         if action == "add":
             cards.append(current)
             raw["cards"] = cards
@@ -786,6 +794,16 @@ def retrieve_guidance(start: Path, *, path_specs: list[str], contract_specs: lis
     ]
     lineage_ids = {str(card["id"]) for card in entry.get("cards") or []}
     lineage_ids.update(item["id"] for item in households)
+    reuse_menu = [
+        {"id": card.card_id, "title": card.title, "provides": list(card.provides)}
+        for card in policy.cards
+        if card.card_id in lineage_ids and card.provides
+    ]
+    conventions = [
+        {"id": card.card_id, "title": card.title, "conventions": card.conventions}
+        for card in policy.cards
+        if card.card_id in lineage_ids and card.conventions
+    ]
     return {
         "route": entry["route"],
         "knowledge": entry.get("knowledge") or [],
@@ -797,6 +815,8 @@ def retrieve_guidance(start: Path, *, path_specs: list[str], contract_specs: lis
         "lineage": knowledge_lineage_index(card_dicts, selected_ids=lineage_ids),
         "implementations": implementations,
         "pending": pending.get("items") or [],
+        "reuse_menu": reuse_menu,
+        "conventions": conventions,
     }
 
 

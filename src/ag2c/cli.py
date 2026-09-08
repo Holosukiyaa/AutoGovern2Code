@@ -280,6 +280,8 @@ def build_parser() -> argparse.ArgumentParser:
     govern_apply.add_argument("--title", default="")
     govern_apply.add_argument("--summary", default="")
     govern_apply.add_argument("--include", dest="includes", action="append", default=[])
+    govern_apply.add_argument("--provides", action="append", default=None, help="Reusable capability (货架); repeatable. Omit to keep existing.")
+    govern_apply.add_argument("--conventions", default=None, help="写法约定 for this module. Omit to keep existing.")
     govern_apply.add_argument("--format", choices=("text", "json"), default="text")
     govern_retrieve = govern_commands.add_parser("retrieve")
     _add_slice_arguments(govern_retrieve)
@@ -300,6 +302,8 @@ def build_parser() -> argparse.ArgumentParser:
     household.add_argument("--decider", choices=("none", "machine", "confirm"), default="")
     household.add_argument("--span", default="", help="未打标 / 整夹一张 / 一文件一张")
     household.add_argument("--replaced-by", default="")
+    household.add_argument("--provides", action="append", default=None, help="Reusable capability this room offers (货架); repeatable. Omit to keep existing.")
+    household.add_argument("--conventions", default=None, help="写法约定 for this room. Omit to keep existing.")
     household.add_argument("--command-json", help="implementation-specific checker argv as JSON")
     household.add_argument("--format", choices=("text", "json"), default="json")
     tighten = govern_commands.add_parser("tighten", help="monotonically tighten a directory household strategy")
@@ -740,7 +744,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
 
                 if args.govern_command == "household":
-                    result = register_household(Path.cwd(), card_id=args.id, title=args.title, summary=args.summary, includes=args.include, excludes=args.exclude, floors=args.floor, capability=args.capability, implementation=args.implementation, status=args.status, replaced_by=args.replaced_by, entrypoints=args.entrypoint, checkers=args.checker, command=json.loads(args.command_json) if args.command_json else None, grain=args.grain, meaning=args.meaning, contract=args.contract, decider=args.decider, span=args.span, actor=args.actor, reason=args.reason)
+                    result = register_household(Path.cwd(), card_id=args.id, title=args.title, summary=args.summary, includes=args.include, excludes=args.exclude, floors=args.floor, capability=args.capability, implementation=args.implementation, status=args.status, replaced_by=args.replaced_by, entrypoints=args.entrypoint, checkers=args.checker, command=json.loads(args.command_json) if args.command_json else None, grain=args.grain, meaning=args.meaning, contract=args.contract, decider=args.decider, span=args.span, provides=args.provides, conventions=args.conventions, actor=args.actor, reason=args.reason)
                 elif args.govern_command == "household-gate":
                     result = set_household_enforcement(Path.cwd(), enabled=args.mode == "enforce", actor=args.actor, reason=args.reason)
                 elif args.govern_command == "tighten":
@@ -802,6 +806,8 @@ def main(argv: list[str] | None = None) -> int:
                     title=args.title,
                     summary=args.summary,
                     include=list(args.includes),
+                    provides=args.provides,
+                    conventions=args.conventions,
                 )
             else:
                 result = retrieve_guidance(

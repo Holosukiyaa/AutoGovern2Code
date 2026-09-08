@@ -37,7 +37,7 @@ You already have the AG2C workflow through this MCP connection (instructions, re
 
 Route:
 - New session with work possibly in flight: ag2c_task_orient first. It returns the phase, checklist, the locked portrait, and the exact next tool call (or the open-task queue when several tasks are open).
-- File-changing work: ag2c_guard_status → ag2c_task_start (read guidance.lineage as the knowledge-card index) → write only in worktree.path → ag2c_census / ag2c_span / ag2c_household / ag2c_tighten / ag2c_apply as needed → ag2c_task_verify → ag2c_task_finish → ag2c_settle if pending → ag2c_evidence.
+- File-changing work: ag2c_guard_status → ag2c_task_start (read guidance.lineage as the knowledge-card index; read guidance.reuse_menu BEFORE writing new helpers — it lists the reusable capabilities (provides) of every card in your working set, and guidance.conventions carries each room's 写法约定) → write only in worktree.path → ag2c_census / ag2c_span / ag2c_household / ag2c_tighten / ag2c_apply as needed → ag2c_task_verify → ag2c_task_finish → ag2c_settle if pending → ag2c_evidence.
 
 结果门 (result gate) — the discipline that keeps a task honest:
 - BEFORE coding, simulate the finished state and lock it as the portrait in ag2c_task_start: what is true when done, checkable by an outsider — Done looks like / Surfaces (with example + empty/error/success) / Out of result / Inferences marked INFERRED. Never steps, files-to-edit, or architecture. Write it against the knowledge cards in your slice; that is your working set.
@@ -55,6 +55,7 @@ Hard rules learned in production:
 - Governance writes (ag2c_census record, ag2c_span, ag2c_household, ag2c_apply, ag2c_settle) require a reason; pass actor to name yourself.
 - After editing files, verify blocks on census-stale: record the census first (ag2c_census with record=true, all=true).
 - A knowledge-card title is the 摘要: 20 characters max, Chinese allowed; the English id is not the display name.
+- Cards are shelves, not just manuals: when you create or substantially extend a module, record what it offers via provides (ag2c_apply / ag2c_household) so the next task's reuse_menu can point at it instead of a re-implementation; record the room's 写法约定 via conventions. Omitting provides/conventions on update keeps the existing values.
 - ag2c_task_verify runs in the background: it answers within 45s, either with the result or with state "running" — call the same tool again to poll until the result arrives. The CLI `ag2c task verify` inside the worktree counts the same.
 - Checkers marked always:true run on every verify regardless of slice. Checkers with parse:unittest get a zero-regression gate: failures listed in the store baseline stay green, any NEW failure blocks verify, and fixed failures shrink the baseline automatically. Record the initial debt once with `ag2c govern test-baseline --actor ... --reason ...`; tune checkers with `ag2c govern checker --id ... --always on|off --parse unittest|none`.
 - Test scripts belong to rooms, not floors: create a suite checker with `ag2c govern checker --id check.suite-<name> --command '["python","-B","tests/suites.py","<name>"]' --stage floor --parse unittest` (suite names live in tests/suites.py), then bind it to a directory household (ag2c_household checker) so it runs only when the slice touches that room. Keep one small always-on fast suite as the floor-level baseline.
@@ -366,6 +367,8 @@ def tool_defs() -> list[dict[str, Any]]:
                 "entrypoint": {"type": "array", "items": {"type": "string"}, "description": "Entry files. Omit to keep existing; pass to replace."},
                 "checker": {"type": "array", "items": {"type": "string"}, "description": "Checker ids. Omit to keep existing; pass to replace."},
                 "command": {"type": "array", "items": {"type": "string"}, "description": "Scenario checker command (argv). Declares a product check for this household."},
+                "provides": {"type": "array", "items": {"type": "string"}, "description": "Reusable capabilities this room offers (货架). Omit to keep existing; pass to replace."},
+                "conventions": {"type": "string", "description": "写法约定: how code in this room is written (state, errors, UI). Omit to keep existing."},
                 "reason": {"type": "string"},
                 "actor": {"type": "string"},
                 "cwd": _cwd_prop(),
@@ -397,6 +400,8 @@ def tool_defs() -> list[dict[str, Any]]:
                 "title": {"type": "string"},
                 "summary": {"type": "string"},
                 "include": {"type": "array", "items": {"type": "string"}},
+                "provides": {"type": "array", "items": {"type": "string"}, "description": "Reusable capabilities this module offers (货架). Omit to keep existing; pass to replace."},
+                "conventions": {"type": "string", "description": "写法约定: how code in this module is written. Omit to keep existing."},
                 "reason": {"type": "string"},
                 "actor": {"type": "string"},
                 "cwd": _cwd_prop(),
@@ -683,6 +688,8 @@ def _call_household(args: dict[str, Any]) -> Any:
         entrypoints=_optional_string_list(args, "entrypoint"),
         checkers=_optional_string_list(args, "checker"),
         command=_optional_string_list(args, "command"),
+        provides=_optional_string_list(args, "provides"),
+        conventions=str(args["conventions"]) if args.get("conventions") is not None else None,
         actor=_actor(args),
         reason=str(args.get("reason") or ""),
     )
@@ -719,6 +726,8 @@ def _call_apply(args: dict[str, Any]) -> Any:
         title=str(args.get("title") or ""),
         summary=str(args.get("summary") or ""),
         include=_string_list(args, "include"),
+        provides=_optional_string_list(args, "provides"),
+        conventions=str(args["conventions"]) if args.get("conventions") is not None else None,
     )
 
 

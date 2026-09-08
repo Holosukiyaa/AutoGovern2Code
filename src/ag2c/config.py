@@ -52,6 +52,15 @@ def _strings(value: Any, label: str, *, required: bool = False) -> tuple[str, ..
     return result
 
 
+def _provides(value: Any, label: str) -> tuple[str, ...]:
+    """Like _strings but without path normalization — provides entries are prose capability descriptions."""
+    if value is None:
+        return ()
+    if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
+        raise ConfigurationError(f"{label} must be a list of non-empty strings")
+    return tuple(item.strip() for item in value)
+
+
 def discover_manifest(start: Path | None = None, explicit: Path | None = None) -> Path:
     if explicit is not None:
         return explicit.resolve()
@@ -177,6 +186,8 @@ def load_policy(manifest: Manifest) -> Policy:
                 checkers=_strings(item.get("checkers"), f"card {card_id} checkers"),
                 references=_strings(item.get("references"), f"card {card_id} references"),
                 jurisdiction=coerce_jurisdiction(item.get("jurisdiction")),
+                provides=_provides(item.get("provides"), f"card {card_id} provides"),
+                conventions=str(item.get("conventions", "") or "").strip(),
             )
         )
     card_ids = [card.card_id for card in cards]

@@ -233,6 +233,21 @@ class McpServerTests(unittest.TestCase):
             self.assertIn(key, properties)
             self.assertEqual("array", properties[key]["type"])
 
+    def test_apply_and_household_schemas_expose_provides_and_conventions(self) -> None:
+        for name in ("ag2c_apply", "ag2c_household"):
+            tool = next(item for item in tool_defs() if item["name"] == name)
+            properties = tool["inputSchema"]["properties"]
+            self.assertIn("provides", properties)
+            self.assertEqual("array", properties["provides"]["type"])
+            self.assertIn("conventions", properties)
+            self.assertEqual("string", properties["conventions"]["type"])
+            self.assertNotIn("provides", tool["inputSchema"]["required"])
+
+    def test_instructions_teach_the_reuse_menu(self) -> None:
+        result = _rpc("initialize")["result"]
+        self.assertIn("reuse_menu", result["instructions"])
+        self.assertIn("provides", result["instructions"])
+
     def test_tighten_tool_schema_and_dispatch(self) -> None:
         tighten = next(item for item in tool_defs() if item["name"] == "ag2c_tighten")
         schema = tighten["inputSchema"]

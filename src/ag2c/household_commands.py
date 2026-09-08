@@ -145,7 +145,7 @@ def _save_policy(manifest, raw: dict, actor: str, reason: str, event_type: str, 
     return {**payload, "actor": actor, "reason": reason, "ledger_event_digest": event["event_digest"]}
 
 
-def register_household(start: Path, *, card_id: str, title: str, summary: str, includes: list[str], excludes: list[str], floors: list[str], capability: str, implementation: str, status: str, replaced_by: str = "", entrypoints: list[str] | None = None, checkers: list[str] | None = None, command: list[str] | None = None, grain: str = "", meaning: str = "", contract: str = "", decider: str = "", span: str = "", actor: str, reason: str) -> dict:
+def register_household(start: Path, *, card_id: str, title: str, summary: str, includes: list[str], excludes: list[str], floors: list[str], capability: str, implementation: str, status: str, replaced_by: str = "", entrypoints: list[str] | None = None, checkers: list[str] | None = None, command: list[str] | None = None, grain: str = "", meaning: str = "", contract: str = "", decider: str = "", span: str = "", provides: list[str] | None = None, conventions: str | None = None, actor: str, reason: str) -> dict:
     actor, reason = _identity(actor, reason)
     manifest, policy = _context(start)
     raw = _read_json(manifest.policy_path)
@@ -162,12 +162,15 @@ def register_household(start: Path, *, card_id: str, title: str, summary: str, i
     previous_span = ""
     previous_entrypoints: list[str] = []
     previous_checkers: list[str] = []
+    previous_jurisdiction: dict = {}
     if previous is not None:
         previous_checkers = [str(item) for item in previous.checkers if str(item)]
         if previous.jurisdiction is not None:
             previous_jurisdiction = coerce_jurisdiction(previous.jurisdiction) or {}
             previous_span = str(previous_jurisdiction.get("span") or "none")
             previous_entrypoints = [str(item) for item in previous_jurisdiction.get("entrypoints") or [] if str(item)]
+    if provides is not None and (not isinstance(provides, list) or any(not isinstance(item, str) or not item.strip() for item in provides)):
+        raise AG2CError("provides must be a list of non-empty strings")
     selected_checkers = list(dict.fromkeys(checkers if checkers is not None else previous_checkers))
     if command is not None:
         if not command or any(not isinstance(item, str) or not item for item in command):
@@ -180,7 +183,13 @@ def register_household(start: Path, *, card_id: str, title: str, summary: str, i
         raw["checkers"] = [item for item in raw.get("checkers", []) if item["id"] != checker_id] + [checker]
         selected_checkers.append(checker_id)
     _carve_exploring_placeholders(raw, card_id, includes)
-    card = {"id": card_id, "type": "knowledge", "title": title.strip(), "summary": summary.strip(), "scopes": [{"target": "app", "include": includes, "exclude": excludes, "ownership": "reference"}], "references": [], "checkers": list(dict.fromkeys(selected_checkers)), "jurisdiction": {"capability": capability, "implementation": implementation, "status": status, "entrypoints": list(entrypoints if entrypoints is not None else previous_entrypoints), "grain": grain or "subtree", "meaning": meaning or "none", "contract": contract or "none", "decider": decider or "none", "span": normalize_span(span or previous_span or "none")}}
+    card = {"id": card_id, "type": "knowledge", "title": title.strip(), "summary": summary.strip(), "scopes": [{"target": "app", "include": includes, "exclude": excludes, "ownership": "reference"}], "references": [], "checkers": list(dict.fromkeys(selected_checkers)), "jurisdiction": {"capability": capability, "implementation": implementation, "status": status, "entrypoints": list(entrypoints if entrypoints is not None else previous_entrypoints), "grain": grain or str(previous_jurisdiction.get("grain") or "") or "subtree", "meaning": meaning or str(previous_jurisdiction.get("meaning") or "") or "none", "contract": contract or str(previous_jurisdiction.get("contract") or "") or "none", "decider": decider or str(previous_jurisdiction.get("decider") or "") or "none", "span": normalize_span(span or previous_span or "none")}}
+    merged_provides = [item.strip() for item in provides] if provides is not None else list(previous.provides if previous is not None else ())
+    if merged_provides:
+        card["provides"] = merged_provides
+    merged_conventions = conventions.strip() if conventions is not None else (previous.conventions if previous is not None else "")
+    if merged_conventions:
+        card["conventions"] = merged_conventions
     raw["cards"] = [item for item in raw.get("cards", []) if item["id"] != card_id] + [card]
     coverage = raw.get("coverage")
     if isinstance(coverage, dict) and coverage.get("level") == "baseline":

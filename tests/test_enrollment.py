@@ -419,3 +419,200 @@ class EnrollmentTests(unittest.TestCase):
             self.skipTest("python.exe/pythonw.exe pair is not installed")
         self.assertTrue(runtime_equivalent([str(py), "-m", "ag2c"], [str(pyw), "-m", "ag2c"]))
         self.assertFalse(runtime_equivalent([str(py), "-m", "ag2c"], [str(py), "-m", "other"]))
+
+
+class ProvidesConventionsTests(unittest.TestCase):
+    """Card shelf (provides) and room constitution (conventions): schema, preserve-on-update, reuse menu."""
+
+    def test_apply_preserves_provides_and_conventions_when_omitted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = git_project(base / "demo")
+            data = base / "ag2c-data"
+            with patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False):
+                enroll_project(root, skill_root=base / "skills", harnesses=("agents",))
+                apply_change(
+                    root,
+                    action="add",
+                    kind="card",
+                    card_id="knowledge.src-value",
+                    actor="codex",
+                    reason="explain src/value.py",
+                    card_type="knowledge",
+                    title="值常量",
+                    summary="Holds VALUE for the demo.",
+                    include=["src/value.py"],
+                    provides=["值常量 VALUE"],
+                    conventions="模块级只读常量",
+                )
+                apply_change(
+                    root,
+                    action="update",
+                    kind="card",
+                    card_id="knowledge.src-value",
+                    actor="codex",
+                    reason="retitle only, shelf untouched",
+                    title="演示值常量",
+                    include=["src/value.py"],
+                )
+                manifest = load_manifest(discover_manifest(root), project_root=root)
+                card = next(item for item in load_policy(manifest).cards if item.card_id == "knowledge.src-value")
+                self.assertEqual("演示值常量", card.title)
+                self.assertEqual(("值常量 VALUE",), card.provides)
+                self.assertEqual("模块级只读常量", card.conventions)
+                apply_change(
+                    root,
+                    action="update",
+                    kind="card",
+                    card_id="knowledge.src-value",
+                    actor="codex",
+                    reason="replace the shelf",
+                    include=["src/value.py"],
+                    provides=["新能力"],
+                )
+                card = next(item for item in load_policy(manifest).cards if item.card_id == "knowledge.src-value")
+                self.assertEqual(("新能力",), card.provides)
+                self.assertEqual("模块级只读常量", card.conventions)
+
+    def test_apply_rejects_invalid_provides_without_touching_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = git_project(base / "demo")
+            data = base / "ag2c-data"
+            with patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False):
+                enroll_project(root, skill_root=base / "skills", harnesses=("agents",))
+                apply_change(
+                    root,
+                    action="add",
+                    kind="card",
+                    card_id="knowledge.src-value",
+                    actor="codex",
+                    reason="explain src/value.py",
+                    card_type="knowledge",
+                    title="值常量",
+                    summary="Holds VALUE for the demo.",
+                    include=["src/value.py"],
+                    provides=["值常量 VALUE"],
+                )
+                manifest = load_manifest(discover_manifest(root), project_root=root)
+                before = manifest.policy_path.read_text(encoding="utf-8")
+                with self.assertRaises(AG2CError) as raised:
+                    apply_change(
+                        root,
+                        action="update",
+                        kind="card",
+                        card_id="knowledge.src-value",
+                        actor="codex",
+                        reason="bad shelf entry",
+                        include=["src/value.py"],
+                        provides=["ok", 42],
+                    )
+                self.assertIn("provides", str(raised.exception))
+                self.assertEqual(before, manifest.policy_path.read_text(encoding="utf-8"))
+
+    def test_household_update_preserves_unpassed_jurisdiction_and_shelf_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = git_project(base / "demo")
+            (root / "src" / "frontend").mkdir()
+            (root / "src" / "frontend" / "app.py").write_text("A = 1\n", encoding="utf-8")
+            data = base / "ag2c-data"
+            with patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False):
+                enroll_project(root, skill_root=base / "skills", harnesses=("agents",))
+                register_household(
+                    root,
+                    card_id="knowledge.frontend",
+                    title="前端",
+                    summary="shipped UI",
+                    includes=["src/frontend/**"],
+                    excludes=[],
+                    floors=["floor.src"],
+                    capability="frontend",
+                    implementation="frontend.app",
+                    status="current",
+                    meaning="named",
+                    span="folder",
+                    provides=["UI 装配 assemble_view"],
+                    conventions="状态集中 AppState",
+                    actor="codex",
+                    reason="claim frontend",
+                )
+                updated = register_household(
+                    root,
+                    card_id="knowledge.frontend",
+                    title="前端",
+                    summary="shipped UI v2",
+                    includes=["src/frontend/**"],
+                    excludes=[],
+                    floors=["floor.src"],
+                    capability="frontend",
+                    implementation="frontend.app",
+                    status="current",
+                    actor="codex",
+                    reason="refresh summary only",
+                )
+                self.assertEqual("named", updated["jurisdiction"]["meaning"])
+                self.assertEqual("folder", updated["jurisdiction"]["span"])
+                self.assertEqual("subtree", updated["jurisdiction"]["grain"])
+                manifest = load_manifest(discover_manifest(root), project_root=root)
+                card = next(item for item in load_policy(manifest).cards if item.card_id == "knowledge.frontend")
+                self.assertEqual(("UI 装配 assemble_view",), card.provides)
+                self.assertEqual("状态集中 AppState", card.conventions)
+
+    def test_guidance_reuse_menu_lists_working_set_provides_only(self) -> None:
+        from ag2c.govern import retrieve_guidance
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = git_project(base / "demo")
+            data = base / "ag2c-data"
+            with patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False):
+                enroll_project(root, skill_root=base / "skills", harnesses=("agents",))
+                apply_change(
+                    root,
+                    action="add",
+                    kind="card",
+                    card_id="knowledge.src-value",
+                    actor="codex",
+                    reason="explain src/value.py",
+                    card_type="knowledge",
+                    title="值常量",
+                    summary="Holds VALUE for the demo.",
+                    include=["src/value.py"],
+                    provides=["值常量 VALUE"],
+                    conventions="模块级只读常量",
+                )
+                apply_change(
+                    root,
+                    action="add",
+                    kind="card",
+                    card_id="knowledge.tests-value",
+                    actor="codex",
+                    reason="explain tests/test_value.py",
+                    card_type="knowledge",
+                    title="值测试",
+                    summary="Tests VALUE.",
+                    include=["tests/test_value.py"],
+                    provides=["测试基座 ValueTests"],
+                )
+                guidance = retrieve_guidance(root, path_specs=["app:src/value.py"])
+                menu = {item["id"]: item for item in guidance["reuse_menu"]}
+                self.assertIn("knowledge.src-value", menu)
+                self.assertEqual(["值常量 VALUE"], menu["knowledge.src-value"]["provides"])
+                self.assertNotIn("knowledge.tests-value", menu)
+                conventions = {item["id"]: item for item in guidance["conventions"]}
+                self.assertEqual("模块级只读常量", conventions["knowledge.src-value"]["conventions"])
+                self.assertNotIn("knowledge.tests-value", conventions)
+
+    def test_guidance_reuse_menu_is_empty_when_nobody_provides(self) -> None:
+        from ag2c.govern import retrieve_guidance
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = git_project(base / "demo")
+            data = base / "ag2c-data"
+            with patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False):
+                enroll_project(root, skill_root=base / "skills", harnesses=("agents",))
+                guidance = retrieve_guidance(root, path_specs=["app:src/value.py"])
+                self.assertEqual([], guidance["reuse_menu"])
+                self.assertEqual([], guidance["conventions"])

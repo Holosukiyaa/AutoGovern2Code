@@ -51,7 +51,7 @@ class CLITests(unittest.TestCase):
         payload = json.loads(output.getvalue())
         self.assertEqual(__version__, payload["package"])
         self.assertEqual(
-            ["ag2c-governed-development", "ag2c-governance-update", "ag2c-directory-census", "ag2c-knowledge-authoring"],
+            ["ag2c-governed-development", "ag2c-governance-update", "ag2c-directory-census", "ag2c-knowledge-authoring", "ag2c-full-liquidation"],
             [item["name"] for item in payload["skills"]],
         )
         for item in payload["skills"]:

@@ -15,6 +15,7 @@ AutoGovern2Code. `ag2c skill version` prints the required identity.
 | `ag2c-governance-update` | Named document and interface cards: `ag2c govern` only, never hand-edited Policy. |
 | `ag2c-directory-census` | Tree investigation and coverage tags: 未打标 / 整夹一张 / 一文件一张. |
 | `ag2c-knowledge-authoring` | Write detailed 设计思路 knowledge cards from those tags. |
+| `ag2c-full-liquidation` | Full liquidation (全量清算): re-baseline, re-census, re-author, audit, cleanup queue. Explicit user request only. |
 | `result-lock` | Lock a checkable finished state before implementation (Grok 结果门). |
 
 The strong constraint is not the Skill text alone. MCP is entry; `core.hooksPath`

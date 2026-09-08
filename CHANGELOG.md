@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Packaged a fifth Skill, `ag2c-full-liquidation` (全量清算): an opt-in-only pipeline distilled from a production rebuild — assess and gate on explicit user decisions, physical cleanup through governed tasks (wedged-policy escape, retirement-references refactoring, generated-artifact locks with logical digests), ingest re-baseline, proper-subset re-census, room cards, per-file cards for core rooms, an evidence-backed audit document, and a prioritized cleanup queue. The Skill, the MCP initialize instructions, and the connect prompt all state it runs only when the user explicitly asks — never proactively.
+
 ## 0.9.0 - 2026-09-07
 
 - The Windows release is now a no-install portable zip (`AutoGovern2Code-Portable-Windows-x64.zip`): extract anywhere and run — no PATH, registry, Start Menu, or login-startup writes. Moving the whole folder self-heals on the next command: the project registry rebases to the new location and enrolled projects get their Git guard hooks re-pointed, so a moved or copied folder never drops the guard. The Inno Setup installer is retired.

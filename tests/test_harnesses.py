@@ -92,6 +92,7 @@ class HarnessAdapterTests(unittest.TestCase):
                 self.assertTrue((root / "ag2c-governance-update" / "SKILL.md").is_file())
                 self.assertTrue((root / "ag2c-directory-census" / "SKILL.md").is_file())
                 self.assertTrue((root / "ag2c-knowledge-authoring" / "SKILL.md").is_file())
+                self.assertTrue((root / "ag2c-full-liquidation" / "SKILL.md").is_file())
 
     def test_cursor_is_detected_from_user_config_dir(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -38,6 +38,7 @@ Route:
 - Tree investigation and coverage tags (未打标 / 整夹一张 / 一文件一张): ag2c_census then ag2c_span. The user supervises tags; they do not click tray buttons.
 - Write 设计思路 from tags: ag2c_apply for per-file cards, ag2c_household for 整夹一张 rooms. Read the files first.
 - Named README/interface cards: ag2c_apply. Never edit Policy JSON by hand.
+- Full liquidation (全量清算: wipe stale cards, re-census, re-author, audit, cleanup queue): resource ag2c://skill/ag2c-full-liquidation. Run it ONLY when the user explicitly asks — never offer or start it proactively.
 
 Delivery is the Git hook, not this MCP. Connecting MCP does not replace pre-commit. AG2C uses its own Git binary on the project's existing `.git` and history.
 

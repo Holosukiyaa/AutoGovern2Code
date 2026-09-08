@@ -511,6 +511,8 @@ def apply_change(
     provides: list[str] | None = None,
     conventions: str | None = None,
     budget_lines: int | None = None,
+    optional: bool | None = None,
+    maturity: str | None = None,
 ) -> dict[str, Any]:
     actor = actor.strip()
     reason = reason.strip()
@@ -581,6 +583,10 @@ def apply_change(
             current["conventions"] = conventions.strip()
         if budget_lines is not None:
             current["budget_lines"] = max(0, int(budget_lines))
+        if optional is not None:
+            current["optional"] = bool(optional)
+        if maturity is not None:
+            current["maturity"] = maturity.strip()
         if action == "add":
             cards.append(current)
             raw["cards"] = cards

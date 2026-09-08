@@ -50,6 +50,8 @@ class Card:
     provides: tuple[str, ...] = ()
     conventions: str = ""
     budget_lines: int = 0  # 0 = no budget
+    optional: bool = False  # True = floor card is advisory, doesn't block verify
+    maturity: str = ""  # L0-L3 maturity level, empty = ungraded
 
 
 @dataclass(frozen=True)

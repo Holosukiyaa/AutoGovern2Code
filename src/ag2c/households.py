@@ -659,7 +659,7 @@ def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
         replacements = [relation.target for relation in policy.relations if relation.source == card.card_id and relation.relation_type == "replaced_by"]
         # Exclude metadata fields that don't affect jurisdiction/behavior,
         # so adding new optional fields doesn't invalidate all census records.
-        card_dict = {k: v for k, v in asdict(card).items() if k not in ("budget_lines",)}
+        card_dict = {k: v for k, v in asdict(card).items() if k not in ("budget_lines", "optional", "maturity")}
         declaration_digest = digest_json({"card": card_dict, "floors": floors, "replacements": replacements, "checkers": [asdict(policy.checker(checker)) for checker in card.checkers]})
         scope_digest = digest_json([{key: item[key] for key in ("target", "path", "digest")} for item in matched])
         previous = latest.get(card.card_id)
@@ -837,6 +837,13 @@ def enforce_households(manifest: Manifest, policy: Policy, entry_slice: dict, ch
             if len(owners) != 1:
                 problems.append(f"changed-code-without-unique-household:{target}:{path}")
     for item in required_households(report, entry_slice):
+        # Optional floor cards are advisory: they don't block verify.
+        try:
+            card = policy.card(item["id"]) if item["id"] else None
+        except StopIteration:
+            card = None
+        if card is not None and card.optional and card.card_type == "floor":
+            continue
         problems.extend(f'{issue["code"]}:{item["id"]}' for issue in item["issues"])
         if item["freshness"] != "current":
             problems.append(f'census-{item["freshness"]}:{item["id"]}')

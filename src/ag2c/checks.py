@@ -607,6 +607,13 @@ def run_checks(
     warnings.extend(_cross_slice_warnings(manifest, entry_slice))
     if warnings:
         report["warnings"] = warnings
+    # Maturity summary: count rooms at each L0-L3 level.
+    maturity_counts: dict[str, int] = {}
+    for card in policy.cards:
+        if card.jurisdiction is not None and card.maturity:
+            maturity_counts[card.maturity] = maturity_counts.get(card.maturity, 0) + 1
+    if maturity_counts:
+        report["maturity_summary"] = dict(sorted(maturity_counts.items()))
     if task_id is not None:
         report["task_id"] = task_id
     event = append_event(ledger_path or manifest.ledger_path, "check-run", report)

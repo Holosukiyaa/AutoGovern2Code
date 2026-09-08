@@ -42,7 +42,7 @@ class DashboardModelTests(unittest.TestCase):
         self.assertEqual([], model["tasks"])
         self.assertEqual([], model["anomalies"])
         self.assertEqual(0, model["anomaly_count"])
-        self.assertEqual([0, 0, 0], [h["value"] for h in model["health"]])
+        self.assertEqual([0, 0, 0, 0], [h["value"] for h in model["health"]])
         self.assertEqual("", model["project"])
 
     def test_all_green_project_is_nearly_empty(self):
@@ -115,6 +115,26 @@ class DashboardModelTests(unittest.TestCase):
         model = dashboard_model(details, {})
         health = {h["label"]: h["value"] for h in model["health"]}
         self.assertEqual(1, health["进行中任务"])
+
+    def test_health_counts_stale_census(self):
+        details = {
+            "census": {
+                "households": [
+                    {"id": "h1", "freshness": "current"},
+                    {"id": "h2", "freshness": "stale"},
+                    {"id": "h3", "freshness": "stale"},
+                    {"id": "h4", "freshness": "never"},
+                ]
+            }
+        }
+        model = dashboard_model(details, {})
+        health = {h["label"]: h["value"] for h in model["health"]}
+        self.assertEqual(2, health["普查陈旧"])
+
+    def test_health_stale_census_tolerates_missing_census(self):
+        model = dashboard_model({}, {})
+        health = {h["label"]: h["value"] for h in model["health"]}
+        self.assertEqual(0, health["普查陈旧"])
 
 
 class HelperTests(unittest.TestCase):

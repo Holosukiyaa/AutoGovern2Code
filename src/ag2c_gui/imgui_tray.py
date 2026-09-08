@@ -186,6 +186,9 @@ class AppState:
         self.ops_tab = ""
         self.ops_active = ""
         self.panel_fields: dict[str, dict[str, Any]] = {}
+        self.toasts: list[dict[str, Any]] = []
+        self._notified_ids: set[str] = set()
+        self._notify_project_id = ""
 
     def _live_dock_window(self, label: str) -> Any | None:
         """The C++-side DockableWindow, not the Python original.
@@ -698,8 +701,72 @@ def _status_bar(state: AppState) -> None:
 
 
 def _gui_overlays(state: AppState) -> None:
-    """Only the splash floats now; 操作日志 and the operator panels live in the 运维 drawer."""
+    """Splash + toast notifications float above the dock layout."""
     _gui_splash(state)
+    _gui_toasts(state)
+
+
+_TOAST_TTL_S = 8.0
+_TOAST_WIDTH = 360.0
+
+
+def _gui_toasts(state: AppState) -> None:
+    """In-app toast overlay for gate-block notifications. No external deps."""
+    from imgui_bundle import imgui
+
+    with state.lock:
+        toasts = list(state.toasts)
+    if not toasts:
+        return
+    now = time.monotonic()
+    expired: list[str] = []
+    viewport = imgui.get_main_viewport()
+    y_offset = viewport.pos.y + 40.0
+    for toast in toasts:
+        age = now - toast["born"]
+        if age > _TOAST_TTL_S:
+            expired.append(toast["id"])
+            continue
+        alpha = 1.0 if age < _TOAST_TTL_S - 1.5 else max(0.0, (_TOAST_TTL_S - age) / 1.5)
+        imgui.set_next_window_pos(
+            imgui.ImVec2(viewport.pos.x + viewport.size.x - _TOAST_WIDTH - 16.0, y_offset),
+            imgui.Cond_.always,
+        )
+        imgui.set_next_window_bg_alpha(0.92 * alpha)
+        flags = (
+            imgui.WindowFlags_.no_title_bar
+            | imgui.WindowFlags_.no_resize
+            | imgui.WindowFlags_.no_move
+            | imgui.WindowFlags_.no_collapse
+            | imgui.WindowFlags_.no_docking
+            | imgui.WindowFlags_.no_saved_settings
+            | imgui.WindowFlags_.always_auto_resize
+        )
+        kind_colors = {
+            "gate-block": (0.95, 0.45, 0.30, 1.0),
+            "verify-fail": (0.95, 0.35, 0.30, 1.0),
+            "canonical-dirty": (0.95, 0.70, 0.30, 1.0),
+            "census-stale": (0.95, 0.70, 0.30, 1.0),
+        }
+        color = kind_colors.get(toast["kind"], (0.55, 0.75, 0.95, 1.0))
+        imgui.begin(f"##toast-{toast['id']}", None, flags)
+        imgui.text_colored(color, toast["title"])
+        if toast["detail"]:
+            imgui.text_wrapped(toast["detail"][:120])
+        if imgui.is_window_hovered() and imgui.is_mouse_clicked(0):
+            expired.append(toast["id"])
+        imgui.end()
+        y_offset += 70.0
+    if expired:
+        with state.lock:
+            state.toasts = [t for t in state.toasts if t["id"] not in set(expired)]
+        # Acknowledge in the queue so they don't reappear.
+        try:
+            from ag2c.notify import acknowledge
+            for nid in expired:
+                acknowledge(state._notify_project_id, nid)
+        except Exception:
+            pass
 
 
 def _audit_body(state: AppState) -> None:
@@ -1616,6 +1683,45 @@ def _poll_digest(state: AppState, root: str) -> None:
                 state.status = "检测到项目变更，已自动刷新"
     with state.lock:
         state.digest = digest
+    _poll_notifications(state, root)
+
+
+def _poll_notifications(state: AppState, root: str) -> None:
+    """Check the notification queue for gate blocks and push toasts."""
+    try:
+        from ag2c.notify import pending_notifications
+        from ag2c.config import discover_manifest, load_manifest
+        manifest = load_manifest(discover_manifest(Path(root)), project_root=Path(root))
+        project_id = manifest.project_id
+    except Exception:
+        return
+    with state.lock:
+        state._notify_project_id = project_id
+    try:
+        items = pending_notifications(project_id)
+    except Exception:
+        return
+    new_items = [item for item in items if item.get("id") not in state._notified_ids]
+    if not new_items:
+        return
+    with state.lock:
+        for item in new_items:
+            nid = str(item.get("id") or "")
+            state._notified_ids.add(nid)
+            state.toasts.append({
+                "id": nid,
+                "kind": str(item.get("kind") or ""),
+                "title": str(item.get("title") or ""),
+                "detail": str(item.get("detail") or ""),
+                "born": time.monotonic(),
+                "task_id": str(item.get("task_id") or ""),
+                "room_id": str(item.get("room_id") or ""),
+            })
+        # Cap visible toasts.
+        while len(state.toasts) > 5:
+            state.toasts.pop(0)
+    for item in new_items:
+        audit(state, "通知", str(item.get("kind") or ""), str(item.get("title") or ""))
 
 
 def _refresh(state: AppState) -> None:

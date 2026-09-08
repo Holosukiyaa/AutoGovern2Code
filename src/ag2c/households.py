@@ -13,6 +13,15 @@ from typing import Any
 from .errors import AG2CError, ConfigurationError, WidenError
 from .index import _discover_files, _git, _scope_matches, primary_owners
 from .model import Card, Manifest, Policy, Scope
+
+
+def _notify_gate(manifest: Manifest, problems: list[str]) -> None:
+    """Best-effort notification; never breaks the gate itself."""
+    try:
+        from .notify import KIND_GATE_BLOCK, notify
+        notify(manifest.project_id, KIND_GATE_BLOCK, "户籍门禁拦截", "\n".join(problems[:5]))
+    except Exception:
+        pass
 from .util import digest_file, digest_json, path_matches
 
 
@@ -801,4 +810,5 @@ def enforce_households(manifest: Manifest, policy: Policy, entry_slice: dict, ch
         if missing:
             problems.append(f'implementation-check-not-selected:{item["id"]}:{",".join(sorted(missing))}')
     if problems:
+        _notify_gate(manifest, problems)
         raise AG2CError("household gate blocked:\n- " + "\n- ".join(problems[:40]))

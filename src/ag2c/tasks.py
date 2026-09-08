@@ -13,6 +13,23 @@ from .checks import PROCESS_CHECK_STATUSES, run_checks
 from .config import discover_manifest, load_manifest, load_policy
 from .enrollment import activation_status
 from .errors import AG2CError
+
+
+def _notify_gate_block(canonical: Path, kind: str, title: str, detail: str, task_id: str = "") -> None:
+    """Best-effort notification; never breaks the gate itself."""
+    try:
+        from .notify import notify
+        notify(_project_id_for(canonical), kind, title, detail, task_id=task_id)
+    except Exception:
+        pass
+
+
+def _project_id_for(root: Path) -> str:
+    try:
+        manifest = load_manifest(discover_manifest(root), project_root=root)
+        return manifest.project_id
+    except Exception:
+        return root.name
 from .storage import registered_manifest
 from .gitops import (
     change_digest,
@@ -471,10 +488,15 @@ def start_task(
             raise AG2CError("portrait lint failed:\n- " + "\n- ".join(violations))
     dirty = status_entries(canonical)
     if dirty:
+        _notify_gate_block(canonical, "gate-block", "canonical 检出被修改", ", ".join(dirty[:5]))
         raise AG2CError("canonical worktree is dirty; AG2C will not start: " + ", ".join(dirty))
     if not path_specs and not contract_specs and not all_mode:
         raise AG2CError("AG2C requires exact paths/contracts or conservative --all before work begins")
-    _refuse_household_debt(canonical, path_specs, all_mode)
+    try:
+        _refuse_household_debt(canonical, path_specs, all_mode)
+    except AG2CError as exc:
+        _notify_gate_block(canonical, "gate-block", "房间债务拦截", str(exc)[:200])
+        raise
     manifest, policy = _canonical_manifest(canonical)
     build_index(manifest, policy, index_path(manifest))
     entry_slice = compile_slice(
@@ -830,6 +852,13 @@ def verify_task(start: Path) -> dict[str, Any]:
             task,
             "verification-failed",
             {"attempt": verification["attempt"], "failed_checkers": [item["id"] for item in report["results"] if item["status"] != "passed"]},
+        )
+        failed = [item["id"] for item in report["results"] if item["status"] != "passed"]
+        _notify_gate_block(
+            canonical, "verify-fail",
+            f"验证未通过（第 {verification['attempt']} 次）",
+            "失败检查: " + ", ".join(failed[:5]),
+            task_id=str(task["id"]),
         )
     return {
         "task_id": task["id"],

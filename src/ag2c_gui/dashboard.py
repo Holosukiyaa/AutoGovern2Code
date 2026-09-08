@@ -119,6 +119,10 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
         {"label": "待结算", "value": len(pending)},
         {"label": "过期卡片", "value": len(stale)},
     ]
+    census_data = details.get("census") if isinstance(details.get("census"), dict) else {}
+    census_households = census_data.get("households") if isinstance(census_data.get("households"), list) else []
+    stale_census = sum(1 for h in census_households if isinstance(h, dict) and h.get("freshness") == "stale")
+    health.append({"label": "普查陈旧", "value": stale_census})
     project = details.get("project") if isinstance(details.get("project"), dict) else {}
     return {
         "project": _text(project, "name"),

@@ -41,7 +41,7 @@ SUITES = {
     "receipts": ["test_receipts"],
     "storage": ["test_storage"],
     "gitops": ["test_gitops"],
-    "gui": ["test_desktop"],
+    "gui": ["test_desktop", "test_dashboard"],
 }
 
 

@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from .dashboard import dashboard_model, draw_dashboard
 from .tray_host import (
     FILTERS,
     PRODUCT_LABELS,
@@ -162,6 +163,7 @@ class AppState:
         self.filter_index = 0
         self.busy = False
         self.digest = ""
+        self.guard: dict[str, Any] = {}
         self.guard_warning = ""
         self.next_poll_at = 0.0
         self._worker: threading.Thread | None = None
@@ -351,7 +353,7 @@ def main(argv: list[str] | None = None) -> int:
     runner.app_window_params.window_geometry.size_auto = False
     runner.app_window_params.window_geometry.window_size_state = hello_imgui.WindowSizeState.standard
     runner.ini_folder_type = hello_imgui.IniFolderType.app_user_config_folder
-    runner.ini_filename = "AutoGovern2Code/tray-v15.ini"
+    runner.ini_filename = "AutoGovern2Code/tray-v16.ini"
     runner.fps_idling.enable_idling = False
     runner.fps_idling.remember_enable_idling = False
     runner.fps_idling.fps_idle = 60.0
@@ -382,7 +384,7 @@ def main(argv: list[str] | None = None) -> int:
     runner.callbacks.before_imgui_render = _logged("before_frame", lambda: _before_frame(state))
     runner.callbacks.before_exit = _logged("before_exit", lambda: _shutdown(state))
     runner.docking_params.layout_condition = hello_imgui.DockingLayoutCondition.application_start
-    runner.docking_params.layout_name = "tray-v15"
+    runner.docking_params.layout_name = "tray-v16"
     runner.docking_params.main_dock_space_node_flags = imgui.DockNodeFlags_.no_undocking
     runner.docking_params.docking_splits = _splits()
     runner.docking_params.dockable_windows = _windows(state)
@@ -551,13 +553,14 @@ def _splits():
         return item
 
     return [
+        split("MainDockSpace", "FileTreeSpace", imgui.Dir.left, 0.42),
         split("MainDockSpace", "InspectorSpace", imgui.Dir.right, 0.32),
         split("MainDockSpace", "OpsSpace", imgui.Dir.down, 0.30),
     ]
 
 
 def _windows(state: AppState):
-    """Map-first orchestration: 文件树 owns the stage; the two drawers start hidden."""
+    """Dashboard-first orchestration: 首页 owns the stage; 文件树 is a same-space tab, drawers hidden."""
     from imgui_bundle import hello_imgui, imgui
 
     def window(label: str, space: str, gui, *, closable: bool) -> hello_imgui.DockableWindow:
@@ -573,10 +576,19 @@ def _windows(state: AppState):
         return item
 
     return [
-        window("文件树", "MainDockSpace", lambda: _guarded(state, "文件树", lambda: _gui_tree(state)), closable=False),
+        window("首页", "MainDockSpace", lambda: _guarded(state, "首页", lambda: _gui_dashboard(state)), closable=False),
+        window("文件树", "FileTreeSpace", lambda: _guarded(state, "文件树", lambda: _gui_tree(state)), closable=True),
         window("检查器", "InspectorSpace", lambda: _guarded(state, "检查器", lambda: _gui_inspector(state)), closable=True),
         window("运维", "OpsSpace", lambda: _guarded(state, "运维", lambda: _gui_ops(state)), closable=True),
     ]
+
+
+def _gui_dashboard(state: AppState) -> None:
+    """模式一·首页：当前任务 + 异常清单 + 健康度。装配在 dashboard.py（纯函数）。"""
+    with state.lock:
+        details = state.details
+        guard = dict(state.guard)
+    draw_dashboard(dashboard_model(details, guard))
 
 
 def _gui_splash(state: AppState) -> None:
@@ -649,14 +661,14 @@ def _status_bar(state: AppState) -> None:
     fps = float(getattr(io, "framerate", 0.0) or 0.0)
     dt = float(getattr(io, "delta_time", 0.0) or 0.0) * 1000.0
     parts = []
-    for key in ("文件树", "详情", "知识卡片", "DWM"):
+    for key in ("首页", "文件树", "详情", "知识卡片", "DWM"):
         ms = state.frame_ms.get(key)
         if ms is not None:
             parts.append(f"{key} {ms:.1f}")
     meter = f"{fps:.0f} fps  {dt:.1f} ms"
     if parts:
         meter += "  ·  " + "  ".join(parts)
-    drawer_labels = ("检查器", "运维")
+    drawer_labels = ("文件树", "检查器", "运维")
     btn_w = sum(float(imgui.calc_text_size(label).x) + 18.0 for label in drawer_labels) + 8.0 * (len(drawer_labels) - 1)
     meter_w = float(imgui.calc_text_size(meter).x)
     width = float(imgui.get_window_width())
@@ -1594,6 +1606,7 @@ def _poll_digest(state: AppState, root: str) -> None:
         if warning and warning != state.guard_warning:
             audit(state, "看门狗报警", "项目栏", root)
         state.guard_warning = warning
+        state.guard = dict(guard)
     if known and digest and digest != known:
         audit(state, "自动刷新", "项目栏", root)
         _load_projects(state)
@@ -1637,11 +1650,6 @@ def _load_details(state: AppState, root: str, *, refresh: bool = False) -> None:
         graph = payload.get("graph") if isinstance(payload.get("graph"), dict) else {}
         headline = graph.get("headline")
         state.inspect = empty_inspect(str(headline) if headline else "")
-        state.lineage_fit = True
-        state.lineage_fit_frames = 24
-        state.lineage_cache = None
-        state.lineage_cache_from = None
-        state.lineage_placed = False
     _refresh_open_panels(state)
 
 

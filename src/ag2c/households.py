@@ -489,6 +489,41 @@ _FILE_COMMIT_CACHE: dict[tuple[str, str], dict[str, dict[str, str]]] = {}
 _CENSUS_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 
 
+def _dirty_file_stats(root: Path, porcelain: str) -> list[Any]:
+    """Content proxy for dirty paths.
+
+    Porcelain names *which* files changed but says nothing about their
+    content, so editing an already-dirty file must still move the census
+    cache key — otherwise a long-lived process (MCP server, tray) records or
+    serves a stale report. mtime_ns+size is the same proxy pyc invalidation
+    uses; we never hash file content here. Untracked directories need their
+    files expanded because editing a file inside does not move the directory
+    mtime. Anything unparseable/unstattable still lands in the key as a
+    marker, and a catastrophic failure bubbles up to the caller's ``None``
+    fallback (no cache is always correct).
+    """
+    stats: list[Any] = []
+    for line in porcelain.splitlines():
+        if len(line) < 4:
+            continue
+        rel = line[3:].split(" -> ")[-1].strip().strip('"')
+        if not rel:
+            continue
+        candidate = root / rel
+        try:
+            if candidate.is_dir():
+                for child in sorted(candidate.rglob("*")):
+                    if child.is_file():
+                        child_stat = child.stat()
+                        stats.append((child.relative_to(root).as_posix(), int(child_stat.st_mtime_ns), int(child_stat.st_size)))
+            else:
+                file_stat = candidate.stat()
+                stats.append((rel, int(file_stat.st_mtime_ns), int(file_stat.st_size)))
+        except OSError:
+            stats.append((rel, "unstattable"))
+    return stats
+
+
 def _census_cache_key(manifest: Manifest, policy: Policy) -> tuple[Any, ...] | None:
     try:
         policy_path = Path(policy.path)
@@ -507,6 +542,7 @@ def _census_cache_key(manifest: Manifest, policy: Policy) -> tuple[Any, ...] | N
             head = str(_git(root, "rev-parse", "HEAD") or "")
             dirty = str(_git(root, "status", "--porcelain") or "")
             parts.extend([target.target_id, head, hashlib.sha256(dirty.encode("utf-8", "replace")).hexdigest()])
+            parts.extend(_dirty_file_stats(root, dirty))
         return tuple(parts)
     except Exception:
         return None

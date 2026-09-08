@@ -110,6 +110,18 @@ class KnowledgeTests(unittest.TestCase):
 
 
 class CensusCacheKeyTests(unittest.TestCase):
+    def _git_fixture(self, root: Path) -> None:
+        import subprocess
+
+        subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+        subprocess.run(["git", "add", "-A"], cwd=root, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--no-verify", "-m", "base"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+        )
+
     def test_census_and_renewal_state_bust_the_report_cache_key(self) -> None:
         from ag2c.households import _census_cache_key, census_path, renewal_path
 
@@ -126,6 +138,74 @@ class CensusCacheKeyTests(unittest.TestCase):
             renewal.write_text('{"schema": "ag2c.renewal.v1", "cards": {}}\n', encoding="utf-8")
             key_after_renewal = _census_cache_key(manifest, policy)
             self.assertNotEqual(key_after_census, key_after_renewal)
+
+    def test_unmodified_tree_keeps_the_key(self) -> None:
+        from ag2c.households import _census_cache_key
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, policy, _ = knowledge_project(root)
+            self._git_fixture(root)
+            (root / "src" / "worker" / "job.py").write_text("VALUE = 'v2'\n", encoding="utf-8")
+            key_first = _census_cache_key(manifest, policy)
+            key_second = _census_cache_key(manifest, policy)
+            self.assertIsNotNone(key_first)
+            self.assertEqual(key_first, key_second)
+
+    def test_editing_an_already_dirty_file_busts_the_key(self) -> None:
+        # Regression: porcelain names which files changed but not their
+        # content, so a second edit to the same dirty file used to leave the
+        # cache key untouched and long-lived processes recorded stale reports.
+        from ag2c.households import _census_cache_key
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, policy, _ = knowledge_project(root)
+            self._git_fixture(root)
+            target = root / "src" / "worker" / "job.py"
+            target.write_text("VALUE = 'v2'\n", encoding="utf-8")
+            key_before = _census_cache_key(manifest, policy)
+            # Same porcelain line (" M src/worker/job.py"), different content
+            # and size — the key must move.
+            target.write_text("VALUE = 'v3 changed'\n", encoding="utf-8")
+            key_after = _census_cache_key(manifest, policy)
+            self.assertIsNotNone(key_before)
+            self.assertIsNotNone(key_after)
+            self.assertNotEqual(key_before, key_after)
+
+    def test_untracked_directory_content_edit_busts_the_key(self) -> None:
+        from ag2c.households import _census_cache_key
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, policy, _ = knowledge_project(root)
+            self._git_fixture(root)
+            new_dir = root / "src" / "newpkg"
+            new_dir.mkdir()
+            (new_dir / "mod.py").write_text("X = 1\n", encoding="utf-8")
+            key_before = _census_cache_key(manifest, policy)
+            # Editing inside the untracked directory does not move its mtime.
+            (new_dir / "mod.py").write_text("X = 12345\n", encoding="utf-8")
+            key_after = _census_cache_key(manifest, policy)
+            self.assertIsNotNone(key_before)
+            self.assertIsNotNone(key_after)
+            self.assertNotEqual(key_before, key_after)
+
+    def test_deleted_dirty_file_stays_unstattable_without_raising(self) -> None:
+        from ag2c.households import _census_cache_key
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, policy, _ = knowledge_project(root)
+            self._git_fixture(root)
+            target = root / "src" / "worker" / "job.py"
+            target.write_text("VALUE = 'v2'\n", encoding="utf-8")
+            key_before = _census_cache_key(manifest, policy)
+            target.unlink()
+            key_after = _census_cache_key(manifest, policy)
+            self.assertIsNotNone(key_before)
+            self.assertIsNotNone(key_after)
+            self.assertNotEqual(key_before, key_after)
 
 
 class LastSourceChangeTests(unittest.TestCase):

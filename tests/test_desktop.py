@@ -363,68 +363,6 @@ class RehomeJobTests(unittest.TestCase):
     def test_unknown_job_poll_returns_none(self) -> None:
         self.assertIsNone(self._desktop._rehome_job("no-such-job"))
 
-    def test_tray_rehome_drag_drop_source(self) -> None:
-        ui = (Path(__file__).resolve().parents[1] / "src" / "ag2c_gui" / "imgui_tray.py").read_text(encoding="utf-8")
-        self.assertIn("AG2C_REHOME", ui)
-        self.assertIn("api/household/rehome", ui)
-        self.assertIn("api/household/rehome-status", ui)
-        self.assertIn("确认搬家", ui)
-        self.assertIn("_maybe_poll_rehome", ui)
-        self.assertIn("搬家失败（已自动回滚）", ui)
-
-    def test_tray_drag_source_allows_null_id_text_items(self) -> None:
-        # Drag sources sit on Text() lines (no imgui ID). Without
-        # source_allow_null_id a mouse press asserts inside BeginDragDropSource
-        # and the process dies at EndFrame with "Missing EndGroup()".
-        ui = (Path(__file__).resolve().parents[1] / "src" / "ag2c_gui" / "imgui_tray.py").read_text(encoding="utf-8")
-        self.assertIn("begin_drag_drop_source(imgui.DragDropFlags_.source_allow_null_id)", ui)
-
-    def test_expanded_container_hull_is_drawn_for_rooms_and_groups(self) -> None:
-        # Tree layout: every expanded node with children — floor, room, or
-        # subdirectory group — gets its grown rect drawn as the containing
-        # hull (底盘); collapsed or childless nodes get none.
-        from ag2c_gui import imgui_tray
-
-        floor = {
-            "kind": "module", "visual_id": "floor.src", "id": "floor.src", "title": "src",
-            "x": 0.0, "y": 0.0, "width": 400.0, "height": 900.0, "hidden": False, "group": True,
-        }
-        room = {
-            "kind": "knowledge", "visual_id": "room", "id": "room", "title": "backend",
-            "x": 28.0, "y": 60.0, "width": 372.0, "height": 700.0, "hidden": False, "group": True,
-        }
-        group = {
-            "kind": "group", "visual_id": "room/dir:routers", "id": "room/dir:routers", "title": "routers/",
-            "x": 56.0, "y": 120.0, "width": 344.0, "height": 400.0, "hidden": False, "group": True,
-        }
-        leaf = {
-            "kind": "knowledge", "visual_id": "leaf", "id": "leaf", "title": "leaf.py",
-            "x": 84.0, "y": 180.0, "width": 316.0, "height": 40.0, "hidden": False, "group": False,
-        }
-        drawn: list[str] = []
-        with patch.object(imgui_tray, "_draw_lineage_hull", side_effect=lambda *a, **k: drawn.append(str(k.get("title") or ""))):
-            imgui_tray._lineage_draw_hulls(
-                MagicMock(), MagicMock(), [floor, group], [room, leaf],
-                {"floor.src", "room", "room/dir:routers"}, [],
-            )
-        self.assertEqual(3, len(drawn), drawn)
-        self.assertFalse(any("leaf" in title for title in drawn), drawn)
-        # Collapsed containers draw no hull.
-        drawn.clear()
-        with patch.object(imgui_tray, "_draw_lineage_hull", side_effect=lambda *a, **k: drawn.append(str(k.get("title") or ""))):
-            imgui_tray._lineage_draw_hulls(MagicMock(), MagicMock(), [floor, group], [room, leaf], {"floor.src"}, [])
-        self.assertEqual(1, len(drawn), drawn)
-
-    def test_tree_layout_draws_no_diagonal_links(self) -> None:
-        # The old LR graph drew long diagonal arrows; the tree carries the
-        # hierarchy through indentation + hulls, so the link layer is gone.
-        from ag2c_gui import imgui_tray
-
-        self.assertFalse(hasattr(imgui_tray, "_lineage_draw_links"))
-        self.assertFalse(hasattr(imgui_tray, "_cubic_arrow"))
-
-
-class CrashLoggingTests(unittest.TestCase):
     def test_crash_log_captures_header_traceback_and_native_faults(self) -> None:
         import faulthandler
 
@@ -476,6 +414,8 @@ class TrayHostSourceTests(unittest.TestCase):
         build = (root / "scripts" / "build_windows_portable.ps1").read_text(encoding="utf-8")
         portable = (root / "scripts" / "prepare_portable.ps1").read_text(encoding="utf-8")
         self.assertIn("from imgui_bundle import hello_imgui", ui)
+        self.assertNotIn("_gui_lineage", ui)
+        self.assertNotIn("imgui_node_editor", ui)
         self.assertIn("DockableWindow", ui)
         self.assertIn("portable_file_dialogs", ui)
         self.assertIn("application_start", ui)
@@ -489,13 +429,8 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertNotIn("show_menus", ui)
         self.assertIn("##file-tree-body", ui)
         self.assertIn("no_collapse", ui)
-        self.assertIn("get_hovered_node", ui)
-        self.assertIn("card_matching_lineage", ui)
-        self.assertIn("_draw_lineage_hull", ui)
-        self.assertIn("lineage_expanded", ui)
         self.assertIn("small_button", ui)
         self.assertNotIn("##span-", ui)
-        self.assertIn("layout_lineage_view", ui)
         self.assertNotIn("outward_hull", ui)
         self.assertIn("卡名就是摘要", ui)
         self.assertIn("详细设计", ui)
@@ -503,21 +438,13 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("1-1-1", ui)
         self.assertNotIn('text_disabled("摘要")', ui)
         graph_src = (root / "src" / "ag2c_gui" / "graph.py").read_text(encoding="utf-8")
-        self.assertIn("LINEAGE_TREE_INDENT", graph_src)
         self.assertNotIn("outward_hull", graph_src)
-        self.assertIn("exp:", ui)
-        self.assertIn("{LINEAGE_PROJECT_ID}", ui)
         self.assertIn("highlight_card_keys", ui)
-        self.assertIn("_reveal_lineage_owners", ui)
         self.assertIn("归属知识卡", ui)
         self.assertNotIn("LINEAGE_MODULE_HEADER", ui)
-        self.assertIn('settings_file = ""', ui)
-        self.assertIn("center_only", ui)
-        self.assertIn("canvas_size_mode", ui)
         self.assertIn("anti_aliasing_samples", ui)
         self.assertIn("rasterizer_density", ui)
         self.assertIn("anti_aliased_lines_use_tex", ui)
-        self.assertIn("FileTreeSpace", ui)
         self.assertIn("OpsSpace", ui)
         self.assertNotIn("CardSpace", ui)
         self.assertIn("_gui_project_bar", ui)
@@ -540,12 +467,8 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("mcp_entry_text", ui)
         self.assertIn("set_clipboard_text", ui)
         self.assertIn("实际记录", ui)
-        self.assertIn("_lineage_is_marked", ui)
-        self.assertIn("_lineage_card_colors", ui)
-        self.assertIn("0.45, 0.72, 0.98", ui)
         self.assertIn("begin_combo", ui)
         self.assertIn('layout_name = "tray-v15"', ui)
-        self.assertIn('split("MainDockSpace", "FileTreeSpace", imgui.Dir.left, 0.24, tree_lock)', ui)
         self.assertNotIn("_caption_place", ui)
         self.assertNotIn('begin_menu("项目")', ui)
         self.assertIn('split("MainDockSpace", "InspectorSpace", imgui.Dir.right, 0.32)', ui)
@@ -554,24 +477,12 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertNotIn("0x00A1", caption)
         self.assertNotIn("_caption_hit", ui)
         self.assertIn("from .tray_caption_win32 import", ui)
-        self.assertIn("viewpad:tl", ui)
-        self.assertIn("gw * 0.12", ui)
-        self.assertIn("lineage_fit_frames", ui)
         self.assertNotIn("is_mouse_dragging(0, 6.0)", ui)
         self.assertNotIn("ag2c-caption-proof.txt", caption)
         self.assertNotIn("glfwRestoreWindow", caption)
         self.assertNotIn("glfwMaximizeWindow", caption)
-        self.assertIn('"mode": inspect_mode', ui)
-        self.assertIn("navigate_to_content(0.0)", ui)
         self.assertNotIn("center_node_on_screen", ui)
-        self.assertIn("drag_button_index = 2", ui)
-        self.assertIn("select_button_index = 2", ui)
-        self.assertIn("selected_node_border_width = 0.0", ui)
-        self.assertIn("clear_selection", ui)
         self.assertIn("add_text", ui)
-        self.assertIn("pan_lineage=False", ui)
-        self.assertIn("navigate_to_selection(False, 0.0)", ui)
-        self.assertIn("CenterNodeOnScreen moves the node", ui)
         self.assertIn("0x00292421", caption)
         self.assertIn("glfwGetWin32Window", caption)
         self.assertIn("set_scroll_here_y(0.0)", ui)
@@ -602,7 +513,7 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("get_runner_params()", ui)
         self.assertIn("dockable_window_of_name", ui)
         self.assertIn('set_dock_visible("检查器", True)', ui)
-        self.assertIn('window("谱系", "MainDockSpace"', ui)
+        self.assertIn('window("文件树", "MainDockSpace"', ui)
         self.assertIn("is_visible = not closable", ui)
         self.assertIn("def _refresh_panel(", ui)
         self.assertIn("def _gate_panel_content(", ui)
@@ -617,25 +528,19 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("_cached_tree", ui)
         self.assertIn("anti_aliasing_samples = 4", ui)
         self.assertIn("config_dpi_scale_fonts", ui)
-        self.assertIn("lineage_layout_key", ui)
         self.assertNotIn("begin_create", ui)
         self.assertNotIn("begin_pin", ui)
         self.assertNotIn("set_group_size", ui)
         self.assertNotIn("ed.group(", ui)
-        self.assertIn("谱系", ui)
         self.assertNotIn("ProjectSpace", ui)
         self.assertNotIn("LineageSpace", ui)
-        self.assertIn('window("谱系", "MainDockSpace"', ui)
+        self.assertIn('window("文件树", "MainDockSpace"', ui)
         self.assertIn('window("检查器", "InspectorSpace"', ui)
         self.assertIn('window("运维", "OpsSpace"', ui)
-        self.assertIn('window("文件树", "FileTreeSpace"', ui)
         self.assertNotIn('window("项目"', ui)
         self.assertNotIn('window("详情", "MainDockSpace"', ui)
         self.assertNotIn('window("详情", "CardSpace"', ui)
         self.assertNotIn('window("详情", "RightStack"', ui)
-        self.assertIn("imgui_node_editor", ui)
-        self.assertIn("build_lineage", ui)
-        self.assertIn("lineage_nav_id", ui)
         self.assertNotIn("set_current_editor(None)", ui)
         self.assertNotIn("imguizmo", ui)
         self.assertNotIn("immvision", ui)
@@ -691,7 +596,6 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("imgui.text_wrapped(error)", ui)
         self.assertIn('("placeholder", "占位")', host)
         self.assertIn("入学占位，还没有说清这个目录", host)
-        self.assertIn("_lineage_status_color", ui)
         self.assertIn("ensure_portable_archive", (root / "src" / "ag2c_gui" / "desktop.py").read_text(encoding="utf-8"))
         storage = (root / "src" / "ag2c" / "storage.py").read_text(encoding="utf-8")
         self.assertIn("rebind_portable_git_enrollment", storage)
@@ -874,29 +778,6 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertNotIn("未普查", inspected["status"])
         self.assertNotIn("未普查", inspected["message"])
 
-    def test_lineage_view_pads_leave_more_space_on_the_left(self) -> None:
-        from ag2c_gui.imgui_tray import _lineage_view_pads
-
-        pads = _lineage_view_pads(
-            [
-                {"x": 64.0, "y": 32.0, "width": 200.0, "height": 48.0},
-                {"x": 336.0, "y": 32.0, "width": 200.0, "height": 280.0},
-            ]
-        )
-        assert pads is not None
-        graph_left, graph_right = 64.0, 536.0
-        self.assertGreater(graph_left - pads[0], pads[2] - graph_right)
-
-    def test_lineage_node_matches_knowledge_card_by_id_or_title(self) -> None:
-        from ag2c_gui.tray_host import card_matching_lineage
-
-        cards = [{"kind": "knowledge", "id": "knowledge.http", "title": "HTTP 与 Agent 协作接口"}]
-        by_id = card_matching_lineage(cards, {"id": "knowledge.http", "title": "other"})
-        by_title = card_matching_lineage(cards, {"id": "gap:x", "title": "HTTP 与 Agent 协作接口"})
-        self.assertEqual("knowledge.http", by_id["id"])
-        self.assertEqual("knowledge.http", by_title["id"])
-        self.assertIsNone(card_matching_lineage(cards, {"id": "missing", "title": "nope"}))
-
     def test_file_tree_lets_src_open_nested_children(self) -> None:
         from ag2c_gui.tray_host import file_tree_children
 
@@ -986,7 +867,6 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertEqual("src/ag2c/imgui_tray.py", picked["selected_file"])
         self.assertEqual("knowledge.src", picked["selected_card_key"])
         self.assertEqual({"knowledge.src"}, picked["highlight_card_keys"])
-        self.assertEqual(["knowledge.src"], picked["lineage_nav_ids"])
         self.assertEqual({"src/ag2c/imgui_tray.py"}, picked["highlight_paths"])
         self.assertIn("src", picked["force_open"])
         self.assertIn("src/ag2c", picked["force_open"])
@@ -1123,7 +1003,7 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertEqual({"src/ag2c/cli.py"}, room["highlight_paths"])
 
     def test_card_list_hides_zaice_and_zero_file_counts(self) -> None:
-        from ag2c_gui.tray_host import card_list_label, inspect_card, lineage_subtitle
+        from ag2c_gui.tray_host import card_list_label, inspect_card
 
         household = {
             "kind": "knowledge",
@@ -1183,11 +1063,6 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertEqual("", inspect_card(file_card, [])["status"])
         self.assertEqual("占位", inspect_card(leftover, [])["status"])
         self.assertEqual("一文件一张", inspect_card(household, [])["span_label"])
-        self.assertEqual("30 张文件卡", lineage_subtitle({"kind": "knowledge", "nested": True, "cards": [1], "status": "30 张文件卡"}))
-        self.assertEqual("", lineage_subtitle({"kind": "knowledge", "status": "在册", "statusTag": "current"}))
-        self.assertEqual("整夹一张", lineage_subtitle({"kind": "knowledge", "status": "在册", "statusTag": "current", "span": "folder", "spanLabel": "整夹一张"}))
-        self.assertEqual("文档", lineage_subtitle({"kind": "knowledge", "status": "文档", "statusTag": "document"}))
-        self.assertEqual("2 张知识卡", lineage_subtitle({"kind": "module", "status": "2 张知识卡", "statusTag": "current"}))
 
     def test_project_details_cache_skips_rebuild_until_refresh(self) -> None:
         from ag2c.management import project_details
@@ -1398,18 +1273,6 @@ class TrayGateTests(unittest.TestCase):
         self.assertTrue(sick["worktrees"]["warn"])
         self.assertIn("已分叉", sick["worktrees"]["value"])
 
-    def test_lineage_mark_matches_card_id_and_module_copy(self) -> None:
-        from ag2c_gui.imgui_tray import _lineage_is_marked
-
-        node = {"kind": "knowledge", "id": "knowledge.src", "visual_id": "knowledge.src@module:config", "title": "config exploring household"}
-        self.assertTrue(_lineage_is_marked(node, "knowledge.src", set(), ""))
-        self.assertTrue(_lineage_is_marked(node, "", {"knowledge.src"}, ""))
-        self.assertTrue(_lineage_is_marked(node, "", set(), "knowledge.src@module:config"))
-        self.assertTrue(_lineage_is_marked(node, "config exploring household", set(), ""))
-        self.assertFalse(_lineage_is_marked(node, "other", set(), "module:src"))
-
-
-class TrayAuditTests(unittest.TestCase):
     def test_audit_records_clicks_to_ring_and_log_file(self) -> None:
         from ag2c_gui.imgui_tray import AUDIT_LIMIT, AppState, audit
 
@@ -1419,7 +1282,7 @@ class TrayAuditTests(unittest.TestCase):
                 state = AppState([])
                 audit(state, "点击文件", "文件树", "src/ag2c/imgui_tray.py")
                 audit(state, "点击知识卡", "知识卡片", "源码治理")
-                audit(state, "展开", "谱系", "module:src/ag2c")
+                audit(state, "展开", "文件树", "src/ag2c")
                 written = log.read_text(encoding="utf-8")
             self.assertEqual(3, len(state.audit_lines))
             self.assertIn("点击文件", state.audit_lines[0])
@@ -1427,10 +1290,10 @@ class TrayAuditTests(unittest.TestCase):
             self.assertIn("src/ag2c/imgui_tray.py", state.audit_lines[0])
             self.assertIn("知识卡片", state.audit_lines[1])
             self.assertIn("源码治理", state.audit_lines[1])
-            self.assertIn("展开  谱系  module:src/ag2c", state.audit_lines[2])
+            self.assertIn("展开  文件树  src/ag2c", state.audit_lines[2])
             self.assertIn("点击文件  文件树  src/ag2c/imgui_tray.py", written)
             self.assertIn("点击知识卡  知识卡片  源码治理", written)
-            self.assertIn("展开  谱系  module:src/ag2c", written)
+            self.assertIn("展开  文件树  src/ag2c", written)
         self.assertGreaterEqual(AUDIT_LIMIT, 100)
 
     def test_audit_ring_drops_oldest_past_limit(self) -> None:
@@ -1496,9 +1359,7 @@ class TrayAuditTests(unittest.TestCase):
         self.assertIn("reversed(state.audit_lines)", ui)
         self.assertIn('small_button("清空")', ui)
         self.assertIn('small_button("打开日志文件")', ui)
-        self.assertIn("还没有操作。点击文件、知识卡或谱系节点后会出现在这里。", ui)
-        self.assertIn("点击谱系节点", ui)
-        self.assertIn('audit(state, "展开" if opening else "收起", "谱系", visual_id)', ui)
+        self.assertIn("还没有操作。点击文件或知识卡后会出现在这里。", ui)
         self.assertIn('audit(state, "点击目录", "文件树", prefix)', ui)
         windows_block = ui[ui.index("def _windows"): ui.index("def _gui_splash")]
         self.assertNotIn("审计", windows_block)

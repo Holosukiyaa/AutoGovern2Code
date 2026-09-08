@@ -12,16 +12,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from .graph import (
-    LINEAGE_CARD_W,
-    LINEAGE_PROJECT_ID,
-    _lineage_text_width,
-    build_lineage,
-    layout_lineage_view,
-    lineage_heading,
-    lineage_related_ids,
-    lineage_uid,
-)
 from .tray_host import (
     FILTERS,
     PRODUCT_LABELS,
@@ -32,7 +22,6 @@ from .tray_host import (
     app_directory,
     card_for_owner,
     card_list_label,
-    card_matching_lineage,
     claim_label,
     coverage_rows,
     empty_inspect,
@@ -44,7 +33,6 @@ from .tray_host import (
     preferred_project_root,
     is_portable,
     issue_label,
-    lineage_subtitle,
     mcp_entry_text,
     mcp_health_snapshot,
     portable_env,
@@ -176,27 +164,9 @@ class AppState:
         self.digest = ""
         self.guard_warning = ""
         self.next_poll_at = 0.0
-        # Drag-and-drop rehoming (谱系树拖拽搬家).
-        self.rehome_drag_id = ""
-        self.rehome_pending: dict[str, str] | None = None
-        self.rehome_job: dict[str, Any] | None = None
-        self.rehome_next_poll = 0.0
         self._worker: threading.Thread | None = None
         self._dialog_lock = False
         self.stopping = False
-        self.lineage_editor = None
-        self.lineage_fit = True
-        self.lineage_fit_frames = 24
-        self.lineage_nav_id = ""
-        self.lineage_nav_ids: list[str] = []
-        self.lineage_cache: dict[str, Any] | None = None
-        self.lineage_cache_from: object | None = None
-        self.lineage_show_placeholder = False
-        self.lineage_cache_placeholder: bool | None = None
-        self.lineage_placed = False
-        self.lineage_view: list[dict[str, Any]] | None = None
-        self.lineage_layout_key: frozenset[str] | None = None
-        self.lineage_expanded: set[str] = {LINEAGE_PROJECT_ID}
         self.frame_ms: dict[str, float] = {}
         self.rows_from: object | None = None
         self.all_files: list[tuple[str, dict[str, Any]]] = []
@@ -284,12 +254,6 @@ class AppState:
         self.scroll_card_key = str(focused["scroll_card_key"])
         self.scroll_file_key = str(focused["scroll_file_key"])
         self.scroll_file_frames = 24 if self.scroll_file_key else 0
-        nav_ids = [str(item) for item in focused.get("lineage_nav_ids") or [] if str(item)]
-        nav_id = str(focused.get("lineage_nav_id") or focused.get("selected_card_key") or "")
-        if not nav_ids and nav_id:
-            nav_ids = [nav_id]
-        self.lineage_nav_ids = nav_ids
-        self.lineage_nav_id = nav_ids[0] if nav_ids else ""
 
     def run_job(self, fn: Callable[[], None]) -> None:
         with self.lock:
@@ -469,50 +433,10 @@ def _before_frame(state: AppState) -> None:
     _apply_dark_caption()
     state.frame_ms["DWM"] = (time.perf_counter() - t0) * 1000.0
     _maybe_auto_refresh(state)
-    _maybe_poll_rehome(state)
 
 
 def _post_init(state: AppState) -> None:
     _apply_dark_caption()
-    try:
-        _ensure_lineage_editor(state)
-    except Exception as exc:
-        with state.lock:
-            state.error = f"谱系: {exc}"
-
-
-def _ensure_lineage_editor(state: AppState) -> None:
-    if state.lineage_editor is not None:
-        return
-    from imgui_bundle import imgui_node_editor as ed
-
-    from imgui_bundle import imgui
-
-    config = ed.Config()
-    config.settings_file = ""
-    config.enable_smooth_zoom = False
-    config.canvas_size_mode = ed.CanvasSizeMode.center_only
-    config.drag_button_index = 2
-    config.select_button_index = 2
-    state.lineage_editor = ed.create_editor(config)
-    try:
-        ed.set_current_editor(state.lineage_editor)
-        style = ed.get_style()
-        style.node_padding = imgui.ImVec4(6.0, 5.0, 6.0, 5.0)
-        style.node_rounding = 6.0
-        style.node_border_width = 1.25
-        style.selected_node_border_width = 0.0
-    except Exception:
-        pass
-
-
-def _destroy_lineage_editor(state: AppState) -> None:
-    if state.lineage_editor is None:
-        return
-    from imgui_bundle import imgui_node_editor as ed
-
-    ed.destroy_editor(state.lineage_editor)
-    state.lineage_editor = None
 
 
 def widget_id(label: str, key: str) -> str:
@@ -617,14 +541,6 @@ def _splits():
     from imgui_bundle import hello_imgui, imgui
 
     lock = imgui.DockNodeFlags_.no_undocking
-    tree_lock = lock
-    extra = getattr(imgui.DockNodeFlags_, "no_docking_split", None)
-    if extra is not None:
-        try:
-            tree_lock = lock | extra
-        except Exception:
-            tree_lock = lock
-
     def split(initial: str, name: str, direction, ratio: float, flags=lock) -> hello_imgui.DockingSplit:
         item = hello_imgui.DockingSplit()
         item.initial_dock = initial
@@ -635,14 +551,13 @@ def _splits():
         return item
 
     return [
-        split("MainDockSpace", "FileTreeSpace", imgui.Dir.left, 0.24, tree_lock),
         split("MainDockSpace", "InspectorSpace", imgui.Dir.right, 0.32),
         split("MainDockSpace", "OpsSpace", imgui.Dir.down, 0.30),
     ]
 
 
 def _windows(state: AppState):
-    """Map-first orchestration: 谱系 owns the stage; the three drawers start hidden."""
+    """Map-first orchestration: 文件树 owns the stage; the two drawers start hidden."""
     from imgui_bundle import hello_imgui, imgui
 
     def window(label: str, space: str, gui, *, closable: bool) -> hello_imgui.DockableWindow:
@@ -658,8 +573,7 @@ def _windows(state: AppState):
         return item
 
     return [
-        window("谱系", "MainDockSpace", lambda: _guarded(state, "谱系", lambda: _gui_lineage(state)), closable=False),
-        window("文件树", "FileTreeSpace", lambda: _guarded(state, "文件树", lambda: _gui_tree(state)), closable=True),
+        window("文件树", "MainDockSpace", lambda: _guarded(state, "文件树", lambda: _gui_tree(state)), closable=False),
         window("检查器", "InspectorSpace", lambda: _guarded(state, "检查器", lambda: _gui_inspector(state)), closable=True),
         window("运维", "OpsSpace", lambda: _guarded(state, "运维", lambda: _gui_ops(state)), closable=True),
     ]
@@ -735,14 +649,14 @@ def _status_bar(state: AppState) -> None:
     fps = float(getattr(io, "framerate", 0.0) or 0.0)
     dt = float(getattr(io, "delta_time", 0.0) or 0.0) * 1000.0
     parts = []
-    for key in ("文件树", "谱系", "详情", "知识卡片", "DWM"):
+    for key in ("文件树", "详情", "知识卡片", "DWM"):
         ms = state.frame_ms.get(key)
         if ms is not None:
             parts.append(f"{key} {ms:.1f}")
     meter = f"{fps:.0f} fps  {dt:.1f} ms"
     if parts:
         meter += "  ·  " + "  ".join(parts)
-    drawer_labels = ("文件树", "检查器", "运维")
+    drawer_labels = ("检查器", "运维")
     btn_w = sum(float(imgui.calc_text_size(label).x) + 18.0 for label in drawer_labels) + 8.0 * (len(drawer_labels) - 1)
     meter_w = float(imgui.calc_text_size(meter).x)
     width = float(imgui.get_window_width())
@@ -795,7 +709,7 @@ def _audit_body(state: AppState) -> None:
     imgui.begin_child("##audit-body", imgui.ImVec2(0.0, 0.0), 1)
     try:
         if not state.audit_lines:
-            imgui.text_disabled("还没有操作。点击文件、知识卡或谱系节点后会出现在这里。")
+            imgui.text_disabled("还没有操作。点击文件或知识卡后会出现在这里。")
         else:
             for line in reversed(state.audit_lines):
                 imgui.text_wrapped(line)
@@ -1212,78 +1126,6 @@ def _cached_tree(state: AppState, files: list[tuple[str, dict[str, Any]]]):
     return state.file_tree
 
 
-def _cached_uid(node: dict[str, Any]) -> int:
-    uid = node.get("_uid")
-    if uid is None:
-        uid = lineage_uid("node", str(node.get("visual_id") or node["id"]))
-        node["_uid"] = uid
-    return int(uid)
-
-
-def _lineage_is_marked(node: dict[str, Any], selected: str, highlight: set[str], inspect_key: str) -> bool:
-    """True when this lineage node is the current card (or one of several owners)."""
-    vid = text(node, "visual_id") or text(node, "id")
-    nid = text(node, "id")
-    title = text(node, "title")
-    keys = {vid, nid, title}
-    if selected and selected in keys:
-        return True
-    if inspect_key and inspect_key in keys:
-        return True
-    for key in highlight:
-        if not key:
-            continue
-        if key in keys or vid.startswith(key + "@") or nid.startswith(key + "@"):
-            return True
-    return False
-
-
-def _lineage_card_colors(marked: bool) -> tuple[tuple[float, float, float, float], tuple[float, float, float, float]]:
-    if marked:
-        return (0.16, 0.28, 0.42, 0.98), (0.45, 0.72, 0.98, 1.00)
-    return (0.11, 0.12, 0.15, 0.98), (0.48, 0.52, 0.60, 0.95)
-
-
-def _reveal_lineage_owners(state: AppState) -> None:
-    details = state.details
-    if details is None:
-        return
-    snapshot = _lineage_snapshot(state, details)
-    want = {str(item) for item in state.lineage_nav_ids if str(item)}
-    want.update(state.highlight_card_keys)
-    if state.selected_card_key:
-        want.add(state.selected_card_key)
-    if not want:
-        return
-    state.lineage_expanded.add(LINEAGE_PROJECT_ID)
-    visual: list[str] = []
-    for node in snapshot["nodes"]:
-        if not isinstance(node, dict):
-            continue
-        nid = text(node, "id")
-        vid = text(node, "visual_id") or nid
-        title = text(node, "title")
-        if nid not in want and vid not in want and title not in want:
-            continue
-        kind = text(node, "kind")
-        if kind == "knowledge":
-            parent = text(node, "parent")
-            while parent:
-                state.lineage_expanded.add(parent)
-                parent_node = next(
-                    (item for item in snapshot["nodes"] if isinstance(item, dict) and (text(item, "visual_id") or text(item, "id")) == parent),
-                    None,
-                )
-                parent = text(parent_node, "parent") if parent_node else ""
-            if vid:
-                visual.append(vid)
-        elif kind == "module" and vid:
-            visual.append(vid)
-    if visual:
-        state.lineage_nav_ids = list(dict.fromkeys([*visual, *state.lineage_nav_ids]))
-        state.lineage_nav_id = state.lineage_nav_ids[0]
-
-
 def _focus_path(state: AppState, rel: str, *, where: str = "文件树") -> None:
     audit(state, "点击文件", where, rel)
     with state.lock:
@@ -1291,22 +1133,17 @@ def _focus_path(state: AppState, rel: str, *, where: str = "文件树") -> None:
         focused = focus_file(files, cards, rel)
         if focused is not None:
             state.apply_focus(focused)
-            _reveal_lineage_owners(state)
         else:
             audit(state, "未命中文件", where, rel)
 
 
-def _focus_card(state: AppState, card: dict[str, Any], *, pan_lineage: bool = True, where: str = "知识卡片") -> None:
+def _focus_card(state: AppState, card: dict[str, Any], *, where: str = "知识卡片") -> None:
     title = text(card, "title") or text(card, "id")
     audit(state, "点击知识卡", where, title)
     with state.lock:
         previous_key = state.selected_card_key
         files, _cards = _all_rows(state.details)
         state.apply_focus(focus_card(files, card))
-        _reveal_lineage_owners(state)
-        if not pan_lineage:
-            state.lineage_nav_id = ""
-            state.lineage_nav_ids = []
         # Selecting a card summons the inspector drawer; a repeated click on the
         # same card does not reopen it after the user closed it.
         if state.selected_card_key and state.selected_card_key != previous_key:
@@ -1320,7 +1157,6 @@ def _activate_owner(state: AppState, owner: str, *, where: str = "详情") -> No
         card = card_for_owner(cards, owner)
         if card is not None:
             state.apply_focus(focus_card(files, card))
-            _reveal_lineage_owners(state)
         else:
             audit(state, "未命中知识卡", where, owner)
 
@@ -1435,6 +1271,22 @@ def _gui_tree(state: AppState) -> None:
                 state.scroll_file_frames = 0
 
 
+def _clip_label(value: str, max_px: float) -> str:
+    text_value = str(value or "").replace("\n", " ")
+
+    def width(text: str) -> float:
+        return sum(16.0 if ord(char) > 127 else 8.5 for char in text)
+
+    if width(text_value) <= max_px:
+        return text_value
+    out = ""
+    for char in text_value:
+        if width(out + char) > max_px:
+            return out + "…"
+        out += char
+    return text_value
+
+
 def _gui_cards(state: AppState) -> None:
     from imgui_bundle import imgui
 
@@ -1468,7 +1320,7 @@ def _gui_cards(state: AppState) -> None:
         count = state.card_file_counts.get(key)
         if count is None:
             count = len(files_for_card(all_files, node))
-        short = _lineage_label(title, 188.0 if indent else 208.0)
+        short = _clip_label(title, 188.0 if indent else 208.0)
         label = card_list_label(short, node, count, ordinal_label=ordinal_label)
         marked = selected_card == key or key in highlight_cards
         if indent:
@@ -1492,647 +1344,12 @@ def _gui_cards(state: AppState) -> None:
     imgui.pop_style_var()
 
 
-def _focus_lineage_node(state: AppState, node: dict[str, Any]) -> None:
-    kind = text(node, "kind")
-    visual_id = text(node, "visual_id") or text(node, "id")
-    files, cards = _all_rows(state.details)
-    if kind == "knowledge":
-        match = card_matching_lineage(cards, node)
-        if match is not None:
-            match["ordinal_label"] = text(node, "ordinal_label")
-            match["ordinal_path"] = list(node.get("ordinal_path") or [])
-            _focus_card(state, match, pan_lineage=False, where="谱系")
-            return
-    module_path = text(node, "path")
-    prefixes: set[str] = set()
-    if kind in {"module", "group"} and module_path:
-        prefixes.add(module_path)
-        prefixes.update(ancestor_prefixes(module_path))
-    summary = text(node, "summary")
-    if kind == "project" and not summary:
-        summary = "点这里看本项目宪章。下面按模块挂知识卡。"
-    elif kind == "module" and not summary:
-        summary = "这是项目里的一个模块。盒子里的知识卡说明这块代码为什么这样写。"
-    elif kind == "group" and not summary:
-        summary = "这是同一个子目录下的文件卡分组，方便在拥挤的房间里折叠浏览。"
-    module_cards = node.get("cards") if isinstance(node.get("cards"), list) else []
-    related = [
-        {
-            "id": str(item.get("id") or ""),
-            "title": lineage_heading(item) or str(item.get("title") or item.get("id") or ""),
-        }
-        for item in module_cards
-        if isinstance(item, dict)
-    ]
-    inspect_mode = "project" if kind == "project" else ("module" if kind in {"module", "group"} else "card")
-    with state.lock:
-        state.inspect = {
-            "mode": inspect_mode,
-            "title": lineage_heading(node) or text(node, "title") or visual_id,
-            "status": text(node, "status"),
-            "summary": summary,
-            "claim": text(node, "kindLabel"),
-            "path": module_path,
-            "peers": [],
-            "files": [],
-            "cards": related,
-            "message": "还没有知识卡" if kind == "module" and node.get("empty") else "",
-        }
-        state.inspect_key = visual_id
-        state.selected_card_key = text(node, "id") if kind == "knowledge" else visual_id
-        state.selected_file = ""
-        state.highlight_paths = set()
-        state.force_open = prefixes
-        state.lineage_nav_id = ""
-        state.lineage_nav_ids = []
-        state.scroll_card_key = ""
-
-
-def _lineage_snapshot(state: AppState, details: dict[str, Any]) -> dict[str, Any]:
-    show_placeholder = state.lineage_show_placeholder
-    if (
-        state.lineage_cache is not None
-        and state.lineage_cache_from is details
-        and state.lineage_cache_placeholder == show_placeholder
-    ):
-        return state.lineage_cache
-    project = details.get("project") if isinstance(details.get("project"), dict) else {}
-    files, cards = _cached_all_rows(state, details)
-    counts = {
-        text(card, "id"): len(files_for_card(files, card))
-        for card in cards
-        if text(card, "id")
-    }
-    snapshot = build_lineage(
-        details,
-        project_name=text(project, "name"),
-        hide_empty_leftovers=not show_placeholder,
-        file_counts=counts,
-    )
-    state.lineage_cache = snapshot
-    state.lineage_cache_from = details
-    state.lineage_cache_placeholder = show_placeholder
-    state.lineage_placed = False
-    state.lineage_view = None
-    state.lineage_layout_key = None
-    state.lineage_expanded = {LINEAGE_PROJECT_ID}
-    return snapshot
-
-
-def _lineage_label(value: str, max_px: float) -> str:
-    text_value = str(value or "").replace("\n", " ")
-    if _lineage_text_width(text_value) <= max_px:
-        return text_value
-    out = ""
-    for char in text_value:
-        if _lineage_text_width(out + char) > max_px:
-            return out + "…"
-        out += char
-    return text_value
-
-
-def _lineage_status_color(tag: str, imgui: Any) -> Any:
-    if tag == "placeholder":
-        return imgui.ImVec4(*_WARN_COLOR)
-    if tag == "opaque":
-        return imgui.ImVec4(0.90, 0.55, 0.38, 1.0)
-    if tag == "writing":
-        return imgui.ImVec4(0.45, 0.72, 0.98, 1.0)
-    return imgui.ImVec4(0.70, 0.74, 0.80, 1.0)
-
-
 def _combo_marker_hit(hx: float, hy: float) -> tuple[float, float, float, float]:
     return (hx + 4.0, hy + 6.0, 22.0, 22.0)
 
 
 def _point_in_rect(px: float, py: float, x: float, y: float, w: float, h: float) -> bool:
     return x <= px <= x + w and y <= py <= y + h
-
-
-def _lineage_view_pads(nodes: list[dict[str, Any]]) -> tuple[float, float, float, float] | None:
-    """Padded canvas corners: extra left slack so the cluster sits right and is not full-pane wide."""
-    box: list[float] | None = None
-    for node in nodes:
-        rects = [(float(node.get("x") or 0), float(node.get("y") or 0), float(node.get("width") or 0), float(node.get("height") or 0))]
-        for x, y, w, h in rects:
-            if box is None:
-                box = [x, y, x + w, y + h]
-            else:
-                box[0] = min(box[0], x)
-                box[1] = min(box[1], y)
-                box[2] = max(box[2], x + w)
-                box[3] = max(box[3], y + h)
-    if box is None:
-        return None
-    gw = max(1.0, box[2] - box[0])
-    gh = max(1.0, box[3] - box[1])
-    return (box[0] - gw * 0.12, box[1] - gh * 0.04, box[2] + gw * 0.05, box[3] + gh * 0.04)
-
-
-def _view_pad_node(ed: Any, imgui: Any, x: float, y: float, key: str) -> None:
-    nid = ed.NodeId(lineage_uid("node", key))
-    ed.set_node_position(nid, imgui.ImVec2(x, y))
-    ed.push_style_color(ed.StyleColor.node_bg, imgui.ImVec4(0.0, 0.0, 0.0, 0.0))
-    ed.push_style_color(ed.StyleColor.node_border, imgui.ImVec4(0.0, 0.0, 0.0, 0.0))
-    ed.begin_node(nid)
-    imgui.dummy((8.0, 8.0))
-    ed.end_node()
-    ed.pop_style_color(2)
-
-
-def _lineage_place_node(ed: Any, imgui: Any, node: dict[str, Any]) -> None:
-    ed.set_node_position(
-        ed.NodeId(_cached_uid(node)),
-        imgui.ImVec2(float(node.get("x") or 0), float(node.get("y") or 0)),
-    )
-
-
-def _lineage_toggle(imgui: Any, visual_id: str, opened: bool, toggles: list[str]) -> None:
-    mark = "-" if opened else "+"
-    if imgui.small_button(widget_id(mark, "exp:" + visual_id)):
-        toggles.append(visual_id)
-    imgui.same_line()
-
-
-def _draw_lineage_hull(
-    dl: Any,
-    imgui: Any,
-    x: float,
-    y: float,
-    w: float,
-    h: float,
-    *,
-    fill: int,
-    line: int,
-    title_col: int,
-    title: str,
-    title_pad: float,
-    label_pad: float,
-    tag: str,
-    status_tag: str,
-) -> None:
-    dl.add_rect_filled(imgui.ImVec2(x, y), imgui.ImVec2(x + w, y + h), fill, 8.0)
-    # imgui-bundle: rounding, thickness, flags (not Dear ImGui's rounding, flags, thickness).
-    dl.add_rect(
-        imgui.ImVec2(x, y),
-        imgui.ImVec2(x + w, y + h),
-        line,
-        8.0,
-        2.0,
-    )
-    tag_w = float(imgui.calc_text_size(tag).x) if tag and tag != "还没有知识卡" else 0.0
-    label = _lineage_label(title, max(48.0, w - label_pad - tag_w))
-    dl.add_text(imgui.ImVec2(x + title_pad, y + 10.0), title_col, label)
-    if tag_w:
-        tag_col = imgui.get_color_u32(_lineage_status_color(status_tag, imgui))
-        dl.add_text(imgui.ImVec2(x + w - tag_w - 10.0, y + 10.0), tag_col, tag)
-
-
-def _lineage_draw_hulls(
-    dl: Any,
-    imgui: Any,
-    modules: list[dict[str, Any]],
-    cards: list[dict[str, Any]],
-    expanded: set[str],
-    marker_hits: list[tuple[str, float, float, float, float]],
-) -> None:
-    """Draw the containing hull (底盘) of every expanded node with children.
-
-    Tree layout: an expanded container's x/y/width/height already cover its
-    whole subtree, so one hull per expanded container nests naturally. Parents
-    draw first (they sit further left), children on top.
-    """
-    hull_fill = imgui.get_color_u32(imgui.ImVec4(0.18, 0.22, 0.28, 0.82))
-    hull_line = imgui.get_color_u32(imgui.ImVec4(0.50, 0.64, 0.84, 1.00))
-    title_col = imgui.get_color_u32(imgui.ImVec4(0.90, 0.93, 0.97, 1.00))
-    containers = [
-        node
-        for node in [*modules, *cards]
-        if node.get("group") and str(node.get("visual_id") or node["id"]) in expanded
-    ]
-    containers.sort(key=lambda item: (float(item.get("x") or 0), float(item.get("y") or 0)))
-    for node in containers:
-        visual_id = str(node.get("visual_id") or node["id"])
-        hx = float(node.get("x") or 0)
-        hy = float(node.get("y") or 0)
-        hw = float(node.get("width") or 200)
-        hh = float(node.get("height") or 48)
-        _draw_lineage_hull(
-            dl,
-            imgui,
-            hx,
-            hy,
-            hw,
-            hh,
-            fill=hull_fill,
-            line=hull_line,
-            title_col=title_col,
-            title=lineage_heading(node),
-            title_pad=28.0,
-            label_pad=44.0,
-            tag=str(node.get("status") or ""),
-            status_tag=str(node.get("statusTag") or ""),
-        )
-        mx, my, mw, mh = _combo_marker_hit(hx, hy)
-        marker_hits.append((visual_id, mx, my, mw, mh))
-
-
-
-
-def _lineage_rehome_drag_drop(
-    imgui: Any,
-    node: dict[str, Any],
-    heading: str,
-    drag: list[str],
-    drops: list[tuple[str, str, str, str, str]],
-) -> None:
-    """Mark a node as a drag source (file card) and/or drop target (room/group).
-
-    The payload itself is a marker; the dragged card id travels through
-    ``drag`` because the source node may be drawn after the target on the
-    drop frame.
-    """
-    source_id = str(node.get("rehomeSource") or "")
-    if source_id:
-        # The last item here is a Text() line, which has no imgui ID. Without
-        # source_allow_null_id, pressing the mouse on it hits IM_ASSERT(0) in
-        # BeginDragDropSource; the C++ exception unwinds mid-frame and the
-        # process dies at EndFrame with "Missing EndGroup()".
-        if imgui.begin_drag_drop_source(imgui.DragDropFlags_.source_allow_null_id):
-            drag[0] = source_id
-            imgui.set_drag_drop_payload("AG2C_REHOME", source_id.encode("utf-8"))
-            imgui.text(f"搬到其他房间: {heading}")
-            imgui.end_drag_drop_source()
-    room_id = str(node.get("rehomeRoom") or "")
-    if room_id:
-        if imgui.begin_drag_drop_target():
-            payload = imgui.accept_drag_drop_payload("AG2C_REHOME")
-            if payload is not None and drag[0] and drag[0] != room_id:
-                drops.append((drag[0], room_id, str(node.get("rehomeSubdir") or ""), heading, ""))
-            imgui.end_drag_drop_target()
-
-
-def _lineage_draw_nodes(
-    ed: Any,
-    imgui: Any,
-    *,
-    project: dict[str, Any] | None,
-    modules: list[dict[str, Any]],
-    cards: list[dict[str, Any]],
-    visible: list[dict[str, Any]],
-    expanded: set[str],
-    selected: str,
-    highlight: set[str],
-    inspect_key: str,
-    has_modules: bool,
-    toggles: list[str],
-    drag: list[str],
-    drops: list[tuple[str, str, str, str, str]],
-) -> None:
-    imgui.push_style_var(imgui.StyleVar_.item_spacing, imgui.ImVec2(4.0, 1.0))
-    try:
-        for node in modules:
-            visual_id = str(node.get("visual_id") or node["id"])
-            can_expand = bool(node.get("group"))
-            opened = can_expand and visual_id in expanded
-            if opened:
-                nid = ed.NodeId(_cached_uid(node))
-                ed.set_node_position(
-                    nid,
-                    imgui.ImVec2(float(node.get("x") or 0) + 4.0, float(node.get("y") or 0) + 6.0),
-                )
-                ed.push_style_color(ed.StyleColor.node_bg, imgui.ImVec4(0.18, 0.22, 0.28, 0.0))
-                ed.push_style_color(ed.StyleColor.node_border, imgui.ImVec4(0.50, 0.64, 0.84, 0.0))
-                ed.begin_node(nid)
-                if can_expand:
-                    _lineage_toggle(imgui, visual_id, True, toggles)
-                _lineage_rehome_drag_drop(imgui, node, lineage_heading(node) or str(visual_id), drag, drops)
-                ed.end_node()
-                ed.pop_style_color(2)
-                continue
-            _lineage_place_node(ed, imgui, node)
-            content_w = max(80.0, float(node.get("width") or 200) - 12.0)
-            ed.push_style_color(ed.StyleColor.node_bg, imgui.ImVec4(0.16, 0.18, 0.22, 0.96))
-            ed.push_style_color(ed.StyleColor.node_border, imgui.ImVec4(0.38, 0.48, 0.62, 0.90))
-            ed.begin_node(ed.NodeId(_cached_uid(node)))
-            imgui.dummy((content_w, 1.0))
-            if can_expand:
-                _lineage_toggle(imgui, visual_id, opened, toggles)
-            heading = lineage_heading(node) or str(visual_id)
-            imgui.text(_lineage_label(heading, content_w - 28))
-            imgui.text_disabled(str(node.get("status") or "还没有知识卡"))
-            _lineage_rehome_drag_drop(imgui, node, heading, drag, drops)
-            ed.end_node()
-            ed.pop_style_color(2)
-        for node in cards:
-            visual_id = str(node.get("visual_id") or node["id"])
-            # Expanded containers (rooms with children) render like opened
-            # modules: transparent node holding just the toggle; the hull
-            # behind them shows the title and wraps the inline children.
-            if node.get("group") and visual_id in expanded:
-                nid = ed.NodeId(_cached_uid(node))
-                ed.set_node_position(
-                    nid,
-                    imgui.ImVec2(float(node.get("x") or 0) + 4.0, float(node.get("y") or 0) + 6.0),
-                )
-                ed.push_style_color(ed.StyleColor.node_bg, imgui.ImVec4(0.18, 0.22, 0.28, 0.0))
-                ed.push_style_color(ed.StyleColor.node_border, imgui.ImVec4(0.50, 0.64, 0.84, 0.0))
-                ed.begin_node(nid)
-                _lineage_toggle(imgui, visual_id, True, toggles)
-                _lineage_rehome_drag_drop(imgui, node, lineage_heading(node) or str(visual_id), drag, drops)
-                ed.end_node()
-                ed.pop_style_color(2)
-                continue
-            _lineage_place_node(ed, imgui, node)
-            card_w = max(80.0, float(node.get("width") or LINEAGE_CARD_W) - 12.0)
-            bg, border = _lineage_card_colors(_lineage_is_marked(node, selected, highlight, inspect_key))
-            ed.push_style_color(ed.StyleColor.node_bg, imgui.ImVec4(*bg))
-            ed.push_style_color(ed.StyleColor.node_border, imgui.ImVec4(*border))
-            ed.begin_node(ed.NodeId(_cached_uid(node)))
-            imgui.dummy((card_w, 1.0))
-            if node.get("group"):
-                _lineage_toggle(imgui, visual_id, visual_id in expanded, toggles)
-            heading = lineage_heading(node) or str(visual_id)
-            imgui.text(_lineage_label(heading, card_w - (28.0 if node.get("nested") else 8.0)))
-            extra = lineage_subtitle(node)
-            if extra:
-                line = _lineage_label(extra, card_w - 8.0)
-                tag = str(node.get("statusTag") or "")
-                if node.get("replaced_by"):
-                    imgui.text_disabled(line)
-                elif tag == "placeholder":
-                    imgui.text_colored(_WARN_COLOR, line)
-                elif tag == "opaque":
-                    imgui.text_colored((0.90, 0.55, 0.38, 1.0), line)
-                else:
-                    imgui.text_disabled(line)
-            _lineage_rehome_drag_drop(imgui, node, heading, drag, drops)
-            ed.end_node()
-            ed.pop_style_color(2)
-        if project is not None:
-            _lineage_place_node(ed, imgui, project)
-            visual_id = str(project.get("visual_id") or project["id"])
-            content_w = max(80.0, float(project.get("width") or 200) - 12.0)
-            ed.push_style_color(ed.StyleColor.node_bg, imgui.ImVec4(0.16, 0.18, 0.22, 0.96))
-            ed.push_style_color(ed.StyleColor.node_border, imgui.ImVec4(0.38, 0.48, 0.62, 0.90))
-            ed.begin_node(ed.NodeId(_cached_uid(project)))
-            imgui.dummy((content_w, 1.0))
-            if has_modules:
-                _lineage_toggle(imgui, visual_id, visual_id in expanded, toggles)
-            imgui.text(_lineage_label(str(project.get("title") or visual_id), content_w - 28))
-            ed.end_node()
-            ed.pop_style_color(2)
-        pads = _lineage_view_pads(visible)
-        if pads is not None:
-            _view_pad_node(ed, imgui, pads[0], pads[1], "viewpad:tl")
-            _view_pad_node(ed, imgui, pads[2], pads[3], "viewpad:br")
-    finally:
-        imgui.pop_style_var()
-
-
-def _lineage_handle_input(
-    ed: Any,
-    imgui: Any,
-    modules: list[dict[str, Any]],
-    cards: list[dict[str, Any]],
-    marker_hits: list[tuple[str, float, float, float, float]],
-    toggles: list[str],
-) -> int:
-    hovered = ed.get_hovered_node()
-    hovered_uid = hovered.id() if hovered is not None else 0
-    dragging = False
-    try:
-        dragging = bool(imgui.is_mouse_dragging(0, 4.0))
-    except Exception:
-        dragging = False
-    pending_click = 0
-    if not toggles and imgui.is_mouse_released(0) and not dragging:
-        mouse = ed.screen_to_canvas(imgui.get_mouse_pos())
-        mx, my = float(mouse.x), float(mouse.y)
-        for visual_id, x, y, w, h in marker_hits:
-            if _point_in_rect(mx, my, x, y, w, h):
-                toggles.append(visual_id)
-                break
-        if not toggles:
-            pad_uids = {lineage_uid("node", "viewpad:tl"), lineage_uid("node", "viewpad:br")}
-            if hovered_uid and hovered_uid not in pad_uids:
-                pending_click = hovered_uid
-            else:
-                # Click on a container's hull backdrop (no node hovered):
-                # select the deepest container whose grown rect holds the point.
-                best: tuple[float, int] | None = None
-                for node in cards:
-                    if not node.get("group") or node.get("hidden"):
-                        continue
-                    x = float(node.get("x") or 0)
-                    y = float(node.get("y") or 0)
-                    w = float(node.get("width") or 0)
-                    h = float(node.get("height") or 0)
-                    if _point_in_rect(mx, my, x, y, w, h):
-                        area = w * h
-                        if best is None or area < best[0]:
-                            best = (area, lineage_uid("node", str(node.get("visual_id") or node["id"])))
-                if best is not None:
-                    pending_click = best[1]
-                if not pending_click:
-                    for node in reversed(modules):
-                        x = float(node.get("x") or 0)
-                        y = float(node.get("y") or 0)
-                        w = float(node.get("width") or 0)
-                        h = float(node.get("height") or 0)
-                        if _point_in_rect(mx, my, x, y, w, h):
-                            pending_click = lineage_uid("node", str(node.get("visual_id") or node["id"]))
-                            break
-    return pending_click
-
-
-def _lineage_apply_results(
-    state: AppState,
-    toggles: list[str],
-    pending_click: int,
-    canvas_nodes: list[dict[str, Any]],
-    selected: str,
-    placed: bool,
-) -> None:
-    if not placed:
-        with state.lock:
-            state.lineage_placed = True
-    if toggles:
-        with state.lock:
-            for visual_id in toggles:
-                opening = visual_id not in state.lineage_expanded
-                if opening:
-                    state.lineage_expanded.add(visual_id)
-                else:
-                    state.lineage_expanded.discard(visual_id)
-                audit(state, "展开" if opening else "收起", "谱系", visual_id)
-    elif pending_click:
-        for node in canvas_nodes:
-            visual_id = str(node.get("visual_id") or node["id"])
-            if lineage_uid("node", visual_id) != pending_click:
-                continue
-            kind = text(node, "kind")
-            title = text(node, "title") or visual_id
-            audit(state, "点击谱系节点", "谱系", f"{kind} {title}")
-            if visual_id != selected and str(node.get("id") or "") != selected:
-                _focus_lineage_node(state, node)
-            break
-
-
-def _lineage_navigate(
-    state: AppState,
-    ed: Any,
-    lineage: dict[str, Any],
-    canvas_nodes: list[dict[str, Any]],
-    nav_id: str,
-    nav_ids: list[str],
-    fit: bool,
-) -> None:
-    submitted = {str(node.get("visual_id") or node["id"]) for node in canvas_nodes}
-    seek = [str(item) for item in nav_ids if str(item)]
-    if nav_id and nav_id not in seek:
-        seek.append(str(nav_id))
-    if seek:
-        related: list[str] = []
-        for nid in seek:
-            related.extend(lineage_related_ids(lineage, nid))
-        related = [rid for rid in dict.fromkeys(related) if rid in submitted]
-        if not related:
-            for node in lineage["nodes"]:
-                visual_id = str(node.get("visual_id") or node["id"])
-                node_id = str(node.get("id") or "")
-                parent = str(node.get("parent") or "")
-                if node_id in seek or visual_id in seek:
-                    if visual_id in submitted:
-                        related.append(visual_id)
-                    elif parent in submitted:
-                        related.append(parent)
-        if related:
-            try:
-                ed.clear_selection()
-                append = False
-                focus_id = ""
-                for rid in dict.fromkeys(related):
-                    if rid not in submitted:
-                        continue
-                    ed.select_node(ed.NodeId(lineage_uid("node", rid)), append)
-                    append = True
-                    if not focus_id or "@" in rid:
-                        focus_id = rid
-                if focus_id:
-                    # CenterNodeOnScreen moves the node, which yanks cards out of combo hulls.
-                    ed.navigate_to_selection(False, 0.0)
-                    ed.clear_selection()
-            except Exception:
-                pass
-            with state.lock:
-                state.lineage_nav_id = ""
-                state.lineage_nav_ids = []
-                state.lineage_fit = False
-                state.lineage_fit_frames = 0
-    elif canvas_nodes and (fit or state.lineage_fit_frames > 0):
-        try:
-            ed.navigate_to_content(0.0)
-        except Exception:
-            pass
-        with state.lock:
-            if state.lineage_fit_frames > 0:
-                state.lineage_fit_frames -= 1
-            if state.lineage_fit_frames <= 0:
-                state.lineage_fit = False
-                state.lineage_fit_frames = 0
-
-
-def _gui_lineage(state: AppState) -> None:
-    from imgui_bundle import imgui
-    from imgui_bundle import imgui_node_editor as ed
-
-    _ensure_lineage_editor(state)
-    if state.lineage_editor is None:
-        imgui.text_disabled("谱系画布未就绪")
-        return
-    with state.lock:
-        details = state.details
-        selected = state.selected_card_key
-        highlight = set(state.highlight_card_keys)
-        inspect_key = state.inspect_key
-        loading = state.loading
-        busy = state.busy
-        fit = state.lineage_fit
-        nav_id = state.lineage_nav_id
-        nav_ids = list(state.lineage_nav_ids)
-    if details is None:
-        imgui.text_disabled("选择一个项目后，这里显示知识卡谱系。")
-        return
-    show_placeholder = state.lineage_show_placeholder
-    changed, show_placeholder = imgui.checkbox("显示占位父卡", show_placeholder)
-    if changed:
-        with state.lock:
-            state.lineage_show_placeholder = show_placeholder
-    lineage = _lineage_snapshot(state, details)
-    if not lineage["nodes"]:
-        imgui.text_disabled("还没有可画的知识卡谱系")
-        return
-    imgui.text_disabled("点 + / − 展开或收起。每一层向右一列；点文件树哪一层就映射哪一层。拖动文件卡到房间或子目录可搬家。")
-    _lineage_rehome_confirm_strip(state)
-    avail = imgui.get_content_region_avail()
-    if float(getattr(avail, "x", 0) or 0) < 40.0 or float(getattr(avail, "y", 0) or 0) < 40.0:
-        return
-    with state.lock:
-        expanded = set(state.lineage_expanded)
-        layout_key = frozenset(expanded)
-        if state.lineage_view is None or state.lineage_layout_key != layout_key:
-            view = [dict(node) for node in lineage["nodes"]]
-            layout_lineage_view(view, expanded)
-            state.lineage_view = view
-            state.lineage_layout_key = layout_key
-            state.lineage_placed = False
-        else:
-            view = state.lineage_view
-        placed = state.lineage_placed
-    visible = [node for node in view if not node.get("hidden")]
-    project = next((node for node in visible if node.get("kind") == "project"), None)
-    modules = [node for node in visible if node.get("kind") == "module"]
-    groups = [node for node in visible if node.get("kind") == "group"]
-    cards = [node for node in visible if node.get("kind") == "knowledge"]
-    combos = modules + groups
-    has_modules = any(node.get("kind") == "module" for node in lineage["nodes"])
-    toggles: list[str] = []
-    drag = [state.rehome_drag_id]
-    drops: list[tuple[str, str, str, str, str]] = []
-    canvas_nodes = visible
-
-    ed.set_current_editor(state.lineage_editor)
-    ed.begin("谱系", imgui.ImVec2(0.0, 0.0))
-    try:
-        dl = imgui.get_window_draw_list()
-        marker_hits: list[tuple[str, float, float, float, float]] = []
-        _lineage_draw_hulls(dl, imgui, combos, cards, expanded, marker_hits)
-        _lineage_draw_nodes(
-            ed,
-            imgui,
-            project=project,
-            modules=combos,
-            cards=cards,
-            visible=visible,
-            expanded=expanded,
-            selected=selected,
-            highlight=highlight,
-            inspect_key=inspect_key,
-            has_modules=has_modules,
-            toggles=toggles,
-            drag=drag,
-            drops=drops,
-        )
-        pending_click = _lineage_handle_input(ed, imgui, combos, cards, marker_hits, toggles)
-    finally:
-        ed.end()
-    with state.lock:
-        state.rehome_drag_id = drag[0]
-    if drops:
-        _queue_rehome_drop(state, lineage, drops[-1])
-    _lineage_apply_results(state, toggles, pending_click, canvas_nodes, selected, placed)
-    _lineage_navigate(state, ed, lineage, canvas_nodes, nav_id, nav_ids, fit)
 
 
 def _gui_inspect(state: AppState) -> None:
@@ -2388,128 +1605,6 @@ def _poll_digest(state: AppState, root: str) -> None:
         state.digest = digest
 
 
-def _queue_rehome_drop(
-    state: AppState,
-    lineage: dict[str, Any],
-    drop: tuple[str, str, str, str, str],
-) -> None:
-    source_id, room_id, subdir, target_heading, _ = drop
-    source_title = source_id
-    for node in lineage.get("nodes") or []:
-        if str(node.get("id") or "") == source_id:
-            source_title = str(node.get("title") or source_id)
-            break
-    target_label = target_heading + (f" ({subdir}/)" if subdir else "")
-    with state.lock:
-        if state.rehome_job is not None:
-            state.status = "上一个搬家任务还没结束，等它跑完再拖"
-            return
-        state.rehome_pending = {
-            "card": source_id,
-            "room": room_id,
-            "subdir": subdir,
-            "sourceTitle": source_title,
-            "targetLabel": target_label,
-        }
-    audit(state, "拖拽搬家待确认", "谱系", f"{source_title} → {target_label}")
-
-
-def _lineage_rehome_confirm_strip(state: AppState) -> None:
-    from imgui_bundle import imgui
-
-    with state.lock:
-        pending = dict(state.rehome_pending) if state.rehome_pending else None
-        job = dict(state.rehome_job) if state.rehome_job else None
-    if job is not None:
-        spin = "|/-\\"[int(imgui.get_time() * 8) % 4]
-        imgui.text_colored((0.55, 0.78, 0.95, 1.0), f"{spin} 搬家进行中：{job.get('label', '')}（治理任务在后台跑测试验证）")
-        return
-    if pending is None:
-        return
-    imgui.text_colored(_WARN_COLOR, f"把 {pending['sourceTitle']} 搬到 {pending['targetLabel']}？")
-    imgui.text_disabled("将开治理任务自动完成：git mv + 全仓 import 重写 + 测试验证，失败自动回滚")
-    if imgui.small_button("确认搬家"):
-        root = ""
-        with state.lock:
-            root = state.selected_root
-            state.rehome_pending = None
-        if root and state.api is not None:
-            try:
-                payload = state.api.request(
-                    "POST",
-                    "api/household/rehome",
-                    {
-                        "path": root,
-                        "id": pending["card"],
-                        "targetRoom": pending["room"],
-                        "targetSubdir": pending["subdir"],
-                    },
-                )
-                job_id = str(payload.get("job") or "")
-                label = f"{pending['sourceTitle']} → {pending['targetLabel']}"
-                with state.lock:
-                    state.rehome_job = {"job": job_id, "label": label}
-                    state.rehome_next_poll = 0.0
-                    state.status = f"搬家进行中：{label}"
-                audit(state, "确认搬家", "谱系", label)
-            except Exception as exc:
-                with state.lock:
-                    state.status = f"搬家没能启动：{exc}"
-                audit(state, "搬家启动失败", "谱系", str(exc))
-    imgui.same_line()
-    if imgui.small_button("取消"):
-        with state.lock:
-            state.rehome_pending = None
-
-
-def _maybe_poll_rehome(state: AppState) -> None:
-    if state.api is None or state.stopping:
-        return
-    now = time.monotonic()
-    with state.lock:
-        job = dict(state.rehome_job) if state.rehome_job else None
-        if job is None or now < state.rehome_next_poll:
-            return
-        state.rehome_next_poll = now + 2.0
-    state.run_job(lambda: _poll_rehome(state, str(job.get("job") or "")))
-
-
-def _poll_rehome(state: AppState, job_id: str) -> None:
-    if state.api is None or not job_id:
-        return
-    try:
-        payload = state.api.request("GET", f"api/household/rehome-status?id={job_id}")
-    except Exception as exc:
-        with state.lock:
-            state.rehome_job = None
-            state.status = f"搬家状态查询失败：{exc}"
-        return
-    status = str(payload.get("state") or "")
-    if status == "running":
-        return
-    with state.lock:
-        job = state.rehome_job or {}
-        label = str(job.get("label") or "")
-        state.rehome_job = None
-        root = state.selected_root
-    if status == "done":
-        result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
-        moved = f"{result.get('from', '')} → {result.get('to', '')}"
-        audit(state, "搬家完成", "谱系", moved or label)
-        if root:
-            _load_projects(state)
-            _load_details(state, root, refresh=True)
-        with state.lock:
-            if not state.stopping:
-                state.status = f"搬家完成：{moved or label}"
-    else:
-        error = str(payload.get("error") or "未知错误")
-        audit(state, "搬家失败已回滚", "谱系", f"{label}: {error}")
-        with state.lock:
-            if not state.stopping:
-                state.status = f"搬家失败（已自动回滚）：{error}"
-
-
 def _refresh(state: AppState) -> None:
     if state.api is None:
         return
@@ -2582,4 +1677,3 @@ def _shutdown(state: AppState) -> None:
         process = state.process
     if api is not None or process is not None:
         stop_desktop_server(api, process)
-    _destroy_lineage_editor(state)

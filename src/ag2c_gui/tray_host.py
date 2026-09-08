@@ -217,32 +217,6 @@ def card_list_label(title: str, card: dict[str, Any], count: int, *, ordinal: in
     return "  ·  ".join(parts)
 
 
-def lineage_subtitle(node: dict[str, Any]) -> str:
-    replaced = text(node, "replaced_by")
-    if replaced:
-        return "已被 " + replaced + " 替换"
-    kind = text(node, "kind")
-    status = text(node, "status")
-    tag = text(node, "statusTag")
-    if kind == "module":
-        return status
-    if kind != "knowledge":
-        return status
-    if node.get("nested") and node.get("cards"):
-        return status
-    if tag in {"placeholder", "exploring", "opaque", "stale", "abandoned", "unreviewed", "writing", "undeclared"}:
-        return status
-    if tag == "document":
-        return "文档"
-    label = text(node, "spanLabel")
-    if label:
-        return label
-    span = text(node, "span")
-    if span in SPAN_LABELS:
-        return SPAN_LABELS[span]
-    return ""
-
-
 def first_flag_label(node: dict[str, Any]) -> str:
     label = text(node, "statusLabel")
     if label:
@@ -725,16 +699,6 @@ def focus_file(
     file_card = _exact_file_card(cards, rel)
     primary = file_card or (matched[0] if matched else None)
     card_keys = {row_key(primary, text(primary, "title"))} if primary else set()
-    card_ids = []
-    if primary is not None:
-        card_ids.append(text(primary, "id") or row_key(primary, text(primary, "title")))
-    parent_id = text(node, "parentCard")
-    if parent_id and parent_id not in card_ids:
-        card_ids.append(parent_id)
-    for card in matched:
-        ident = text(card, "id") or row_key(card, text(card, "title"))
-        if ident and ident not in card_ids:
-            card_ids.append(ident)
     prefixes: set[str] = set(ancestor_prefixes(rel))
     primary_key = row_key(primary, text(primary, "title")) if primary else ""
     inspect = inspect_file(node, files, cards)
@@ -749,18 +713,7 @@ def focus_file(
         "force_open": prefixes,
         "scroll_card_key": primary_key,
         "scroll_file_key": coverage_scroll_key(files, {rel}),
-        "lineage_nav_id": card_ids[0] if card_ids else "",
-        "lineage_nav_ids": card_ids,
     }
-
-
-def card_matching_lineage(cards: list[dict[str, Any]], node: dict[str, Any]) -> dict[str, Any] | None:
-    node_id = text(node, "id")
-    title = text(node, "title")
-    for item in cards:
-        if text(item, "id") == node_id or (title and text(item, "title") == title):
-            return item
-    return None
 
 
 def focus_card(
@@ -785,8 +738,6 @@ def focus_card(
         "force_open": prefixes,
         "scroll_card_key": key,
         "scroll_file_key": coverage_scroll_key(files, highlight),
-        "lineage_nav_id": card_id,
-        "lineage_nav_ids": [card_id],
     }
 
 

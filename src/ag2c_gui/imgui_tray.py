@@ -1778,7 +1778,11 @@ def _lineage_rehome_drag_drop(
     """
     source_id = str(node.get("rehomeSource") or "")
     if source_id:
-        if imgui.begin_drag_drop_source():
+        # The last item here is a Text() line, which has no imgui ID. Without
+        # source_allow_null_id, pressing the mouse on it hits IM_ASSERT(0) in
+        # BeginDragDropSource; the C++ exception unwinds mid-frame and the
+        # process dies at EndFrame with "Missing EndGroup()".
+        if imgui.begin_drag_drop_source(imgui.DragDropFlags_.source_allow_null_id):
             drag[0] = source_id
             imgui.set_drag_drop_payload("AG2C_REHOME", source_id.encode("utf-8"))
             imgui.text(f"搬到其他房间: {heading}")

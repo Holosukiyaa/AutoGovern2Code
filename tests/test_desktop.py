@@ -372,6 +372,13 @@ class RehomeJobTests(unittest.TestCase):
         self.assertIn("_maybe_poll_rehome", ui)
         self.assertIn("搬家失败（已自动回滚）", ui)
 
+    def test_tray_drag_source_allows_null_id_text_items(self) -> None:
+        # Drag sources sit on Text() lines (no imgui ID). Without
+        # source_allow_null_id a mouse press asserts inside BeginDragDropSource
+        # and the process dies at EndFrame with "Missing EndGroup()".
+        ui = (Path(__file__).resolve().parents[1] / "src" / "ag2c_gui" / "imgui_tray.py").read_text(encoding="utf-8")
+        self.assertIn("begin_drag_drop_source(imgui.DragDropFlags_.source_allow_null_id)", ui)
+
 
 class CrashLoggingTests(unittest.TestCase):
     def test_crash_log_captures_header_traceback_and_native_faults(self) -> None:

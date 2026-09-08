@@ -773,7 +773,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(_json(abandon_task(Path.cwd(), args.task, reason=args.reason)))
                 return 0
             if args.task_command == "finish":
-                print(_json(finish_task(Path.cwd(), args.task, message=args.message, proof=args.proof)))
+                finished = finish_task(Path.cwd(), args.task, message=args.message, proof=args.proof)
+                print(_json(finished))
+                for hint in finished.get("hints") or []:
+                    print(f"收尾提示: {hint}", file=sys.stderr)
                 return 0
             print(_json(task_record(Path.cwd(), args.task)))
             return 0

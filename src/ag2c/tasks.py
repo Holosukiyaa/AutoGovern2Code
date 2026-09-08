@@ -869,6 +869,37 @@ def verify_task(start: Path) -> dict[str, Any]:
     }
 
 
+def _finish_hints(manifest, policy, pending: dict[str, Any]) -> list[str]:
+    """Actionable closing chores after a merge: settle pending items, re-review stale rooms.
+
+    Hints only — nothing here changes settle/census behavior. Kept separate from
+    finish_task so it can be unit-tested without the full task machinery.
+    """
+    hints: list[str] = []
+    items = pending.get("items") or []
+    if items:
+        hints.append(
+            f"{len(items)} 项治理待结算：ag2c govern settle --actor <你> --reason <结算说明>"
+        )
+    try:
+        from .households import census_report
+
+        stale_rooms = [
+            item["id"]
+            for item in census_report(manifest, policy).get("households", [])
+            if item.get("freshness") != "current"
+        ]
+    except Exception:
+        stale_rooms = []
+    if stale_rooms:
+        listed = "、".join(stale_rooms[:5])
+        suffix = " 等" if len(stale_rooms) > 5 else ""
+        hints.append(
+            f"{len(stale_rooms)} 个房间普查陈旧（{listed}{suffix}）：复核后运行 ag2c govern census --record --all --actor <你> --reason <复核说明>"
+        )
+    return hints
+
+
 def finish_task(start: Path, task_id: str, *, message: str, proof: str = "") -> dict[str, Any]:
     root = repository_root(start)
     status = activation_status(root)
@@ -971,6 +1002,7 @@ def finish_task(start: Path, task_id: str, *, message: str, proof: str = "") -> 
 
     pending = record_pending_from_task(canonical, list(task["verifications"][-1].get("changed_paths") or []))
     task["governance_pending"] = pending
+    task["hints"] = _finish_hints(manifest, policy, pending)
     from .journal import mark_version
 
     journal = mark_version(canonical, task=task)

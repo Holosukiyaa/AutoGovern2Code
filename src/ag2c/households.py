@@ -806,7 +806,12 @@ def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
             timestamp = datetime.fromisoformat(item["last_census"]["surveyed_at"])
             item["census_age_days"] = max(0, (datetime.now(timezone.utc) - timestamp).days)
     identities = Counter(item.get("identity") or "floor" for item in reports if item.get("jurisdiction"))
-    report = {"schema": CENSUS_SCHEMA, "observed_at": datetime.now(timezone.utc).isoformat(), "required": policy.household_required, "project": manifest.project_id, "revisions": revisions, "households": reports, "gaps": gaps, "directories": [{**value, "owners": sorted(value["owners"])} for _, value in sorted(directories.items())], "implementations": implementations, "signals": signals, "counts": {"jurisdictions": len(jurisdictions), "code_files": sum(item["code"] for item in artifacts), "unowned": sum(item["code"] == "code-unowned" for item in gaps), "ambiguous": sum(item["code"] == "code-ambiguous" for item in gaps), "exploring": identities.get("exploring", 0), "named": identities.get("named", 0), "opaque": identities.get("opaque", 0), "leftover": identities.get("leftover", 0), "freshness": dict(Counter(item["freshness"] for item in reports))}}
+    # 证据锚（存量迁移期）：带 provides 的知识卡逐张锚定 references 的真实符号，
+    # 锚错进 anchor_warnings——普查报告可见，run_checks 再接入 warning-history。
+    from .anchors import provides_anchor_warnings
+
+    anchor_warnings = provides_anchor_warnings(manifest, policy)
+    report = {"schema": CENSUS_SCHEMA, "observed_at": datetime.now(timezone.utc).isoformat(), "required": policy.household_required, "project": manifest.project_id, "revisions": revisions, "households": reports, "gaps": gaps, "directories": [{**value, "owners": sorted(value["owners"])} for _, value in sorted(directories.items())], "implementations": implementations, "signals": signals, "anchor_warnings": anchor_warnings, "counts": {"jurisdictions": len(jurisdictions), "code_files": sum(item["code"] for item in artifacts), "unowned": sum(item["code"] == "code-unowned" for item in gaps), "ambiguous": sum(item["code"] == "code-ambiguous" for item in gaps), "exploring": identities.get("exploring", 0), "named": identities.get("named", 0), "opaque": identities.get("opaque", 0), "leftover": identities.get("leftover", 0), "freshness": dict(Counter(item["freshness"] for item in reports))}}
     if cache_key is not None:
         _CENSUS_CACHE[cache_key] = report
     return report

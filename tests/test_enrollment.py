@@ -501,10 +501,10 @@ class ProvidesConventionsTests(unittest.TestCase):
                     actor="codex",
                     reason="replace the shelf",
                     include=["src/value.py"],
-                    provides=["新能力"],
+                    provides=["VALUE 新能力"],
                 )
                 card = next(item for item in load_policy(manifest).cards if item.card_id == "knowledge.src-value")
-                self.assertEqual(("新能力",), card.provides)
+                self.assertEqual(("VALUE 新能力",), card.provides)
                 self.assertEqual("模块级只读常量", card.conventions)
 
     def test_apply_rejects_invalid_provides_without_touching_policy(self) -> None:

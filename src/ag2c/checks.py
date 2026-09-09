@@ -905,6 +905,12 @@ def run_checks(
     warnings.extend(_budget_warnings(manifest, policy, entry_slice))
     warnings.extend(_duplicate_warnings(manifest, entry_slice))
     warnings.extend(_cross_slice_warnings(manifest, entry_slice))
+    # 证据锚：切片内知识卡的 provides 必须锚定 references 的真实顶层符号。
+    # 存量迁移期——进 warning-history 追踪但刻意不加入 ESCALATABLE_KINDS，永不升级阻断。
+    from .anchors import provides_anchor_warnings
+
+    slice_card_ids = {str(card.get("id")) for card in entry_slice.get("cards", []) if isinstance(card, dict)}
+    warnings.extend(provides_anchor_warnings(manifest, policy, card_ids=slice_card_ids))
     if warnings:
         report["warnings"] = warnings
     # 9.7: count appearances; defect-class warnings harden into gate blocks.

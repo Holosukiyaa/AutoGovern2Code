@@ -585,6 +585,19 @@ def apply_change(
             current["optional"] = bool(optional)
         if maturity is not None:
             current["maturity"] = maturity.strip()
+        # 证据锚：写新卡或改 provides 时必须锚对——provides 的每个条目都要在
+        # references 指向的 Python 文件里有真实顶层符号。存量卡不追改 provides 的
+        # update 不校验（迁移期由 census warning 覆盖）。
+        if current["type"] == "knowledge" and current.get("provides") and (action == "add" or provides is not None):
+            from .anchors import anchor_violations
+
+            unanchored = anchor_violations(root, list(current["provides"]), list(current.get("references") or includes))
+            if unanchored:
+                raise AG2CError(
+                    "provides 锚定失败（证据锚）：以下条目在 references 指向的文件里找不到对应顶层符号：\n- "
+                    + "\n- ".join(unanchored)
+                    + "\nprovides 是可验证断言，不是散文：写出 references 文件里真实存在的函数/类/常量名，或先修正 references。"
+                )
         if action == "add":
             cards.append(current)
             raw["cards"] = cards

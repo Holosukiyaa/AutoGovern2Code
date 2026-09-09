@@ -21,6 +21,7 @@ import unittest
 from pathlib import Path
 
 FAST = [
+    "test_anchors",
     "test_auto_drill",
     "test_token",
     "test_util",

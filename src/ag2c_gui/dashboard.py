@@ -43,6 +43,15 @@ STAGE_LABELS = {
 #: 阴影行里最多点名的跳过 checker 数，超出折叠为"等 N 项"。
 MAX_LISTED_SHADOW_SKIPS = 2
 
+#: 注意力总闸门：决策事项的类别标签（顺序即分解顺序）。只有人能拍板的才算
+#: 决策——系统错误与演习警情是排队项，不进这个数。
+ATTENTION_LABELS = {
+    "pending": "待结算",
+    "audit": "抽查待办",
+    "diverged": "任务分叉",
+    "stale": "过期卡片",
+}
+
 
 def _text(row: dict[str, Any] | None, key: str) -> str:
     if not isinstance(row, dict):
@@ -126,11 +135,10 @@ def open_tasks(details: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def stale_knowledge(details: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        card
-        for card in details.get("knowledge") or []
-        if isinstance(card, dict) and card.get("status") == "stale"
-    ]
+    knowledge = details.get("knowledge")
+    if not isinstance(knowledge, list):
+        return []
+    return [card for card in knowledge if isinstance(card, dict) and card.get("status") == "stale"]
 
 
 def pending_items(details: dict[str, Any]) -> list[dict[str, Any]]:
@@ -274,6 +282,27 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
     if overflow:
         listed.append({"severity": "warn", "text": f"……另有 {overflow} 条未列出"})
 
+    # 注意力总闸门：每天向人类索要的决策次数有硬上限。这一行是全页第一行，
+    # 其余一切排队、不许插队——这行字本身是产品承诺：我尊重你的注意力预算。
+    # 只数"需要人拍板"的事；系统错误、演习警情是排队项，不进这个数。
+    attention_counts = {
+        "pending": len(pending),
+        "audit": len(audit_pending),
+        "diverged": sum(1 for task in tasks if task["diverged"]),
+        "stale": len(stale),
+    }
+    attention_total = sum(attention_counts.values())
+    if attention_total:
+        breakdown = "、".join(
+            f"{ATTENTION_LABELS[kind]} {count}"
+            for kind, count in attention_counts.items()
+            if count
+        )
+        attention_text = f"今天需要你决策的事：{attention_total} 件（{breakdown}）"
+    else:
+        attention_text = "今天没有需要你决策的事"
+    attention = {"count": attention_total, "text": attention_text}
+
     health = [
         {"label": "进行中任务", "value": len(tasks)},
         {"label": "待结算", "value": len(pending)},
@@ -293,6 +322,7 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
     project = details.get("project") if isinstance(details.get("project"), dict) else {}
     return {
         "project": _text(project, "name"),
+        "attention": attention,
         "tasks": tasks,
         "anomalies": listed,
         "anomaly_count": len(anomalies),
@@ -310,6 +340,16 @@ def draw_dashboard(model: dict[str, Any]) -> None:
 
     if model["project"]:
         imgui.text_disabled(model["project"])
+
+    # 注意力总闸门：全页第一行，其余一切排队、不许插队。
+    attention = model.get("attention") if isinstance(model.get("attention"), dict) else {}
+    attention_text = str(attention.get("text") or "")
+    if attention_text:
+        if attention.get("count"):
+            imgui.text_colored((0.95, 0.70, 0.30, 1.0), attention_text)
+        else:
+            imgui.text_disabled(attention_text)
+        imgui.separator()
 
     # 健康度：几个数，零是绿色，非零吸注意力；"—"（无数据）灰色静默。
     for i, item in enumerate(model["health"]):

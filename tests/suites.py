@@ -22,6 +22,7 @@ from pathlib import Path
 
 FAST = [
     "test_anchors",
+    "test_attention_gate",
     "test_auto_drill",
     "test_token",
     "test_util",

@@ -52,7 +52,7 @@ from .receipts import (
 )
 from .slicer import compile_slice
 from .storage import git_private_path
-from .util import digest_file
+from .util import atomic_json_write, digest_file
 
 TASK_SCHEMA = "ag2c.task.v1"
 OPEN_TASK_STATES = frozenset({"active", "verified"})
@@ -115,11 +115,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _atomic_json(path: Path, value: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
+_atomic_json = atomic_json_write
 
 
 def _task_path(canonical: Path, task_id: str, *, manifest=None) -> Path:
@@ -479,6 +475,7 @@ def start_task(
     task_id: str | None = None,
     worktree_root: Path | None = None,
     portrait: str = "",
+    touches_verification: bool = False,
 ) -> dict[str, Any]:
     root = repository_root(start)
     status = activation_status(root)
@@ -552,7 +549,16 @@ def start_task(
             "manifest_digest": digest_file(manifest.path),
         },
         "worktree": {"path": str(worktree), "branch": branch},
-        "entry": {"paths": path_specs, "contracts": contract_specs, "all": all_mode},
+        "entry": {
+            "paths": path_specs,
+            "contracts": contract_specs,
+            "all": all_mode,
+            **(
+                {"touches_verification": {"declared": True, "reason": "declared at task start", "at": _now(), "via": "start"}}
+                if touches_verification
+                else {}
+            ),
+        },
         "route": {
             "state": entry_slice["route"]["state"],
             "slice_digest": entry_slice["slice_digest"],
@@ -717,6 +723,58 @@ def _changed_specs(manifest, paths: list[str]) -> tuple[list[str], list[str]]:
     return sorted(set(specs)), sorted(unmanaged)
 
 
+def _is_verification_asset(relative: str) -> bool:
+    """巴林条款·考卷判定：tests/ 目录下的文件，或任何位置的测试命名文件。"""
+    parts = [part for part in relative.replace("\\", "/").split("/") if part]
+    name = parts[-1].lower() if parts else ""
+    if any(part.lower() in {"tests", "test"} for part in parts[:-1]):
+        return True
+    return name.startswith("test_") or name.endswith("_test.py") or name.endswith(".test.ts") or name.endswith(".test.js")
+
+
+def _is_product_code(relative: str) -> bool:
+    """巴林条款·产品判定：受管代码文件且不是考卷。"""
+    from .households import CODE_SUFFIXES
+
+    if _is_verification_asset(relative):
+        return False
+    return Path(relative).suffix.lower() in CODE_SUFFIXES
+
+
+def front_back_overlap(changed_paths: list[str]) -> dict[str, list[str]]:
+    """同一任务 diff 同时含产品代码与验证它的测试 = 自己改自己的考卷（巴林条款）。
+
+    输入为仓库相对路径；返回 {"product": [...], "verification": [...]}，任一侧为空即无重叠。
+    policy.json 的 checker 定义变更不在这里——它已由 governance-changed 强制全量验证覆盖。
+    """
+    verification = sorted({path for path in changed_paths if _is_verification_asset(path)})
+    product = sorted({path for path in changed_paths if _is_product_code(path)})
+    if not verification or not product:
+        return {"product": [], "verification": []}
+    return {"product": product, "verification": verification}
+
+
+def declare_front_back(start: Path, *, reason: str) -> dict[str, Any]:
+    """中途申报：本任务必须同改产品与考卷（巴林条款的申报通道）。
+
+    申报写入任务记录（含时间戳与理由），verify 见到申报后放行但记
+    intervention front-back-declared，监管提示词标注自我阅卷声明。
+    """
+    reason = reason.strip()
+    if not reason:
+        raise AG2CError("front-back declaration requires --reason")
+    canonical, task = _task_from_worktree(start)
+    _require_open_task(task)
+    entry = task.setdefault("entry", {})
+    declaration = {"declared": True, "reason": reason, "at": _now(), "via": "declare"}
+    existing = entry.get("touches_verification")
+    if isinstance(existing, dict) and existing.get("declared"):
+        declaration["via"] = str(existing.get("via") or "declare")
+    entry["touches_verification"] = declaration
+    _record_intervention(canonical, _canonical_manifest(canonical)[0], task, "front-back-declared", {"reason": reason, "via": "declare"})
+    return {"task": task["id"], "touches_verification": declaration}
+
+
 def verify_task(start: Path) -> dict[str, Any]:
     worktree = repository_root(start)
     canonical, task = _task_from_worktree(worktree)
@@ -747,6 +805,28 @@ def verify_task(start: Path) -> dict[str, Any]:
     if unmanaged:
         _record_intervention(canonical, canonical_manifest, task, "ungoverned-change-blocked", {"paths": unmanaged})
         raise AG2CError("changed paths are outside the governed project: " + ", ".join(unmanaged))
+    overlap = front_back_overlap(actual_paths)
+    if overlap["product"]:
+        declaration = task.get("entry", {}).get("touches_verification")
+        declared = isinstance(declaration, dict) and declaration.get("declared")
+        if declared:
+            if not any(item.get("kind") == "front-back-declared" for item in task.get("interventions", [])):
+                _record_intervention(
+                    canonical,
+                    canonical_manifest,
+                    task,
+                    "front-back-declared",
+                    {"reason": str(declaration.get("reason", "")), "via": str(declaration.get("via", "start"))},
+                )
+        else:
+            _record_intervention(canonical, canonical_manifest, task, "front-back-violation", overlap)
+            raise AG2CError(
+                "front-back violation (巴林条款): this task changes product code AND the tests that verify it:\n- product: "
+                + ", ".join(overlap["product"][:5])
+                + "\n- verification: "
+                + ", ".join(overlap["verification"][:5])
+                + "\nSplit the task (product vs tests), or declare with `ag2c task declare --reason ...` and accept elevated review."
+            )
     _assert_retirement_diff(canonical, worktree, task, actual_paths)
     policy_digest = digest_file(policy.path)
     manifest_digest = digest_file(manifest.path)

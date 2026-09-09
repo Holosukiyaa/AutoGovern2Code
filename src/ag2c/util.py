@@ -94,6 +94,14 @@ def digest_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def atomic_json_write(path: Path, value: dict[str, Any]) -> None:
+    """原子写 JSON（临时文件 + os.replace）：治理状态文件的唯一写法。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
+
+
 def normalize_artifact_path(value: str) -> str:
     normalized = value.replace("\\", "/").strip("/")
     parts = PurePosixPath(normalized).parts

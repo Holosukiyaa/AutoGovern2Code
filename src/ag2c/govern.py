@@ -15,7 +15,7 @@ from .knowledge import knowledge_status, sync_knowledge
 from .ledger import append_event
 from .model import Manifest
 from .slicer import compile_slice
-from .util import normalize_artifact_path
+from .util import atomic_json_write, normalize_artifact_path
 
 
 PENDING_FILENAME = "governance-pending.json"
@@ -56,11 +56,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _atomic_json(path: Path, value: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
+_atomic_json = atomic_json_write
 
 
 def _read_json(path: Path) -> dict[str, Any]:

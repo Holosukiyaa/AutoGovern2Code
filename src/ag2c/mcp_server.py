@@ -60,6 +60,7 @@ Hard rules learned in production:
 - Checkers marked always:true run on every verify regardless of slice. Checkers with parse:unittest get a zero-regression gate: failures listed in the store baseline stay green, any NEW failure blocks verify, and fixed failures shrink the baseline automatically. Record the initial debt once with `ag2c govern test-baseline --actor ... --reason ...`; tune checkers with `ag2c govern checker --id ... --always on|off --parse unittest|none`.
 - Test scripts belong to rooms, not floors: create a suite checker with `ag2c govern checker --id check.suite-<name> --command '["python","-B","tests/suites.py","<name>"]' --stage floor --parse unittest` (suite names live in tests/suites.py), then bind it to a directory household (ag2c_household checker) so it runs only when the slice touches that room. Keep one small always-on fast suite as the floor-level baseline.
 - ag2c_task_finish runs from the canonical checkout, never from the worktree.
+- 巴林条款 (front-back separation): a task whose diff changes BOTH product code and the tests verifying it is blocked at verify unless declared — pass touches_verification at ag2c_task_start when you know up front, or call ag2c_task_declare with a reason mid-task. Declared tasks pass but are recorded and get elevated regulator review.
 
 Fail closed: dirty canonical blocks start; writes outside the worktree block verify; leftover deletion needs retire then a dedicated task. Full Skill text is in resources ag2c://skill/<name>. The generic connect prompt is ag2c://connect.
 """
@@ -280,11 +281,21 @@ def tool_defs() -> list[dict[str, Any]]:
                 "paths": {"type": "array", "items": {"type": "string"}, "description": "app:relative/path entries."},
                 "contracts": {"type": "array", "items": {"type": "string"}},
                 "all": {"type": "boolean"},
+                "touches_verification": {
+                    "type": "boolean",
+                    "description": "巴林条款申报：本任务将同时修改产品代码与验证它的测试。申报后 verify 放行但记 intervention 并提升监管审查级别；不申报的同改会被 verify 拦截。",
+                },
                 "cwd": _cwd_prop(),
             },
             ["goal", "portrait"],
         ),
         _tool("ag2c_task_verify", "Verify the current task worktree from its actual diff.", {"cwd": _cwd_prop()}),
+        _tool(
+            "ag2c_task_declare",
+            "巴林条款中途申报：本任务必须同改产品代码与验证它的测试。写入任务记录（含时间戳与理由）后 verify 放行，但记 intervention front-back-declared 且监管提示词标注自我阅卷。",
+            {"reason": {"type": "string", "description": "为什么必须同改（必填，进证据链）"}, "cwd": _cwd_prop()},
+            ["reason"],
+        ),
         _tool(
             "ag2c_rehome",
             "Move a file card into another room (or a subdirectory of it) through the governed loop: the card scope updates, a task worktree does git mv + repo-wide Python import rewrite, census + verify gate the merge, and any failure rolls everything back. Python files only; never __init__.py. Runs in the background like ag2c_task_verify: answers within 45s or returns a job id — call again with that job id to poll.",
@@ -469,7 +480,14 @@ def _call_start(args: dict[str, Any]) -> Any:
         contract_specs=_string_list(args, "contracts"),
         all_mode=bool(args.get("all")),
         portrait=portrait,
+        touches_verification=bool(args.get("touches_verification")),
     )
+
+
+def _call_task_declare(args: dict[str, Any]) -> Any:
+    from .tasks import declare_front_back
+
+    return declare_front_back(_cwd(args), reason=str(args.get("reason") or ""))
 
 
 _VERIFY_JOBS: dict[str, dict[str, Any]] = {}
@@ -500,7 +518,7 @@ def _call_verify(args: dict[str, Any]) -> Any:
             }
             _VERIFY_JOBS[key] = job
 
-            def runner() -> None:
+            def run_verify_job() -> None:
                 try:
                     job["result"] = verify_task(cwd)
                 except BaseException as exc:  # delivered on the polling call
@@ -509,7 +527,7 @@ def _call_verify(args: dict[str, Any]) -> Any:
                     job["state"] = "done"
                     job["event"].set()
 
-            threading.Thread(target=runner, daemon=True, name=f"ag2c-verify-{key[-12:]}").start()
+            threading.Thread(target=run_verify_job, daemon=True, name=f"ag2c-verify-{key[-12:]}").start()
     if not job["event"].wait(VERIFY_WAIT_SECONDS):
         return {
             "state": "running",
@@ -563,7 +581,7 @@ def _call_rehome(args: dict[str, Any]) -> Any:
             }
             _REHOME_JOBS[job_id] = job
 
-        def runner() -> None:
+        def run_rehome_job() -> None:
             try:
                 job["result"] = rehome_file_card(
                     cwd,
@@ -579,7 +597,7 @@ def _call_rehome(args: dict[str, Any]) -> Any:
                 job["state"] = "done"
                 job["event"].set()
 
-        threading.Thread(target=runner, daemon=True, name=f"ag2c-rehome-{job_id}").start()
+        threading.Thread(target=run_rehome_job, daemon=True, name=f"ag2c-rehome-{job_id}").start()
     if not job["event"].wait(VERIFY_WAIT_SECONDS):
         return {
             "state": "running",
@@ -781,6 +799,7 @@ def _call_health(args: dict[str, Any]) -> Any:
 HANDLERS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "ag2c_guard_status": _call_guard,
     "ag2c_task_start": _call_start,
+    "ag2c_task_declare": _call_task_declare,
     "ag2c_task_verify": _call_verify,
     "ag2c_rehome": _call_rehome,
     "ag2c_task_finish": _call_finish,

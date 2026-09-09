@@ -276,7 +276,7 @@ def _start_rehome_job(
     with _REHOME_LOCK:
         _REHOME_JOBS[job_id] = {"job": job_id, "state": "running", "card": card_id, "targetRoom": target_room}
 
-    def runner() -> None:
+    def run_tray_rehome() -> None:
         try:
             result = rehome_file_card(
                 root,
@@ -293,7 +293,7 @@ def _start_rehome_job(
         with _REHOME_LOCK:
             _REHOME_JOBS[job_id].update({"state": "done", "result": result})
 
-    threading.Thread(target=runner, daemon=True).start()
+    threading.Thread(target=run_tray_rehome, daemon=True).start()
     return _rehome_job(job_id) or {"job": job_id, "state": "running"}
 
 

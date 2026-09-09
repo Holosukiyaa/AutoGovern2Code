@@ -187,7 +187,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     task_start.add_argument("--task-id")
     task_start.add_argument("--worktree-root", type=Path)
+    task_start.add_argument(
+        "--touches-verification",
+        action="store_true",
+        help="申报：本任务将同时修改产品代码与验证它的测试（巴林条款），verify 放行但记 intervention 并提升监管审查级别",
+    )
     task_commands.add_parser("verify")
+    task_declare = task_commands.add_parser(
+        "declare", help="中途申报前后台同改（巴林条款）：写入任务记录后 verify 放行并记 intervention"
+    )
+    task_declare.add_argument("--reason", required=True)
     task_list = task_commands.add_parser("list")
     task_list.add_argument("--format", choices=("text", "json"), default="text")
     task_orient = task_commands.add_parser("orient")
@@ -731,7 +740,7 @@ def main(argv: list[str] | None = None) -> int:
             print(_json(status))
             return 0 if status["managed"] else 1
         if args.command == "task":
-            from .tasks import abandon_task, finish_task, list_tasks, orient_task, refresh_task, start_task, task_record, verify_task
+            from .tasks import abandon_task, declare_front_back, finish_task, list_tasks, orient_task, refresh_task, start_task, task_record, verify_task
 
             if args.task_command == "start":
                 print(
@@ -745,6 +754,7 @@ def main(argv: list[str] | None = None) -> int:
                             task_id=args.task_id,
                             worktree_root=args.worktree_root,
                             portrait=args.portrait,
+                            touches_verification=bool(args.touches_verification),
                         )
                     )
                 )
@@ -753,6 +763,9 @@ def main(argv: list[str] | None = None) -> int:
                 result = verify_task(Path.cwd())
                 print(_json(result))
                 return 0 if result["passed"] else 1
+            if args.task_command == "declare":
+                print(_json(declare_front_back(Path.cwd(), reason=args.reason)))
+                return 0
             if args.task_command == "list":
                 records = list_tasks(Path.cwd())
                 if args.format == "json":

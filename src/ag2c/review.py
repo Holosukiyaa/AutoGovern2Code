@@ -59,10 +59,18 @@ class RegulatorError(Exception):
     """监管调用或裁决解析失败——由 run_agent_review 降级吸收。"""
 
 
-def build_messages(portrait: str, diff_text: str, machine_summary: str) -> list[dict[str, str]]:
+def build_messages(portrait: str, diff_text: str, machine_summary: str, *, self_grading_declared: bool = False) -> list[dict[str, str]]:
     """拼监管提示词。输入只有画像 + diff + 机器报告，物理上不含 worker 自述。"""
+    banner = ""
+    if self_grading_declared:
+        banner = (
+            "## 审查级别提升（巴林条款）\n\n"
+            "本任务已申报同时修改产品代码与验证它的测试（自我阅卷）。"
+            "请重点核对：测试改动是否削弱断言、删除用例、放宽门槛以迁就产品改动。\n\n"
+        )
     user = (
-        "## 画像（当初锁定的承诺）\n\n" + (portrait.strip() or "（无画像）")
+        banner
+        + "## 画像（当初锁定的承诺）\n\n" + (portrait.strip() or "（无画像）")
         + "\n\n## 机器检查结果\n\n" + (machine_summary.strip() or "（无机器检查记录）")
         + "\n\n## diff（实际改动）\n\n" + (diff_text.strip() or "（无改动）")
     )
@@ -212,7 +220,9 @@ def run_agent_review(
     try:
         diff_text = _collect_diff(worktree, str(task["source"]["head"]))
         portrait = str(task.get("portrait") or "")
-        messages = build_messages(portrait, diff_text, _machine_summary(machine_report))
+        declaration = task.get("entry", {}).get("touches_verification")
+        self_grading = isinstance(declaration, dict) and bool(declaration.get("declared"))
+        messages = build_messages(portrait, diff_text, _machine_summary(machine_report), self_grading_declared=self_grading)
         raw = call_chat(config, messages)
         verdict = parse_verdict(raw)
     except RegulatorError as exc:

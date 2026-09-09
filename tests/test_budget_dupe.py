@@ -28,10 +28,6 @@ from ag2c.model import Card, Manifest, Target
 from support import bare_manifest
 
 
-def _budget_manifest(root: Path) -> Manifest:
-    return bare_manifest(root)
-
-
 class BudgetWarningTests(unittest.TestCase):
     def test_no_budget_no_warning(self) -> None:
         """Cards without budget_lines never trigger warnings."""

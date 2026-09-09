@@ -7,20 +7,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import bootstrap  # noqa: F401
+from support import bare_manifest
+
 from ag2c.checks import _cross_slice_warnings, _extract_imports, _module_name_for
-from ag2c.model import Manifest
-
-
-def _manifest(root: Path) -> Manifest:
-    return Manifest(
-        path=root / "manifest.json",
-        project_id="test-proj",
-        project_root=root,
-        targets=[],
-        ledger_path=root / "ledger.jsonl",
-        policy_path=root / "policy.json",
-        state_dir=root / "state",
-    )
 
 
 class ModuleNameTests(unittest.TestCase):
@@ -66,12 +56,12 @@ class ExtractImportsTests(unittest.TestCase):
 
 class CrossSliceWarningTests(unittest.TestCase):
     def test_empty_slice_returns_empty(self) -> None:
-        manifest = _manifest(Path(tempfile.mkdtemp()))
+        manifest = bare_manifest(Path(tempfile.mkdtemp()))
         result = _cross_slice_warnings(manifest, {})
         self.assertEqual([], result)
 
     def test_no_python_files_returns_empty(self) -> None:
-        manifest = _manifest(Path(tempfile.mkdtemp()))
+        manifest = bare_manifest(Path(tempfile.mkdtemp()))
         slice_data = {
             "entries": {
                 "paths": [
@@ -83,7 +73,7 @@ class CrossSliceWarningTests(unittest.TestCase):
         self.assertEqual([], result)
 
     def test_nonexistent_changed_file_returns_empty(self) -> None:
-        manifest = _manifest(Path(tempfile.mkdtemp()))
+        manifest = bare_manifest(Path(tempfile.mkdtemp()))
         slice_data = {
             "entries": {
                 "paths": [

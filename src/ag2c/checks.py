@@ -205,12 +205,39 @@ _UNITTEST_CONVENTION_METHODS = frozenset({
 _NON_SIGNALING_NAMES = frozenset({"main"})
 
 
+def _head_function_signatures(root: Path, rel: str) -> set[tuple[str, int, tuple[tuple[str, int], ...]]]:
+    """该文件在 git HEAD 版本里已有的函数签名（名字/参数数/结构）。
+
+    用于区分"本 diff 新增或改动的函数"与"文件里原本就有的函数"——后者不该
+    因为文件被碰过就重复报警（9.7 升级机制会把这种重复报警固化成门禁拦截）。
+    非 git 上下文（单元测试的裸临时目录）返回空集，退化为全部视为新函数。
+    """
+    try:
+        from .gitops import git
+
+        raw = git(root, "show", f"HEAD:{rel}", binary=True)
+    except Exception:
+        return set()
+    if not isinstance(raw, bytes):
+        return set()
+    try:
+        tree = ast.parse(raw.decode("utf-8", errors="replace"))
+    except SyntaxError:
+        return set()
+    return {
+        (node.name, len(node.args.args), _function_shape(node))
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+
 def _duplicate_warnings(manifest: Manifest, entry_slice: dict[str, Any]) -> list[dict[str, str]]:
     """Soft duplicate detection: warn when new functions look like existing ones.
 
-    Uses AST to extract function names + body line counts. A new function is
-    flagged when an existing function has the same name or a body within 20%
-    line count and the same argument count.
+    Uses AST to extract function names + body line counts. A function is only
+    considered when this diff added or modified it (vs git HEAD); it is flagged
+    when an existing function has the same name + arity + substantial body, or
+    a substantial body with a near-identical AST node-type multiset.
     """
     warnings: list[dict[str, str]] = []
     entries = entry_slice.get("entries") if isinstance(entry_slice, dict) else None
@@ -236,10 +263,14 @@ def _duplicate_warnings(manifest: Manifest, entry_slice: dict[str, Any]) -> list
             tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
         except SyntaxError:
             continue
+        preexisting = _head_function_signatures(manifest.project_root, rel)
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if node.name in _UNITTEST_CONVENTION_METHODS:
+                if node.name in _UNITTEST_CONVENTION_METHODS or node.name in _NON_SIGNALING_NAMES:
                     continue
+                signature = (node.name, len(node.args.args), _function_shape(node))
+                if signature in preexisting:
+                    continue  # 本 diff 没动它——存量重复不由碰过它的任务背锅
                 body_lines = (node.end_lineno or 0) - (node.lineno or 0)
                 new_funcs.append((rel, node.name, len(node.args.args), body_lines, _function_shape(node)))
     if not new_funcs:
@@ -262,6 +293,8 @@ def _duplicate_warnings(manifest: Manifest, entry_slice: dict[str, Any]) -> list
                 continue
             for node in ast.walk(tree):
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if node.name in _UNITTEST_CONVENTION_METHODS or node.name in _NON_SIGNALING_NAMES:
+                        continue
                     body_lines = (node.end_lineno or 0) - (node.lineno or 0)
                     existing.append((rel, node.name, len(node.args.args), body_lines, _function_shape(node)))
     # Compare new vs existing. Deliberately high-precision, because 9.7

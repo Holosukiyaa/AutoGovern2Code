@@ -21,7 +21,7 @@ DRILL_INTERVAL_DAYS = 7
 #: 拦截通报的统计窗口（天）。
 INTERCEPTION_WINDOW_DAYS = 30
 
-_DRILL_LABELS = {"gate": "安检演习", "mutation": "消防演习"}
+_DRILL_LABELS = {"gate": "门禁演习", "mutation": "变异演习"}
 
 
 def _parse_time(value: object) -> datetime | None:

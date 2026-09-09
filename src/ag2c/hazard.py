@@ -27,8 +27,9 @@ HAZARD_SCHEMA = "ag2c.hazard.v1"
 #: 严重度基线：hollow（安全网缺失，最危险）> duplicate（复用债）> budget（肥胖）> stale（档案旧）。
 _KIND_WEIGHT = {"hollow": 40, "duplicate": 30, "budget": 20, "stale": 10}
 
-#: 固定建议模板——制度在说话，不是 AI 自由文本。
-SUGGESTIONS = {"hollow": "补杀变异测试", "duplicate": "合并同类", "budget": "瘦身或拆分", "stale": "复核普查"}
+#: 固定建议模板——制度在说话，不是 AI 自由文本。措辞规则：大白话+专业，
+#: 单独拎出来无需懂城市隐喻即可理解。
+SUGGESTIONS = {"hollow": "补充能捕获该类缺陷的测试", "duplicate": "合并重复实现", "budget": "精简或拆分", "stale": "重新普查确认"}
 
 #: 变异描述里的文件定位，形如 "比较符 >→>=（src/ag2c_gui/graph.py:248）"。
 _MUTATION_PATH = re.compile(r"（([^（）]+?):(\d+)）")

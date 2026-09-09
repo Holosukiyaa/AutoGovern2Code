@@ -1,4 +1,4 @@
-"""自动演习节律（finish 后补演超期金丝雀）的测试：建队制、命令正确性、失败不阻断。"""
+﻿"""自动演习节律（finish 后补演超期金丝雀）的测试：建队制、命令正确性、失败不阻断。"""
 from __future__ import annotations
 
 import unittest
@@ -71,7 +71,7 @@ class AutoDrillTests(unittest.TestCase):
                 notes = _auto_drill(root)
             self.assertEqual(1, len(calls))
             self.assertIn("canary", calls[0])
-            self.assertIn("咬住了", notes[0])
+            self.assertIn("已通过（缺陷被拦截）", notes[0])
 
     def test_drill_command_carries_actor_and_reason(self) -> None:
         """CLI 契约测试：canary 子命令强制 --actor/--reason，缺了就是 exit 2。
@@ -130,7 +130,7 @@ class AutoDrillTests(unittest.TestCase):
                 "ag2c.tasks.subprocess", _fake_subprocess([], returncode=1)
             ):
                 notes = _auto_drill(root)
-            self.assertIn("报警", notes[0])
+            self.assertIn("失败", notes[0])
 
     def test_subprocess_exception_swallowed(self) -> None:
         with TemporaryDirectory() as tmp:

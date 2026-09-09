@@ -1,4 +1,4 @@
-"""危房名单（hazard_report）与看板集成的单元测试。"""
+﻿"""危房名单（hazard_report）与看板集成的单元测试。"""
 
 from __future__ import annotations
 
@@ -324,23 +324,23 @@ class DashboardIntegrationTests(unittest.TestCase):
 
     def test_hazard_section_lists_top_five_with_city_language(self) -> None:
         hazards = [
-            {"target": f"src/m{i}.py", "kind": "duplicate", "severity": 30, "suggestion": "合并同类"} for i in range(6)
+            {"target": f"src/m{i}.py", "kind": "duplicate", "severity": 30, "suggestion": "合并重复实现"} for i in range(6)
         ]
         model = dashboard_model(self._details(hazards), {})
         self.assertEqual(5, len(model["hazards"]))
-        self.assertIn("双胞胎楼", model["hazards"][0]["text"])
-        self.assertIn("合并同类", model["hazards"][0]["text"])
+        self.assertIn("重复代码", model["hazards"][0]["text"])
+        self.assertIn("合并重复实现", model["hazards"][0]["text"])
 
     def test_unresolved_hollow_raises_warn_anomaly(self) -> None:
-        hazards = [{"target": "src/ag2c_gui/graph.py", "kind": "hollow", "severity": 40, "suggestion": "补杀变异测试", "resolved": False}]
+        hazards = [{"target": "src/ag2c_gui/graph.py", "kind": "hollow", "severity": 40, "suggestion": "补充能捕获该类缺陷的测试", "resolved": False}]
         model = dashboard_model(self._details(hazards), {})
-        self.assertTrue(any("危楼·无安全网" in a["text"] and a["severity"] == "warn" for a in model["anomalies"]))
+        self.assertTrue(any("测试无效风险" in a["text"] and a["severity"] == "warn" for a in model["anomalies"]))
         self.assertEqual("error", model["hazards"][0]["severity"])
 
     def test_resolved_hollow_stays_off_the_anomaly_list(self) -> None:
-        hazards = [{"target": "src/ag2c/receipts.py", "kind": "hollow", "severity": 40, "suggestion": "补杀变异测试", "resolved": True}]
+        hazards = [{"target": "src/ag2c/receipts.py", "kind": "hollow", "severity": 40, "suggestion": "补充能捕获该类缺陷的测试", "resolved": True}]
         model = dashboard_model(self._details(hazards), {})
-        self.assertFalse(any("危楼" in a["text"] for a in model["anomalies"]))
+        self.assertFalse(any("测试无效风险" in a["text"] for a in model["anomalies"]))
         self.assertIn("疑似已修复", model["hazards"][0]["text"])
 
     def test_missing_hazards_section_degrades_silently(self) -> None:
@@ -350,7 +350,7 @@ class DashboardIntegrationTests(unittest.TestCase):
 
     def test_unconfirmed_hazard_is_labeled_for_review(self) -> None:
         hazards = [
-            {"target": "src/ag2c/govern.py", "kind": "duplicate", "severity": 32, "suggestion": "合并同类", "freshness": "unconfirmed"}
+            {"target": "src/ag2c/govern.py", "kind": "duplicate", "severity": 32, "suggestion": "合并重复实现", "freshness": "unconfirmed"}
         ]
         model = dashboard_model(self._details(hazards), {})
         self.assertIn("待复核", model["hazards"][0]["text"])

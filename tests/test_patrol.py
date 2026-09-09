@@ -1,4 +1,4 @@
-"""巡逻报告与市长看板巡逻区的测试：分类、超期判定、空账本降级。"""
+﻿"""巡逻报告与市长看板巡逻区的测试：分类、超期判定、空账本降级。"""
 from __future__ import annotations
 
 import unittest
@@ -57,9 +57,9 @@ class PatrolReportTests(unittest.TestCase):
             report = patrol_report(manifest, now=NOW)
             self.assertEqual(1, report["drills"]["gate"]["runs"])
             self.assertEqual("passed", report["drills"]["gate"]["last_result"])
-            self.assertEqual("安检演习", report["drills"]["gate"]["label"])
+            self.assertEqual("门禁演习", report["drills"]["gate"]["label"])
             self.assertEqual("failed", report["drills"]["mutation"]["last_result"])
-            self.assertEqual("消防演习", report["drills"]["mutation"]["label"])
+            self.assertEqual("变异演习", report["drills"]["mutation"]["label"])
             self.assertIn("graph.py", report["drills"]["mutation"]["last_detail"])
             self.assertEqual(1, report["interceptions"]["total"])
             self.assertEqual(1, report["interceptions"]["in_window"])
@@ -85,10 +85,10 @@ class DashboardPatrolTests(unittest.TestCase):
             {
                 "drill_interval_days": DRILL_INTERVAL_DAYS,
                 "drills": {
-                    "gate": {"runs": 3, "label": "安检演习", "last_result": "passed", "days_since": 1, "overdue": False},
+                    "gate": {"runs": 3, "label": "门禁演习", "last_result": "passed", "days_since": 1, "overdue": False},
                     "mutation": {
                         "runs": 1,
-                        "label": "消防演习",
+                        "label": "变异演习",
                         "last_result": "failed",
                         "last_detail": "比较符 >→>=（graph.py:248）",
                         "days_since": 0,
@@ -101,11 +101,11 @@ class DashboardPatrolTests(unittest.TestCase):
         model = dashboard_model(details, {})
         errors = [a for a in model["anomalies"] if a["severity"] == "error"]
         self.assertEqual(1, len(errors))
-        self.assertIn("消防演习报警", errors[0]["text"])
+        self.assertIn("变异演习失败", errors[0]["text"])
         self.assertIn("graph.py", errors[0]["text"])
         self.assertIn("补测试", errors[0]["text"])
         patrol_texts = [line["text"] for line in model["patrol"]]
-        self.assertTrue(any("未被拦住" in text for text in patrol_texts))
+        self.assertTrue(any("失败：缺陷未被拦截" in text for text in patrol_texts))
         self.assertTrue(any("拦截 2 次" in text for text in patrol_texts))
         health = {item["label"]: item["value"] for item in model["health"]}
         self.assertEqual(0, health["距上次演习"])
@@ -115,8 +115,8 @@ class DashboardPatrolTests(unittest.TestCase):
 
         model = dashboard_model(self._details({"drills": {}, "interceptions": {}}), {})
         warnings = [a["text"] for a in model["anomalies"] if a["severity"] == "warn"]
-        self.assertTrue(any("安检演习从未举行" in text and "ag2c canary" in text for text in warnings))
-        self.assertTrue(any("消防演习从未举行" in text and "--mode mutation" in text for text in warnings))
+        self.assertTrue(any("门禁演习从未举行" in text and "ag2c canary" in text for text in warnings))
+        self.assertTrue(any("变异演习从未举行" in text and "--mode mutation" in text for text in warnings))
         health = {item["label"]: item["value"] for item in model["health"]}
         self.assertEqual("—", health["距上次演习"])
 
@@ -127,16 +127,16 @@ class DashboardPatrolTests(unittest.TestCase):
             {
                 "drill_interval_days": 7,
                 "drills": {
-                    "gate": {"runs": 1, "label": "安检演习", "last_result": "passed", "days_since": 10, "overdue": True},
-                    "mutation": {"runs": 1, "label": "消防演习", "last_result": "passed", "days_since": 2, "overdue": False},
+                    "gate": {"runs": 1, "label": "门禁演习", "last_result": "passed", "days_since": 10, "overdue": True},
+                    "mutation": {"runs": 1, "label": "变异演习", "last_result": "passed", "days_since": 2, "overdue": False},
                 },
                 "interceptions": {"total": 0, "in_window": 0, "window_days": 30, "recent": []},
             }
         )
         model = dashboard_model(details, {})
         warnings = [a["text"] for a in model["anomalies"] if a["severity"] == "warn"]
-        self.assertTrue(any("安检演习超期" in text and "10 天" in text for text in warnings))
-        self.assertFalse(any("消防演习超期" in text for text in warnings))
+        self.assertTrue(any("门禁演习超期" in text and "10 天" in text for text in warnings))
+        self.assertFalse(any("变异演习超期" in text for text in warnings))
 
     def test_missing_patrol_section_degrades(self) -> None:
         from ag2c_gui.dashboard import dashboard_model

@@ -24,12 +24,12 @@ MAX_GOAL_CHARS = 60
 MAX_LISTED_ANOMALIES = 12
 MAX_LISTED_HAZARDS = 5
 
-#: 危房种类的城市语言（名单只负责"看得见"，每条带制度建议）。
+#: 风险种类标签：大白话+专业，单独拎出来无需懂城市隐喻即可理解。
 HAZARD_LABELS = {
-    "hollow": "危楼·无安全网",
-    "duplicate": "双胞胎楼",
-    "budget": "超重楼",
-    "stale": "旧档案",
+    "hollow": "测试无效风险",
+    "duplicate": "重复代码",
+    "budget": "超出预算",
+    "stale": "普查过期",
 }
 
 
@@ -155,12 +155,12 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
         interval = int(patrol.get("drill_interval_days") or 7)
         for mode in ("gate", "mutation"):
             drill = drills.get(mode) if isinstance(drills.get(mode), dict) else {}
-            label = _text(drill, "label") or {"gate": "安检演习", "mutation": "消防演习"}.get(mode, mode)
+            label = _text(drill, "label") or {"gate": "门禁演习", "mutation": "变异演习"}.get(mode, mode)
             days = drill.get("days_since")
             result = _text(drill, "last_result")
             command = "ag2c canary" + (" --mode mutation" if mode == "mutation" else "")
             if not drill.get("runs"):
-                anomalies.append({"severity": "warn", "text": f"{label}从未举行：巡逻队还没出过警 → 建议运行 {command}"})
+                anomalies.append({"severity": "warn", "text": f"{label}从未举行：还没有验证过拦截能力 → 建议运行 {command}"})
                 patrol_lines.append({"severity": "warn", "text": f"{label}：从未举行"})
                 continue
             if isinstance(days, int):
@@ -168,13 +168,13 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
             if result == "failed":
                 detail = _text(drill, "last_detail")
                 anomalies.append(
-                    {"severity": "error", "text": f"{label}报警：{detail or '上次演习未被拦住'}——测试可能空心，建议检查该区域并补测试"}
+                    {"severity": "error", "text": f"{label}失败：{detail or '植入的缺陷未被拦截'}——测试可能无效，建议检查该区域并补测试"}
                 )
             elif drill.get("overdue"):
                 anomalies.append({"severity": "warn", "text": f"{label}超期：已 {days} 天未演习（间隔 {interval} 天）→ 建议运行 {command}"})
-            verb = {"passed": "咬住了", "failed": "未被拦住！", "error": "未能执行"}.get(result, result or "未知")
+            verb = {"passed": "已通过（缺陷被拦截）", "failed": "失败：缺陷未被拦截", "error": "未能执行"}.get(result, result or "未知")
             when = "从未" if not isinstance(days, int) else ("今天" if days == 0 else f"{days} 天前")
-            patrol_lines.append({"severity": "error" if result == "failed" else "ok", "text": f"{label}：{when}演习，{verb}"})
+            patrol_lines.append({"severity": "error" if result == "failed" else "ok", "text": f"{label}：{when}{verb}"})
         interceptions = patrol.get("interceptions") if isinstance(patrol.get("interceptions"), dict) else {}
         window = int(interceptions.get("window_days") or 30)
         patrol_lines.append(
@@ -190,7 +190,7 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
         for item in items:
             if item.get("kind") == "hollow" and not item.get("resolved"):
                 anomalies.append(
-                    {"severity": "warn", "text": f"危楼·无安全网：{_text(item, 'target')}——{_text(item, 'suggestion') or '补杀变异测试'}"}
+                    {"severity": "warn", "text": f"测试无效风险：{_text(item, 'target')}——{_text(item, 'suggestion') or '补充能捕获该类缺陷的测试'}"}
                 )
         for item in items[:MAX_LISTED_HAZARDS]:
             label = HAZARD_LABELS.get(str(item.get("kind") or ""), str(item.get("kind") or "危房"))
@@ -243,7 +243,7 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
     health.append({"label": "距上次演习", "value": min(drill_days) if drill_days else "—"})
     if hazards is not None:
         dismissed = hazards.get("dismissed")
-        health.append({"label": "豁免中危房", "value": dismissed if isinstance(dismissed, int) else 0})
+        health.append({"label": "已豁免项", "value": dismissed if isinstance(dismissed, int) else 0})
     project = details.get("project") if isinstance(details.get("project"), dict) else {}
     return {
         "project": _text(project, "name"),
@@ -313,7 +313,7 @@ def draw_dashboard(model: dict[str, Any]) -> None:
 
     imgui.text("旧城改造")
     if not model["hazards"]:
-        imgui.text_disabled("危房名单是空的")
+        imgui.text_disabled("没有检测到风险项")
     for line in model["hazards"]:
         color = (0.95, 0.35, 0.30, 1.0) if line["severity"] == "error" else (0.95, 0.70, 0.30, 1.0)
         imgui.text_colored(color, "▲")

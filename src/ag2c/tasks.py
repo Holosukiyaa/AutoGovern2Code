@@ -1082,9 +1082,9 @@ def _auto_drill(canonical: Path) -> list[str]:
             notes.append(f"{label}自动演习未能执行：{exc}")
             continue
         if proc.returncode == 0:
-            notes.append(f"{label}自动演习：咬住了")
+            notes.append(f"{label}自动演习：已通过（缺陷被拦截）")
         else:
-            notes.append(f"{label}自动演习报警：未被拦住或未能执行（exit {proc.returncode}），详情见账本与看板")
+            notes.append(f"{label}自动演习失败：缺陷未被拦截或演习未能执行（exit {proc.returncode}），详情见账本与看板")
     return notes
 
 

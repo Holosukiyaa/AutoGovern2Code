@@ -531,7 +531,7 @@ def _first_drill_step() -> dict[str, str]:
     return {
         "action": "first-drill",
         "command": 'ag2c canary --actor <你的名字> --reason "首次演习：看门禁如何拦住缺陷"',
-        "why": "在付出任何治理成本之前，先看守卫当场抓住一个故意投放的缺陷——这是这套系统价值的 60 秒演示",
+        "why": "在付出任何治理成本之前，先花 60 秒看系统如何自动拦截一个故意植入的缺陷——这是它价值的直接演示",
     }
 
 

@@ -309,34 +309,99 @@ def _duplicate_warnings(manifest: Manifest, entry_slice: dict[str, Any]) -> list
     for new_file, new_name, new_args, new_lines, new_shape in new_funcs:
         if new_name in _NON_SIGNALING_NAMES:
             continue
-        for old_file, old_name, old_args, old_lines, old_shape in existing:
-            if new_args != old_args:
-                continue
-            shape_close = _shape_similarity(new_shape, old_shape) >= 0.9
-            if (
-                new_name == old_name
-                and min(new_lines, old_lines) >= 4
-                and shape_close
-            ):
+        for old in existing:
+            match = duplicate_match(
+                (new_name, new_args, new_lines, new_shape), (old[1], old[2], old[3], old[4])
+            )
+            if match == "同名":
                 warnings.append({
                     "kind": "possible-duplicate",
                     "key": f"{new_file}:{new_name}",
-                    "detail": f"同名函数 {new_name}（{new_file}）与 {old_file} 参数数与结构均一致",
+                    "detail": f"同名函数 {new_name}（{new_file}）与 {old[0]} 参数数与结构均一致",
                 })
                 break
-            if (
-                new_lines >= 8
-                and old_lines >= 8
-                and min(new_lines, old_lines) / max(new_lines, old_lines) >= 0.8
-                and shape_close
-            ):
+            if match == "相似":
                 warnings.append({
                     "kind": "possible-duplicate",
                     "key": f"{new_file}:{new_name}",
-                    "detail": f"相似函数 {new_name}（{new_file}，{new_lines}行）与 {old_name}（{old_file}，{old_lines}行）结构高度一致",
+                    "detail": f"相似函数 {new_name}（{new_file}，{new_lines}行）与 {old[1]}（{old[0]}，{old[3]}行）结构高度一致",
                 })
                 break
     return warnings
+
+
+#: 函数特征元组：(name, arity, body_lines, shape)。配对规则的输入单元。
+FunctionSig = tuple[str, int, int, tuple[tuple[str, int], ...]]
+
+
+def duplicate_match(new: FunctionSig, old: FunctionSig) -> str | None:
+    """现行查重配对规则（单一事实来源）：diff 警告与危房全仓扫描共用。
+
+    返回 "同名"（重实现助手）/ "相似"（复制粘贴）/ None。规则与精度军规见
+    _duplicate_warnings 上方注释——任何校准只改这里，两处消费者同步生效。
+    """
+    new_name, new_args, new_lines, new_shape = new
+    old_name, old_args, old_lines, old_shape = old
+    if new_args != old_args:
+        return None
+    if _shape_similarity(new_shape, old_shape) < 0.9:
+        return None
+    if new_name == old_name and min(new_lines, old_lines) >= 4:
+        return "同名"
+    if (
+        new_lines >= 8
+        and old_lines >= 8
+        and min(new_lines, old_lines) / max(new_lines, old_lines) >= 0.8
+    ):
+        return "相似"
+    return None
+
+
+def scan_duplicate_pairs(manifest: Manifest) -> list[dict[str, Any]]:
+    """全仓实时查重：现行配对规则对所有受治理 .py 函数两两配对。
+
+    与 _duplicate_warnings 的 diff 触发互补：那个管"新写的代码别抄"，这个管
+    "存量里还有哪些真重复"——危房名单的拆迁队列用这个，warning-history 里的
+    化石记录（旧探测器残留、规则校准后不再复现）自然不再出现。
+    """
+    functions: list[tuple[str, FunctionSig]] = []  # (rel, sig)
+    from .index import _discover_files
+
+    for target in manifest.targets:
+        root = manifest.target_root(target.target_id)
+        paths, _, _, _ = _discover_files(root, target)
+        for rel in paths:
+            if not rel.endswith(".py"):
+                continue
+            path = root / rel
+            if not path.is_file():
+                continue
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+            except (SyntaxError, OSError):
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if node.name in _UNITTEST_CONVENTION_METHODS or node.name in _NON_SIGNALING_NAMES:
+                        continue
+                    body_lines = (node.end_lineno or 0) - (node.lineno or 0)
+                    functions.append((rel, (node.name, len(node.args.args), body_lines, _function_shape(node))))
+    pairs: list[dict[str, Any]] = []
+    for index, (new_file, new_sig) in enumerate(functions):
+        for old_file, old_sig in functions[index + 1 :]:
+            match = duplicate_match(new_sig, old_sig)
+            if match is None:
+                continue
+            pairs.append({
+                "file": new_file,
+                "name": new_sig[0],
+                "lines": new_sig[2],
+                "other_file": old_file,
+                "other_name": old_sig[0],
+                "other_lines": old_sig[2],
+                "match": match,
+            })
+    return pairs
 
 
 def _function_shape(node: ast.AST) -> tuple[tuple[str, int], ...]:

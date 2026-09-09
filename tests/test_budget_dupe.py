@@ -556,6 +556,62 @@ class BaselineDebtTests(unittest.TestCase):
         self.assertEqual({"total": 1, "target": 1, "over": False}, debt)
 
 
+class ScanDuplicatePairsTests(unittest.TestCase):
+    """全仓实时查重（checks.scan_duplicate_pairs）：危房名单拆迁队列的数据源。
+
+    与 diff 触发的 _duplicate_warnings 共用 duplicate_match 单一规则；
+    化石记录（旧探测器残留）在实时扫描下自然不再复现。"""
+
+    def setUp(self) -> None:
+        self._tmp = Path(tempfile.mkdtemp())
+        (self._tmp / "src").mkdir(parents=True)
+        (self._tmp / "state").mkdir(parents=True)
+        self.manifest = Manifest(
+            path=self._tmp / "manifest.json", project_id="test-proj", project_root=self._tmp,
+            targets=(Target(target_id="app", path=".", governed_roots=("src",), excludes=()),),
+            ledger_path=self._tmp / "ledger.jsonl", policy_path=self._tmp / "policy.json",
+            state_dir=self._tmp / "state",
+        )
+
+    def _write(self, rel: str, text: str) -> None:
+        (self._tmp / rel).write_text(text, encoding="utf-8")
+
+    def test_live_pair_found_with_match_kind(self) -> None:
+        from ag2c.checks import scan_duplicate_pairs
+
+        body = "    x = a + b\n    y = x * 2\n    z = y - 1\n    return z\n"
+        self._write("src/old.py", f"def helper(a, b):\n{body}")
+        self._write("src/new.py", f"def helper(a, b):\n{body}")
+        pairs = scan_duplicate_pairs(self.manifest)
+        self.assertEqual(1, len(pairs))
+        self.assertEqual("同名", pairs[0]["match"])
+        self.assertEqual({pairs[0]["file"], pairs[0]["other_file"]}, {"src/old.py", "src/new.py"})
+
+    def test_fossil_style_pair_not_reproduced(self) -> None:
+        """旧探测器"同名+同参数数"就报警的撞名对（1-2 行），现行规则不认。"""
+        from ag2c.checks import scan_duplicate_pairs
+
+        self._write("src/a.py", "def clip(a):\n    return a\n")
+        self._write("src/b.py", "def clip(a):\n    return a[:1] if a else a\n")
+        self.assertEqual([], scan_duplicate_pairs(self.manifest))
+
+    def test_copy_paste_under_any_name_found(self) -> None:
+        from ag2c.checks import scan_duplicate_pairs
+
+        body = "".join(f"    v{i} = compute(data, {i})\n" for i in range(10))
+        self._write("src/old.py", f"def render_page(data):\n{body}    return v0\n")
+        self._write("src/new.py", f"def render_view(data):\n{body}    return v0\n")
+        pairs = scan_duplicate_pairs(self.manifest)
+        self.assertEqual(1, len(pairs))
+        self.assertEqual("相似", pairs[0]["match"])
+
+    def test_syntax_error_files_skipped(self) -> None:
+        from ag2c.checks import scan_duplicate_pairs
+
+        self._write("src/broken.py", "def f(:\n")
+        self.assertEqual([], scan_duplicate_pairs(self.manifest))
+
+
 class DuplicateWarningTests(unittest.TestCase):
     def test_same_name_same_args_flagged(self) -> None:
         """Functions with the same name and arg count are flagged."""

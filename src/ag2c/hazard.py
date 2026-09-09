@@ -198,20 +198,78 @@ def _warning_freshness(last_seen: datetime | None, committed: datetime | None) -
     return "standing"
 
 
+def _is_test_path(rel: str) -> bool:
+    """路径是否属于测试代码（tests/ 目录或 test_ 前缀文件）。"""
+    parts = str(rel).replace("\\", "/").split("/")
+    return "tests" in parts or parts[-1].startswith("test_")
+
+
 def _warning_hazards(manifest) -> list[dict[str, Any]]:
     """查重与预算警告：被无视的复用债与肥胖楼。count 越高同档内排越前。
 
     保鲜（2026-09-09）：警告历史是账本，只记"上次触发"，不记"是否已修复"。
     检测器是 HEAD 感知的，只有文件被改动才会重新评估——所以文件在 last_seen
     之后有过提交而警告没再触发，这条记录就降级为 unconfirmed（待复核），
-    避免拆迁队照着死记录拆错楼。"""
-    hazards = []
+    避免拆迁队照着死记录拆错楼。
+
+    校准（2026-09-10）：查重区改为现行配对规则的全仓实时扫描
+    （checks.scan_duplicate_pairs），warning-history 只贡献 count/first_seen
+    排序依据。旧探测器时代的化石记录（规则已收紧、不再复现）自动消失——
+    拆迁队列只列当下仍为真的重复。预算区维持历史驱动（预算超标是房间级
+    状态，没有等价的实时配对扫描）。"""
+    from .checks import scan_duplicate_pairs
+
+    history = _load_warning_history(manifest)
+    hazards: list[dict[str, Any]] = []
     commit_cache: dict[str, datetime | None] = {}
-    for entry in _load_warning_history(manifest).values():
+
+    # 查重：实时扫描为骨，历史计数为翼。扫描失败不连累预算区。
+    # 双测试文件的相似对不进拆迁队列：测试的镜像结构是表驱动写法常态，
+    # 拆迁对象是产品代码；测试重复由 diff 探测器在新增时把关。
+    try:
+        pairs = [
+            pair
+            for pair in scan_duplicate_pairs(manifest)
+            if not (_is_test_path(pair["file"]) and _is_test_path(pair["other_file"]))
+        ]
+    except Exception:
+        pairs = []
+    dupe_history: dict[str, dict[str, Any]] = {}
+    for entry in history.values():
+        if isinstance(entry, dict) and str(entry.get("kind") or "") == "possible-duplicate":
+            dupe_history[str(entry.get("key") or "")] = entry
+    for pair in pairs:
+        key = f"{pair['file']}:{pair['name']}"
+        record = dupe_history.get(key) or dupe_history.get(f"{pair['other_file']}:{pair['other_name']}") or {}
+        count = int(record.get("count") or 0)
+        if pair["match"] == "同名":
+            detail = f"同名函数 {pair['name']}（{pair['file']}）与 {pair['other_file']} 参数数与结构均一致"
+        else:
+            detail = (
+                f"相似函数 {pair['name']}（{pair['file']}，{pair['lines']}行）与 "
+                f"{pair['other_name']}（{pair['other_file']}，{pair['other_lines']}行）结构高度一致"
+            )
+        hazards.append(
+            {
+                "target": pair["file"],
+                "kind": "duplicate",
+                "count": count,
+                "freshness": "standing",  # 实时扫描命中即当下为真
+                "detail": detail,
+                "evidence": {
+                    "store": "live-scan",
+                    "rule": "checks.duplicate_match",
+                    "count": count,
+                    "first_seen": record.get("first_seen"),
+                },
+            }
+        )
+
+    # 预算：历史驱动（维持原语义）
+    for entry in history.values():
         if not isinstance(entry, dict):
             continue
-        kind = {"possible-duplicate": "duplicate", "over-budget": "budget"}.get(str(entry.get("kind") or ""))
-        if kind is None:
+        if str(entry.get("kind") or "") != "over-budget":
             continue
         key = str(entry.get("key") or entry.get("detail") or "")
         target = key.rsplit(":", 1)[0] if ":" in key else key
@@ -221,7 +279,7 @@ def _warning_hazards(manifest) -> list[dict[str, Any]]:
         hazards.append(
             {
                 "target": target or key,
-                "kind": kind,
+                "kind": "budget",
                 "count": count,
                 "freshness": _warning_freshness(_parse_seen(entry.get("last_seen")), commit_cache.get(target)),
                 "detail": str(entry.get("detail") or key),

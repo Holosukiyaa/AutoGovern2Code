@@ -73,10 +73,10 @@ class ClassificationTests(unittest.TestCase):
             )
             report = hazard_report(manifest)
             by_kind = {h["kind"]: h for h in report["hazards"]}
-            self.assertEqual({"duplicate", "budget"}, set(by_kind))
-            self.assertEqual("src/ag2c/cli.py", by_kind["duplicate"]["target"])
+            # 校准后：查重区只认实时扫描，bare 夹具无目标文件 → 化石记录不上榜；
+            # 预算区维持历史驱动。
+            self.assertEqual({"budget"}, set(by_kind))
             self.assertEqual("src/ag2c/tasks.py", by_kind["budget"]["target"])
-            self.assertEqual(SUGGESTIONS["duplicate"], by_kind["duplicate"]["suggestion"])
             self.assertEqual(SUGGESTIONS["budget"], by_kind["budget"]["suggestion"])
 
     def test_stale_census_room_and_expired_card(self) -> None:
@@ -107,6 +107,10 @@ class SeverityOrderingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             manifest = bare_manifest(Path(directory))
             _mutation_canary(manifest, result="failed", mutation="比较符 >→>=（src/a.py:1）")
+            live_pair = {
+                "file": "src/b.py", "name": "_f", "lines": 9,
+                "other_file": "src/a.py", "other_name": "_g", "other_lines": 9, "match": "相似",
+            }
             _write_warning_history(
                 manifest,
                 [
@@ -115,7 +119,10 @@ class SeverityOrderingTests(unittest.TestCase):
                 ],
             )
             census = {"households": [{"id": "knowledge.x", "freshness": "stale"}]}
-            with mock.patch("ag2c.households.census_report", return_value=census), mock.patch(
+            # 查重区现在是实时扫描：mock 掉扫描器，专注验证排序与计数接续
+            with mock.patch("ag2c.checks.scan_duplicate_pairs", return_value=[live_pair]), mock.patch(
+                "ag2c.households.census_report", return_value=census
+            ), mock.patch(
                 "ag2c.knowledge.knowledge_status", return_value=[]
             ):
                 report = hazard_report(manifest, policy=object())
@@ -123,6 +130,10 @@ class SeverityOrderingTests(unittest.TestCase):
             self.assertEqual(["hollow", "duplicate", "budget", "stale"], kinds)
             severities = [h["severity"] for h in report["hazards"]]
             self.assertEqual(sorted(severities, reverse=True), severities)
+            # 历史计数接续到实时扫描结果上（排序依据）
+            duplicate = report["hazards"][1]
+            self.assertEqual(3, duplicate["count"])
+            self.assertEqual("live-scan", duplicate["evidence"]["store"])
 
 
 class DegradationTests(unittest.TestCase):
@@ -146,7 +157,9 @@ class DegradationTests(unittest.TestCase):
 
 
 class FreshnessTests(unittest.TestCase):
-    """保鲜：警告历史只记"上次触发"，文件在 last_seen 之后改过的记录降级 unconfirmed。"""
+    """保鲜：警告历史只记"上次触发"，文件在 last_seen 之后改过的记录降级 unconfirmed。
+
+    校准后查重区走实时扫描（命中即 standing），保鲜机制只服务预算区。"""
 
     def _repo(self, root: Path) -> None:
         _git(root, "init", "-b", "main")
@@ -162,8 +175,8 @@ class FreshnessTests(unittest.TestCase):
         subprocess.run(["git", "-C", str(root), "commit", "-m", "c"], check=True, capture_output=True, env=env)
 
     @staticmethod
-    def _dupe(key: str, last_seen: str) -> dict:
-        return {"kind": "possible-duplicate", "key": key, "detail": key, "count": 2, "first_seen": last_seen, "last_seen": last_seen}
+    def _budget(key: str, last_seen: str, *, count: int = 2) -> dict:
+        return {"kind": "over-budget", "key": key, "detail": key, "count": count, "first_seen": last_seen, "last_seen": last_seen}
 
     def test_warning_older_than_file_commit_is_unconfirmed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -172,7 +185,7 @@ class FreshnessTests(unittest.TestCase):
             self._commit_file(root, "src/a.py", "A = 1\n", "2026-09-09T10:00:00+08:00")
             manifest = bare_manifest(root)
             # 01:00 UTC = 09:00 (+08)，早于文件提交 10:00 (+08) → 记录可能已死
-            _write_warning_history(manifest, [self._dupe("src/a.py:f", "2026-09-09T01:00:00+00:00")])
+            _write_warning_history(manifest, [self._budget("src/a.py:f", "2026-09-09T01:00:00+00:00")])
             report = hazard_report(manifest)
             self.assertEqual("unconfirmed", report["hazards"][0]["freshness"])
 
@@ -183,7 +196,7 @@ class FreshnessTests(unittest.TestCase):
             self._commit_file(root, "src/a.py", "A = 1\n", "2026-09-09T08:00:00+08:00")
             manifest = bare_manifest(root)
             # 01:30 UTC = 09:30 (+08)，晚于文件提交 08:00 (+08) → 警告针对当前内容
-            _write_warning_history(manifest, [self._dupe("src/a.py:f", "2026-09-09T01:30:00+00:00")])
+            _write_warning_history(manifest, [self._budget("src/a.py:f", "2026-09-09T01:30:00+00:00")])
             report = hazard_report(manifest)
             self.assertEqual("standing", report["hazards"][0]["freshness"])
 
@@ -197,11 +210,10 @@ class FreshnessTests(unittest.TestCase):
             _write_warning_history(
                 manifest,
                 [
-                    # duplicate（权重 30）但文件 12:00 改过、last_seen 01:00 UTC → unconfirmed
-                    self._dupe("src/old.py:f", "2026-09-09T01:00:00+00:00"),
-                    # budget（权重 20）但 last_seen 02:00 UTC = 10:00 (+08) 晚于 08:00 提交 → standing
-                    {"kind": "over-budget", "key": "src/new.py:g", "detail": "src/new.py:g", "count": 1,
-                     "first_seen": "2026-09-09T02:00:00+00:00", "last_seen": "2026-09-09T02:00:00+00:00"},
+                    # count 9（severity 更高）但文件 12:00 改过、last_seen 01:00 UTC → unconfirmed
+                    self._budget("src/old.py:f", "2026-09-09T01:00:00+00:00", count=9),
+                    # count 1 但 last_seen 02:00 UTC = 10:00 (+08) 晚于 08:00 提交 → standing
+                    self._budget("src/new.py:g", "2026-09-09T02:00:00+00:00", count=1),
                 ],
             )
             report = hazard_report(manifest)
@@ -213,7 +225,7 @@ class FreshnessTests(unittest.TestCase):
     def test_git_failure_degrades_to_standing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             manifest = bare_manifest(Path(directory))  # 无 git 仓库
-            _write_warning_history(manifest, [self._dupe("src/a.py:f", "2026-09-09T01:00:00+00:00")])
+            _write_warning_history(manifest, [self._budget("src/a.py:f", "2026-09-09T01:00:00+00:00")])
             report = hazard_report(manifest)
             self.assertEqual("standing", report["hazards"][0]["freshness"])
 
@@ -230,28 +242,25 @@ class DismissalTests(unittest.TestCase):
     """豁免：审过判定不拆的条目带理由+日落期隐藏，到期自动重现。"""
 
     @staticmethod
-    def _dupe(key: str) -> dict:
+    def _live_pair(target: str = "src/a.py") -> dict:
         return {
-            "kind": "possible-duplicate",
-            "key": key,
-            "detail": key,
-            "count": 2,
-            "first_seen": "2026-09-01T00:00:00+00:00",
-            "last_seen": "2026-09-01T00:00:00+00:00",
+            "file": target, "name": "f", "lines": 9,
+            "other_file": "src/b.py", "other_name": "g", "other_lines": 9, "match": "相似",
         }
 
     def test_dismissed_hazard_hidden_until_expiry(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             manifest = bare_manifest(Path(directory))
-            _write_warning_history(manifest, [self._dupe("src/a.py:f")])
             now = datetime(2026, 9, 9, tzinfo=timezone.utc)
-            dismiss_hazard(manifest, "src/a.py", "duplicate", actor="mayor", reason="审过：巧合性相似", now=now)
-            report = hazard_report(manifest, now=now + timedelta(days=1))
-            self.assertEqual([], report["hazards"])
-            self.assertEqual(1, report["dismissed"])
-            expired = hazard_report(manifest, now=now + timedelta(days=91))
-            self.assertEqual(1, len(expired["hazards"]))
-            self.assertEqual(0, expired["dismissed"])
+            # 查重区是实时扫描：mock 扫描器提供活重复对
+            with mock.patch("ag2c.checks.scan_duplicate_pairs", return_value=[self._live_pair()]):
+                dismiss_hazard(manifest, "src/a.py", "duplicate", actor="mayor", reason="审过：巧合性相似", now=now)
+                report = hazard_report(manifest, now=now + timedelta(days=1))
+                self.assertEqual([], report["hazards"])
+                self.assertEqual(1, report["dismissed"])
+                expired = hazard_report(manifest, now=now + timedelta(days=91))
+                self.assertEqual(1, len(expired["hazards"]))
+                self.assertEqual(0, expired["dismissed"])
 
     def test_renewal_replaces_instead_of_stacking(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -275,10 +284,10 @@ class DismissalTests(unittest.TestCase):
     def test_corrupt_dismissals_store_degrades_to_no_dismissals(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             manifest = bare_manifest(Path(directory))
-            _write_warning_history(manifest, [self._dupe("src/a.py:f")])
             manifest.state_dir.mkdir(parents=True, exist_ok=True)
             (manifest.state_dir / "hazard-dismissals.json").write_text("{broken", encoding="utf-8")
-            report = hazard_report(manifest, now=datetime(2026, 9, 9, tzinfo=timezone.utc))
+            with mock.patch("ag2c.checks.scan_duplicate_pairs", return_value=[self._live_pair()]):
+                report = hazard_report(manifest, now=datetime(2026, 9, 9, tzinfo=timezone.utc))
             self.assertEqual(1, len(report["hazards"]))
             self.assertEqual(0, report["dismissed"])
 
@@ -354,6 +363,53 @@ class DashboardIntegrationTests(unittest.TestCase):
         ]
         model = dashboard_model(self._details(hazards), {})
         self.assertIn("待复核", model["hazards"][0]["text"])
+
+
+class LiveDuplicateScanTests(unittest.TestCase):
+    """不 mock 的全链路：真实夹具项目 + 真实文件，验证扫描接线与化石消失。"""
+
+    def test_real_pair_listed_and_fossil_dropped(self) -> None:
+        from ag2c.config import load_manifest
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "proj"
+            write_project(root)
+            # 两个房间里各写一个结构一致的 4 行同名函数（现行规则必命中）
+            body = "    x = a + b\n    y = x * 2\n    z = y - 1\n    return z\n"
+            (root / "src" / "api" / "service.py").write_text(f"def helper(a, b):\n{body}", encoding="utf-8")
+            (root / "src" / "worker" / "job.py").write_text(f"def helper(a, b):\n{body}", encoding="utf-8")
+            manifest = load_manifest(root / ".ag2c" / "manifest.json")
+            # 化石：历史里一条现行规则不再复现的旧记录（撞名 1 行函数）
+            _write_warning_history(
+                manifest,
+                [{"kind": "possible-duplicate", "key": "src/ag2c/cli.py:main", "count": 4,
+                  "detail": "同名函数 main（src/ag2c/cli.py）与 src/ag2c_gui/imgui_tray.py 参数数相同"}],
+            )
+            report = hazard_report(manifest)
+            duplicates = [h for h in report["hazards"] if h["kind"] == "duplicate"]
+            self.assertEqual(1, len(duplicates))
+            self.assertIn("helper", duplicates[0]["detail"])
+            self.assertEqual("standing", duplicates[0]["freshness"])
+            self.assertEqual("live-scan", duplicates[0]["evidence"]["store"])
+            # 化石（main 撞名）不上榜
+            self.assertFalse(any("main" in h["detail"] for h in duplicates))
+
+    def test_test_only_pairs_stay_off_the_demolition_queue(self) -> None:
+        """双测试文件的相似对不进拆迁队列（测试镜像结构是表驱动常态）。
+
+        夹具的 governed_roots 只含 src，故用 test_ 前缀文件放进 src——
+        没有过滤器时这对必命中（同形 4 行以上），测试才不是空转。"""
+        from ag2c.config import load_manifest
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "proj"
+            write_project(root)
+            body = "    x = a + b\n    y = x * 2\n    z = y - 1\n    return z\n"
+            (root / "src" / "test_a.py").write_text(f"def check_it(a, b):\n{body}", encoding="utf-8")
+            (root / "src" / "test_b.py").write_text(f"def check_it(a, b):\n{body}", encoding="utf-8")
+            manifest = load_manifest(root / ".ag2c" / "manifest.json")
+            report = hazard_report(manifest)
+            self.assertEqual([], [h for h in report["hazards"] if h["kind"] == "duplicate"])
 
 
 if __name__ == "__main__":

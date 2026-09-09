@@ -366,6 +366,7 @@ def project_details(path: Path, *, refresh: bool = False) -> dict[str, Any]:
     _overlay_audit_status(root, result)
     _overlay_patrol_status(root, result)
     _overlay_hazard_status(root, result)
+    _overlay_token_status(root, result)
     return result
 
 
@@ -399,6 +400,22 @@ def _overlay_hazard_status(root: Path, result: dict[str, Any]) -> None:
         result["hazards"] = hazard_report(manifest, load_policy(manifest))
     except (AG2CError, OSError, ValueError):
         result["hazards"] = {"schema": "ag2c.hazard.v1", "hazards": [], "counts": {}}
+
+
+def _overlay_token_status(root: Path, result: dict[str, Any]) -> None:
+    """治理 token 成本（会话税/引导注入/verify 返工折算成钱）：与 patrol 同模式——现算不缓存。"""
+    if not result.get("available"):
+        return
+    try:
+        manifest_path = discover_manifest(root)
+        if manifest_path is None:
+            return
+        manifest = load_manifest(manifest_path, project_root=root)
+        from .token import token_report
+
+        result["token"] = token_report(manifest)
+    except (AG2CError, OSError, ValueError):
+        result["token"] = {"schema": "ag2c.token.v1", "cost_usd": 0.0, "month_cost_usd": 0.0, "month_tokens": 0, "top_rework": []}
 
 
 def _overlay_audit_status(root: Path, result: dict[str, Any]) -> None:

@@ -206,6 +206,23 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
                 }
             )
 
+    # 治理成本：token 会计（粗估，估算规则随数据返回）。段缺席 = 未知，静默降级。
+    # 文字全部是固定模板——制度在说话，不是 AI 在说话（反向引导收口规则 1）。
+    token_lines: list[dict[str, str]] = []
+    token = details.get("token") if isinstance(details.get("token"), dict) else None
+    if token is not None:
+        month_cost = token.get("month_cost_usd")
+        total_cost = token.get("cost_usd")
+        month_tokens = token.get("month_tokens")
+        if isinstance(month_cost, (int, float)) and isinstance(total_cost, (int, float)):
+            token_lines.append({"severity": "ok", "text": f"本月治理成本约 ${month_cost:.2f}（{int(month_tokens or 0):,} tokens，粗估）；累计 ${total_cost:.2f}"})
+        rework = [item for item in token.get("top_rework") or [] if isinstance(item, dict)]
+        if rework:
+            worst = rework[0]
+            token_lines.append(
+                {"severity": "warn", "text": f"返工最重：{_text(worst, 'task')}（verify {int(worst.get('verify_runs') or 0)} 次）——返工是治理成本的乘数"}
+            )
+
     overflow = max(0, len(anomalies) - MAX_LISTED_ANOMALIES)
     listed = anomalies[:MAX_LISTED_ANOMALIES]
     if overflow:
@@ -237,6 +254,7 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
         "audit": {"pending": audit_pending, "due": bool(audit.get("due"))},
         "patrol": patrol_lines,
         "hazards": hazard_lines,
+        "token": token_lines,
     }
 
 
@@ -301,6 +319,15 @@ def draw_dashboard(model: dict[str, Any]) -> None:
         imgui.text_colored(color, "▲")
         imgui.same_line(0.0, 8.0)
         imgui.text_wrapped(line["text"])
+
+    if model["token"]:
+        imgui.separator()
+        imgui.text("治理成本")
+        for line in model["token"]:
+            color = (0.95, 0.70, 0.30, 1.0) if line["severity"] == "warn" else (0.55, 0.75, 0.95, 1.0)
+            imgui.text_colored(color, "◆")
+            imgui.same_line(0.0, 8.0)
+            imgui.text_wrapped(line["text"])
     imgui.separator()
 
     imgui.text("异常清单")

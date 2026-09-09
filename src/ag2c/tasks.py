@@ -1061,7 +1061,16 @@ def _auto_drill(canonical: Path) -> list[str]:
         label = str(drill.get("label") or mode)
         try:
             proc = subprocess.run(
-                [sys.executable, "-m", "ag2c", *command],
+                [
+                    sys.executable,
+                    "-m",
+                    "ag2c",
+                    *command,
+                    "--actor",
+                    "ag2c-auto-drill",
+                    "--reason",
+                    "自动演习节律：合并后补演超期演习",
+                ],
                 cwd=canonical,
                 capture_output=True,
                 text=True,

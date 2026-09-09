@@ -70,8 +70,25 @@ class AutoDrillTests(unittest.TestCase):
             ):
                 notes = _auto_drill(root)
             self.assertEqual(1, len(calls))
-            self.assertEqual(["canary"], calls[0][-1:])
+            self.assertIn("canary", calls[0])
             self.assertIn("咬住了", notes[0])
+
+    def test_drill_command_carries_actor_and_reason(self) -> None:
+        """CLI 契约测试：canary 子命令强制 --actor/--reason，缺了就是 exit 2。
+
+        （t21 的教训：mock 掉子进程后命令内容不受测，CLI 契约漂移只能靠
+        专门断言命令形状的测试来守。）"""
+        with TemporaryDirectory() as tmp:
+            root = self._project_with_canary(Path(tmp))
+            calls: list = []
+            with mock.patch("ag2c.patrol.DRILL_INTERVAL_DAYS", -1), mock.patch(
+                "ag2c.tasks.subprocess", _fake_subprocess(calls)
+            ):
+                _auto_drill(root)
+            command = calls[0]
+            self.assertIn("--actor", command)
+            self.assertIn("ag2c-auto-drill", command)
+            self.assertIn("--reason", command)
 
     def test_overdue_mutation_uses_mutation_mode(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -81,7 +98,9 @@ class AutoDrillTests(unittest.TestCase):
                 "ag2c.tasks.subprocess", _fake_subprocess(calls)
             ):
                 _auto_drill(root)
-            self.assertEqual(["canary", "--mode", "mutation"], calls[0][-3:])
+            command = calls[0]
+            self.assertIn("canary", command)
+            self.assertEqual("mutation", command[command.index("--mode") + 1])
 
     def test_failed_drill_notes_alarm_without_raising(self) -> None:
         with TemporaryDirectory() as tmp:

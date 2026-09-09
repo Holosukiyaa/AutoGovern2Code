@@ -361,6 +361,11 @@ def build_parser() -> argparse.ArgumentParser:
     enforcement.add_argument("--actor", required=True)
     enforcement.add_argument("--reason", required=True)
     enforcement.add_argument("--format", choices=("text", "json"), default="json")
+    parallelism_cmd = govern_commands.add_parser("checker-parallelism", help="设置 floor checker 并行度（1=串行；checker 是独立子进程，可并行提速 verify）")
+    parallelism_cmd.add_argument("--workers", type=int, required=True)
+    parallelism_cmd.add_argument("--actor", required=True)
+    parallelism_cmd.add_argument("--reason", required=True)
+    parallelism_cmd.add_argument("--format", choices=("text", "json"), default="json")
     checker_cmd = govern_commands.add_parser("checker", help="create or adjust a policy checker (always / parse / timeout / command / stage)")
     checker_cmd.add_argument("--id", required=True)
     checker_cmd.add_argument("--always", choices=("on", "off"), default="")
@@ -897,7 +902,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "govern":
             from .govern import apply_change, ingest_project, pending_updates, retrieve_guidance, settle_pending
 
-            if args.govern_command in {"household", "census", "household-gate", "tighten", "renew-exploring", "retire", "retire-confirm", "span"}:
+            if args.govern_command in {"household", "census", "household-gate", "checker-parallelism", "tighten", "renew-exploring", "retire", "retire-confirm", "span"}:
                 from .household_commands import (
                     confirm_retirement,
                     read_census,
@@ -905,6 +910,7 @@ def main(argv: list[str] | None = None) -> int:
                     renew_exploring,
                     retire_household,
                     review_census,
+                    set_checker_parallelism,
                     set_household_enforcement,
                     set_household_span,
                     tighten_household,
@@ -914,6 +920,8 @@ def main(argv: list[str] | None = None) -> int:
                     result = register_household(Path.cwd(), card_id=args.id, title=args.title, summary=args.summary, includes=args.include, excludes=args.exclude, floors=args.floor, capability=args.capability, implementation=args.implementation, status=args.status, replaced_by=args.replaced_by, entrypoints=args.entrypoint, checkers=args.checker, command=json.loads(args.command_json) if args.command_json else None, grain=args.grain, meaning=args.meaning, contract=args.contract, decider=args.decider, span=args.span, provides=args.provides, conventions=args.conventions, actor=args.actor, reason=args.reason)
                 elif args.govern_command == "household-gate":
                     result = set_household_enforcement(Path.cwd(), enabled=args.mode == "enforce", actor=args.actor, reason=args.reason)
+                elif args.govern_command == "checker-parallelism":
+                    result = set_checker_parallelism(Path.cwd(), workers=args.workers, actor=args.actor, reason=args.reason)
                 elif args.govern_command == "tighten":
                     result = tighten_household(Path.cwd(), card_id=args.id, grain=args.grain, meaning=args.meaning, contract=args.contract, decider=args.decider, actor=args.actor, reason=args.reason)
                 elif args.govern_command == "renew-exploring":

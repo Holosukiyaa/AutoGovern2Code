@@ -460,6 +460,17 @@ def set_household_enforcement(start: Path, *, enabled: bool, actor: str, reason:
     return _save_policy(manifest, raw, actor, reason, "household-enforcement-changed", {"enabled": enabled})
 
 
+def set_checker_parallelism(start: Path, *, workers: int, actor: str, reason: str) -> dict:
+    """设置 floor checker 并行度（1=串行）。checker 是独立子进程，可安全并行。"""
+    actor, reason = _identity(actor, reason)
+    if not isinstance(workers, int) or workers < 1:
+        raise AG2CError("workers must be a positive integer")
+    manifest, _policy = _context(start)
+    raw = _read_json(manifest.policy_path)
+    raw["checker_parallelism"] = workers
+    return _save_policy(manifest, raw, actor, reason, "checker-parallelism-changed", {"workers": workers})
+
+
 def read_census(start: Path) -> dict:
     manifest, policy = _context(start)
     return census_report(manifest, policy)

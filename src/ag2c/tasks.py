@@ -238,12 +238,19 @@ def _verification_evidence_valid(
     )
     if check_event is None:
         return False
+    # 只比对 4 个稳定键：duration_ms 等信息性字段允许存在但不参与证据绑定，
+    # 这样新旧版本验证记录互相兼容（duration_ms 无安全语义，绑定它只会制造版本偏斜）。
+    evidence_keys = ("id", "stage", "status", "exit_code")
     actual_results = [
-        {"id": item.get("id"), "stage": item.get("stage"), "status": item.get("status"), "exit_code": item.get("exit_code")}
+        {key: item.get(key) for key in evidence_keys}
         for item in check_event["payload"].get("results", [])
     ]
+    recorded_results = [
+        {key: item.get(key) for key in evidence_keys}
+        for item in verification.get("checker_results") or []
+    ]
     return (
-        actual_results == verification.get("checker_results")
+        recorded_results == actual_results
         and check_event["payload"].get("slice_digest") == verification.get("slice_digest")
     )
 
@@ -910,6 +917,12 @@ def verify_task(start: Path) -> dict[str, Any]:
     )
     after_check_digest = change_digest(worktree, task["source"]["head"])
     checker_mutated_change = before_check_digest != after_check_digest
+    timed = [item for item in report["results"] if isinstance(item.get("duration_ms"), (int, float)) and item.get("duration_ms")]
+    if timed:
+        slowest = sorted(timed, key=lambda item: -item["duration_ms"])[:3]
+        total_ms = sum(item["duration_ms"] for item in timed)
+        summary = "、".join(f"{item['id']} {item['duration_ms'] / 1000:.1f}s" for item in slowest)
+        print(f"checker 耗时：总计 {total_ms / 1000:.1f}s（串行口径），最慢 {summary}", file=sys.stderr)
     passed = (
         bool(report["results"])
         and all(item["status"] in PROCESS_CHECK_STATUSES for item in report["results"])
@@ -953,6 +966,13 @@ def verify_task(start: Path) -> dict[str, Any]:
             {"id": item["id"], "stage": item["stage"], "status": item["status"], "exit_code": item["exit_code"]}
             for item in report["results"]
         ],
+        # 信息性字段，独立于 checker_results：旧版 finish 的逐项比对只看 checker_results，
+        # 把 duration_ms 放进那些 dict 会让旧代码判定证据不一致（版本偏斜）。
+        "checker_durations": {
+            item["id"]: item["duration_ms"]
+            for item in report["results"]
+            if isinstance(item.get("duration_ms"), (int, float))
+        },
         "acceptance": report["acceptance"],
         "check_ledger_event_digest": report["ledger_event_digest"],
         "regulator": regulator_result,

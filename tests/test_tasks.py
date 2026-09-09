@@ -109,6 +109,23 @@ class VerificationEvidenceTests(unittest.TestCase):
             )
             self.assertTrue(valid(manifest, task, verification))
 
+    def test_checker_durations_field_tolerated(self) -> None:
+        """checker_durations 等信息性顶层字段不参与证据绑定：旧版 finish 也能验证新版记录。"""
+        with tempfile.TemporaryDirectory() as directory:
+            manifest, task, verification, valid = self._fixture(
+                Path(directory), extra={"checker_durations": {"c1": 123}}
+            )
+            self.assertTrue(valid(manifest, task, verification))
+
+    def test_checker_results_stable_keys_still_bound(self) -> None:
+        """稳定键（id/stage/status/exit_code）仍精确绑定：篡改 status 必败。"""
+        with tempfile.TemporaryDirectory() as directory:
+            manifest, task, verification, valid = self._fixture(Path(directory))
+            verification["checker_results"] = [
+                {"id": "c1", "stage": "floor", "status": "failed", "exit_code": 0, "duration_ms": 123}
+            ]
+            self.assertFalse(valid(manifest, task, verification))
+
     def test_tampered_known_key_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             manifest, task, verification, valid = self._fixture(

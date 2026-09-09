@@ -781,12 +781,16 @@ def run_checks(
 
     enforce_households(manifest, policy, entry_slice, selected_ids)
     docs_only = _is_docs_only_change(entry_slice)
-    results: list[dict[str, Any]] = []
-    for checker in sorted(policy.checkers, key=lambda item: (item.stage, item.checker_id)):
-        if checker.checker_id not in selected_ids:
-            continue
+    ordered = [
+        checker
+        for checker in sorted(policy.checkers, key=lambda item: (item.stage, item.checker_id))
+        if checker.checker_id in selected_ids
+    ]
+    results: list[dict[str, Any] | None] = [None] * len(ordered)
+    runnable: list[tuple[int, Checker]] = []
+    for index, checker in enumerate(ordered):
         if docs_only and checker.always and checker.parse and not checker.implementation:
-            results.append(
+            results[index] = (
                 {
                     "id": checker.checker_id,
                     "stage": checker.stage,
@@ -804,6 +808,10 @@ def run_checks(
                 }
             )
             continue
+        runnable.append((index, checker))
+
+    def _execute(checker: Checker) -> tuple[dict[str, Any], str, str]:
+        """跑一个 checker 子进程；只读共享状态，可并行。基线写回在主线程串行做。"""
         cwd = _checker_cwd(manifest, checker)
         started_at = datetime.now(timezone.utc).isoformat()
         started = time.monotonic()
@@ -856,6 +864,8 @@ def run_checks(
                 stderr = f"checker timed out after {checker.timeout} seconds"
             except OSError as exc:
                 stderr = f"cannot execute checker: {exc}"
+            except Exception as exc:  # 并行模式下单个 checker 异常不能拖垮整轮
+                stderr = f"checker crashed: {exc}"
         result = {
             "id": checker.checker_id,
             "stage": checker.stage,
@@ -872,10 +882,22 @@ def run_checks(
         }
         if status == "skipped":
             result["skip_reason"] = _skip_reason(exit_code, stdout, stderr) or "skipped"
-        if checker.parse == "unittest" and exit_code is not None and status in {"passed", "failed"}:
+        return result, stdout, stderr
+
+    parallelism = max(1, int(getattr(policy, "checker_parallelism", 1) or 1))
+    if parallelism > 1 and len(runnable) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=min(parallelism, len(runnable))) as pool:
+            executed = list(pool.map(lambda pair: _execute(pair[1]), runnable))
+    else:
+        executed = [_execute(checker) for _, checker in runnable]
+    for (index, checker), (result, stdout, stderr) in zip(runnable, executed):
+        # 基线读写共享存储，必须主线程串行；只有子进程执行并行。
+        if checker.parse == "unittest" and result["exit_code"] is not None and result["status"] in {"passed", "failed"}:
             _apply_test_baseline(manifest, checker, result, stdout, stderr)
-            status = str(result["status"])
-        results.append(result)
+        results[index] = result
+    results = [item for item in results if item is not None]
     acceptance: dict[str, str] = {}
     for stage in ("static", "floor", "boundary", "scenario"):
         policy_stage_ids = {checker.checker_id for checker in policy.checkers if checker.stage == stage}

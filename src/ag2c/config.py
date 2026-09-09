@@ -345,7 +345,10 @@ def load_policy(manifest: Manifest) -> Policy:
     if not isinstance(household_required, bool):
         raise ConfigurationError("household_required must be a boolean")
     regulator = _regulator_config(raw.get("regulator"))
-    return Policy(manifest.policy_path, tuple(cards), tuple(relations), tuple(contracts), tuple(checkers), coverage, household_required, regulator)
+    checker_parallelism = raw.get("checker_parallelism", 1)
+    if not isinstance(checker_parallelism, int) or isinstance(checker_parallelism, bool) or checker_parallelism < 1:
+        raise ConfigurationError("checker_parallelism must be a positive integer")
+    return Policy(manifest.policy_path, tuple(cards), tuple(relations), tuple(contracts), tuple(checkers), coverage, household_required, regulator, checker_parallelism)
 
 
 def _regulator_config(value: Any) -> RegulatorConfig | None:

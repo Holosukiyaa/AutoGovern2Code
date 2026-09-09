@@ -71,6 +71,14 @@ class GovernCheckerParserTests(unittest.TestCase):
         self.assertEqual('["python","-B","tests/suites.py","x"]', args.checker_command)
         self.assertEqual(["knowledge.room"], args.bind)
 
+    def test_govern_checker_parallelism_parses(self) -> None:
+        from ag2c.cli import build_parser
+
+        args = build_parser().parse_args(["govern", "checker-parallelism", "--workers", "4", "--actor", "a", "--reason", "r"])
+        self.assertEqual("govern", args.command)
+        self.assertEqual("checker-parallelism", args.govern_command)
+        self.assertEqual(4, args.workers)
+
 
 class ResultGateCliTests(unittest.TestCase):
     def test_task_start_requires_the_portrait(self) -> None:

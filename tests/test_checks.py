@@ -1,6 +1,8 @@
 import json
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -44,6 +46,98 @@ def _unittest_checker(command_body: str, **extra) -> dict:
     }
     checker.update(extra)
     return checker
+
+
+class ParallelCheckerTests(unittest.TestCase):
+    """checker_parallelism > 1 时 checker 子进程并行；结果顺序仍按 policy 排序，失败不丢。"""
+
+    def _fixture(self, root: Path, bodies: dict[str, str], *, workers: int):
+        write_project(root, gated=True)
+        for cid, body in bodies.items():
+            _add_checker(root, _unittest_checker(body, always=True, id=cid))
+        policy_path = root / ".ag2c" / "policy.json"
+        raw = json.loads(policy_path.read_text(encoding="utf-8"))
+        raw["checker_parallelism"] = workers
+        policy_path.write_text(json.dumps(raw), encoding="utf-8")
+        manifest, policy = _reload(root)
+        build_index(manifest, policy)
+        record_census(root)
+        return manifest, policy
+
+    def test_parallel_results_keep_policy_order(self) -> None:
+        bodies = {"check.zeta": "print('z')", "check.alpha": "print('a')", "check.beta": "print('b')"}
+        with tempfile.TemporaryDirectory() as directory:
+            manifest, policy = self._fixture(Path(directory), bodies, workers=3)
+            self.assertEqual(3, policy.checker_parallelism)
+            entry_slice = compile_slice(manifest, policy, all_mode=True)
+            report = run_checks(manifest, policy, entry_slice, all_mode=True)
+            mine = [item for item in report["results"] if item["id"] in bodies]
+            self.assertEqual(["check.alpha", "check.beta", "check.zeta"], [item["id"] for item in mine])
+            self.assertEqual({"passed"}, {item["status"] for item in mine})
+            for item in mine:
+                self.assertIsInstance(item["duration_ms"], int)
+
+    def test_parallel_execution_actually_overlaps(self) -> None:
+        bodies = {f"check.p{n}": "import time; time.sleep(1.0)" for n in range(3)}
+        with tempfile.TemporaryDirectory() as directory:
+            manifest, policy = self._fixture(Path(directory), bodies, workers=3)
+            entry_slice = compile_slice(manifest, policy, all_mode=True)
+            started = time.monotonic()
+            report = run_checks(manifest, policy, entry_slice, all_mode=True)
+            elapsed = time.monotonic() - started
+            self.assertEqual({"passed"}, {item["status"] for item in report["results"] if item["id"] in bodies})
+            # 串行至少 3s（3×1s sleep）；并行应明显低于 2.5s
+            self.assertLess(elapsed, 2.5)
+
+    def test_parallel_failure_does_not_lose_other_results(self) -> None:
+        bodies = {
+            "check.ok1": "print('ok')",
+            "check.bad": "import sys; print('boom', file=sys.stderr); sys.exit(2)",
+            "check.ok2": "print('ok')",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            manifest, policy = self._fixture(Path(directory), bodies, workers=3)
+            entry_slice = compile_slice(manifest, policy, all_mode=True)
+            report = run_checks(manifest, policy, entry_slice, all_mode=True)
+            mine = {item["id"]: item["status"] for item in report["results"] if item["id"] in bodies}
+            self.assertEqual({"check.ok1": "passed", "check.bad": "failed", "check.ok2": "passed"}, mine)
+
+    def test_default_parallelism_is_serial(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _manifest, policy = _reload_after_write(Path(directory))
+            self.assertEqual(1, policy.checker_parallelism)
+
+    def test_checker_parallelism_validation(self) -> None:
+        for bad in (0, -2, "4", True):
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                write_project(root)
+                policy_path = root / ".ag2c" / "policy.json"
+                raw = json.loads(policy_path.read_text(encoding="utf-8"))
+                raw["checker_parallelism"] = bad
+                policy_path.write_text(json.dumps(raw), encoding="utf-8")
+                manifest = load_manifest(root / ".ag2c" / "manifest.json")
+                with self.assertRaises(ConfigurationError):
+                    load_policy(manifest)
+
+    def test_govern_checker_parallelism_writes_policy_and_ledger(self) -> None:
+        from ag2c.household_commands import set_checker_parallelism
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root)
+            subprocess.run(["git", "init"], cwd=root, capture_output=True, check=True)
+            result = set_checker_parallelism(root, workers=4, actor="tester", reason="提速 verify")
+            self.assertEqual(4, result["workers"])
+            _manifest, policy = _reload(root)
+            self.assertEqual(4, policy.checker_parallelism)
+            with self.assertRaises(AG2CError):
+                set_checker_parallelism(root, workers=0, actor="tester", reason="非法值")
+
+
+def _reload_after_write(root: Path):
+    write_project(root)
+    return _reload(root)
 
 
 class CheckerTests(unittest.TestCase):

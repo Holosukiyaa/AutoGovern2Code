@@ -126,6 +126,7 @@ class Policy:
     coverage: Coverage
     household_required: bool = False
     regulator: RegulatorConfig | None = None
+    checker_parallelism: int = 1
 
     def card(self, card_id: str) -> Card:
         return next(card for card in self.cards if card.card_id == card_id)

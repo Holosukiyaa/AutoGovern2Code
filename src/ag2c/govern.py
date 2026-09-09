@@ -60,13 +60,9 @@ _atomic_json = atomic_json_write
 
 
 def _read_json(path: Path) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise AG2CError(f"cannot read governance file {path}: {exc}") from exc
-    if not isinstance(value, dict):
-        raise AG2CError(f"governance file must contain an object: {path}")
-    return value
+    from .util import read_json
+
+    return read_json(path, what="governance file")
 
 
 def _slug(value: str) -> str:

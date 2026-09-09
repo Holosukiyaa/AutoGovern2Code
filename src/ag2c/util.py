@@ -102,6 +102,22 @@ def atomic_json_write(path: Path, value: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
+def read_json(path: Path, *, what: str) -> dict[str, Any]:
+    """读 JSON 治理文件：错误带用途标签，非对象拒绝。
+
+    合并自 govern.py 与 enrollment.py 的双份 _read_json（危房名单首批拆迁，
+    2026-09-09）：调用方用 what 保留各自的错误文案。"""
+    from .errors import AG2CError
+
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AG2CError(f"cannot read {what} {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise AG2CError(f"{what} must contain an object: {path}")
+    return value
+
+
 def normalize_artifact_path(value: str) -> str:
     normalized = value.replace("\\", "/").strip("/")
     parts = PurePosixPath(normalized).parts

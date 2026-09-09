@@ -156,6 +156,27 @@ class ReceiptDeltaTests(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertTrue(second.exists())
 
+    def test_write_receipt_serialization_is_sorted_utf8_and_atomic(self) -> None:
+        """回执落盘格式是证据链的一部分：键序字典序、非 ASCII 原文、无临时文件残留。
+
+        变异记录：write_receipt 的 json.dumps 布尔参数（ensure_ascii=False、
+        sort_keys=True）翻转曾存活（危房名单 2026-09-09 变异存活警情）。"""
+        with tempfile.TemporaryDirectory() as directory:
+            root, manifest, policy, base = self._enrolled(directory)
+            task = _fake_task(root, base, "ag2c/test-branch", _verification_for(root, base))
+            receipt = build_receipt(manifest, policy, task)
+            receipt["delivery"] = {"goal": "修复中文乱码", "outcome": "回执含中文原文"}
+            path = write_receipt(manifest, receipt)
+            raw = path.read_text(encoding="utf-8")
+            # ensure_ascii=False：中文以 UTF-8 原文落盘，不是 \uXXXX 转义
+            self.assertIn("修复中文乱码", raw)
+            self.assertNotIn("\\u4fee", raw)
+            # sort_keys=True：顶层键按字典序落盘
+            keys = list(json.loads(raw).keys())
+            self.assertEqual(sorted(keys), keys)
+            # os.replace 生效：不留 .tmp 临时文件残留
+            self.assertFalse(path.with_suffix(path.suffix + ".tmp").exists())
+
     def test_ci_accepts_matching_deltas(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root, manifest, policy, base = self._enrolled(directory)

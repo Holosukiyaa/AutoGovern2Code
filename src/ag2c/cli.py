@@ -393,6 +393,7 @@ def build_parser() -> argparse.ArgumentParser:
     trunk_cmd.add_argument("--branch", required=True)
     trunk_cmd.add_argument("--actor", required=True)
     trunk_cmd.add_argument("--reason", required=True)
+    trunk_cmd.add_argument("--format", choices=("text", "json"), default="json")
 
     doctor = subparsers.add_parser("doctor", help="check configuration, activation, tools, index, and ledger")
     doctor.add_argument("--repair", action="store_true", help="restore the Skill, Git guard, activation, and index")

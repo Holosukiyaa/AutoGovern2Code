@@ -146,5 +146,33 @@ class ConfigureTrunkTests(unittest.TestCase):
             self.assertEqual({}, result["changes"])
 
 
+class TrunkCliTests(unittest.TestCase):
+    """CLI 层全路径：解析 → 分发 → 输出。t18 只测了函数层，接线缺 --format
+    导致合并后首次真实调用崩溃——每一层都要有自己的测试。"""
+
+    def test_govern_trunk_cli_end_to_end(self) -> None:
+        import io
+        import os
+
+        from ag2c.cli import main
+
+        with TemporaryDirectory() as tmp:
+            root = _project(Path(tmp) / "proj")
+            _git(root, "branch", "develop")
+            previous = Path.cwd()
+            stdout = io.StringIO()
+            try:
+                os.chdir(root)
+                with mock.patch("sys.stdout", stdout):
+                    exit_code = main(["govern", "trunk", "--branch", "develop", "--actor", "test", "--reason", "CLI 全路径"])
+            finally:
+                os.chdir(previous)
+            self.assertEqual(0, exit_code)
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual("trunk", payload["kind"])
+            self.assertEqual({"from": "main", "to": "develop"}, payload["changes"]["trunk"])
+            self.assertEqual("develop", _load_manifest(root).trunk)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,8 @@ import json
 import os
 import re
 import secrets
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -1036,6 +1038,45 @@ def _finish_hints(manifest, policy, pending: dict[str, Any]) -> list[str]:
     return hints
 
 
+def _auto_drill(canonical: Path) -> list[str]:
+    """合并后的自动演习节律：已建队且超期的演习当场补演，返回演习纪要。
+
+    建队制：首次演习永远手动（runs == 0 不触发）——你建立巡逻队，巡逻队
+    才开始自动巡逻；这也保证测试夹具（账本无 canary 事件）不会意外触发
+    真实演习。演习失败不阻断合并（木已成舟），警情留在账本与看板上。
+    任何内部异常都吞掉：finish 已经成功，演习只是附带的巡逻动作。
+    """
+    from .patrol import patrol_report
+
+    try:
+        manifest = load_manifest(discover_manifest(canonical), project_root=canonical)
+        report = patrol_report(manifest)
+    except Exception:
+        return []
+    notes: list[str] = []
+    for mode, command in (("gate", ["canary"]), ("mutation", ["canary", "--mode", "mutation"])):
+        drill = report["drills"].get(mode) or {}
+        if not drill.get("runs") or not drill.get("overdue"):
+            continue
+        label = str(drill.get("label") or mode)
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "ag2c", *command],
+                cwd=canonical,
+                capture_output=True,
+                text=True,
+                timeout=900,
+            )
+        except Exception as exc:
+            notes.append(f"{label}自动演习未能执行：{exc}")
+            continue
+        if proc.returncode == 0:
+            notes.append(f"{label}自动演习：咬住了 ✔")
+        else:
+            notes.append(f"{label}自动演习报警：未被拦住或未能执行（exit {proc.returncode}），详情见账本与看板")
+    return notes
+
+
 def finish_task(start: Path, task_id: str, *, message: str, proof: str = "") -> dict[str, Any]:
     root = repository_root(start)
     status = activation_status(root)
@@ -1140,6 +1181,10 @@ def finish_task(start: Path, task_id: str, *, message: str, proof: str = "") -> 
     pending = record_pending_from_task(canonical, list(task["verifications"][-1].get("changed_paths") or []))
     task["governance_pending"] = pending
     task["hints"] = _finish_hints(manifest, policy, pending)
+    drill_notes = _auto_drill(canonical)
+    if drill_notes:
+        task["auto_drills"] = drill_notes
+        task["hints"] = task["hints"] + drill_notes
     from .journal import mark_version
 
     journal = mark_version(canonical, task=task)

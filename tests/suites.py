@@ -21,6 +21,7 @@ import unittest
 from pathlib import Path
 
 FAST = [
+    "test_auto_drill",
     "test_audit",
     "test_budget_dupe",
     "test_cli",

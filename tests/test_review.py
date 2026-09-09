@@ -241,6 +241,160 @@ class PolicyParsingTests(unittest.TestCase):
             self.assertFalse(config.strict)
             self.assertEqual("AG2C_REGULATOR_API_KEY", config.api_key_env)
             self.assertEqual(180, config.timeout)
+            self.assertEqual("", config.worker_model)
+            self.assertFalse(config.allow_same_family)
+
+
+class SameFamilyTests(unittest.TestCase):
+    """9.10 安达信条款：监管与 worker 同族 = 假异构，配置拒绝或显式豁免。"""
+
+    def test_model_family_normalization(self) -> None:
+        from ag2c.review import model_family
+
+        cases = {
+            "gpt-4o": "openai",
+            "openai/gpt-4o-mini": "openai",
+            "o3-mini": "openai",
+            "claude-sonnet-4-5": "anthropic",
+            "anthropic/claude-opus": "anthropic",
+            "gemini-2.5-pro": "google",
+            "grok-4": "xai",
+            "kimi-k3": "moonshot",
+            "moonshot-v1-8k": "moonshot",
+            "deepseek-chat": "deepseek",
+            "qwen2.5-72b": "alibaba",
+            "meta-llama/llama-3-70b": "meta",
+            "mistral-large": "mistral",
+        }
+        for model, family in cases.items():
+            self.assertEqual(family, model_family(model), model)
+
+    def test_same_family_predicate(self) -> None:
+        from ag2c.review import same_family
+
+        self.assertTrue(same_family("gpt-4o", "gpt-4o-mini"))
+        self.assertTrue(same_family("claude-opus", "claude-sonnet"))
+        self.assertFalse(same_family("gpt-4o", "claude-sonnet"))
+        self.assertFalse(same_family("gpt-4o", ""))  # worker 未声明不判定
+        self.assertFalse(same_family("", "kimi-k3"))
+
+    def test_run_agent_review_same_family_degrades(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, policy = _governed_repo(
+                root,
+                regulator={
+                    "enabled": True,
+                    "endpoint": "http://127.0.0.1:9/v1",
+                    "model": "gpt-4o",
+                    "worker_model": "gpt-4o-mini",
+                },
+            )
+            with patch("ag2c.review.call_chat") as mocked:
+                result = run_agent_review(root, _task(root), policy, _report())
+            self.assertEqual("unavailable", result["outcome"])
+            self.assertIn("same-family", result["reason"])
+            self.assertIn("安达信", result["gap"])
+            self.assertEqual(0, mocked.call_count)  # 假异构监管根本不许发问
+
+    def test_run_agent_review_exemption_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, policy = _governed_repo(
+                root,
+                regulator={
+                    "enabled": True,
+                    "endpoint": "http://127.0.0.1:9/v1",
+                    "model": "gpt-4o",
+                    "worker_model": "gpt-4o-mini",
+                    "allow_same_family": True,
+                },
+            )
+            good = _verdict("pass", [{"name": "承诺兑现", "status": "pass", "evidence": "", "comment": "ok"}])
+            with patch("ag2c.review.call_chat", return_value=good):
+                result = run_agent_review(root, _task(root), policy, _report())
+            self.assertEqual("passed", result["outcome"])
+
+    def test_run_agent_review_different_family_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, policy = _governed_repo(
+                root,
+                regulator={
+                    "enabled": True,
+                    "endpoint": "http://127.0.0.1:9/v1",
+                    "model": "gpt-4o",
+                    "worker_model": "kimi-k3",
+                },
+            )
+            good = _verdict("pass", [{"name": "承诺兑现", "status": "pass", "evidence": "", "comment": "ok"}])
+            with patch("ag2c.review.call_chat", return_value=good):
+                result = run_agent_review(root, _task(root), policy, _report())
+            self.assertEqual("passed", result["outcome"])
+
+    def test_configure_refuses_same_family(self) -> None:
+        from ag2c.errors import AG2CError
+        from ag2c.govern import configure_regulator
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _governed_repo(root)
+            with self.assertRaises(AG2CError) as ctx:
+                configure_regulator(
+                    root,
+                    actor="test",
+                    reason="配置监管",
+                    enabled=True,
+                    endpoint="http://127.0.0.1:9/v1",
+                    model="claude-sonnet-4-5",
+                    worker_model="claude-opus-4-1",
+                )
+            self.assertIn("安达信", str(ctx.exception))
+            self.assertIn("anthropic", str(ctx.exception))
+
+    def test_configure_exemption_records_warning(self) -> None:
+        from ag2c.govern import configure_regulator
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _governed_repo(root)
+            result = configure_regulator(
+                root,
+                actor="test",
+                reason="单机单 key 的无奈豁免",
+                enabled=True,
+                endpoint="http://127.0.0.1:9/v1",
+                model="gpt-4o",
+                worker_model="gpt-4o-mini",
+                allow_same_family=True,
+            )
+            self.assertIn("warning", result)
+            self.assertIn("安达信", result["warning"])
+            _, policy = _reload_policy(root)
+            self.assertTrue(policy.regulator.allow_same_family)
+            self.assertEqual("gpt-4o-mini", policy.regulator.worker_model)
+
+    def test_configure_different_family_no_warning(self) -> None:
+        from ag2c.govern import configure_regulator
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _governed_repo(root)
+            result = configure_regulator(
+                root,
+                actor="test",
+                reason="配置异构监管",
+                enabled=True,
+                endpoint="http://127.0.0.1:9/v1",
+                model="gpt-4o",
+                worker_model="kimi-k3",
+            )
+            self.assertNotIn("warning", result)
+
+
+def _reload_policy(root: Path):
+    manifest = load_manifest(root / ".ag2c" / "manifest.json", project_root=root)
+    return manifest, load_policy(manifest)
 
 
 if __name__ == "__main__":

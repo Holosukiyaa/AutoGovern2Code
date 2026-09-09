@@ -28,6 +28,42 @@ PROMPT_VERSION = "agent-review.v1"
 #: fail 项的证据位置必须形如 path:line（tasks.py:347）。
 _EVIDENCE_REF = re.compile(r"[\w./\\\-一-鿿]+:\d+")
 
+#: 9.10 安达信条款：模型名 → 厂商家族。监管与 worker 同族 = 假异构。
+_MODEL_FAMILIES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("openai", ("gpt", "o1", "o3", "o4", "openai", "chatgpt")),
+    ("anthropic", ("claude", "anthropic")),
+    ("google", ("gemini", "palm", "bard", "google")),
+    ("xai", ("grok", "xai")),
+    ("moonshot", ("kimi", "moonshot")),
+    ("deepseek", ("deepseek",)),
+    ("alibaba", ("qwen", "tongyi")),
+    ("meta", ("llama", "meta")),
+    ("mistral", ("mistral", "mixtral", "codestral")),
+    ("cohere", ("command", "cohere")),
+)
+
+
+def model_family(model: str) -> str:
+    """归一化模型名到厂商家族；未知模型返回其归一化自身（只有精确撞名才算同族）。
+
+    "openai/gpt-4o" → openai；"claude-sonnet-4-5" → anthropic；"kimi-k3" → moonshot。
+    """
+    normalized = model.strip().lower()
+    if "/" in normalized:  # vendor/model 形式取模型段
+        normalized = normalized.split("/")[-1]
+    token = re.split(r"[^a-z0-9]+", normalized)[0] if normalized else ""
+    for family, prefixes in _MODEL_FAMILIES:
+        if any(token.startswith(prefix) for prefix in prefixes):
+            return family
+    return token or "unknown"
+
+
+def same_family(regulator_model: str, worker_model: str) -> bool:
+    """监管模型与 worker 模型是否同族。任一侧为空时不判定（配置未完成）。"""
+    if not regulator_model.strip() or not worker_model.strip():
+        return False
+    return model_family(regulator_model) == model_family(worker_model)
+
 #: diff 与单文件内容的体积上限，防止提示词爆炸。
 _MAX_DIFF_CHARS = 100_000
 _MAX_FILE_CHARS = 20_000
@@ -217,6 +253,15 @@ def run_agent_review(
             "gap": "本次缺 AI 监管",
         }
     base: dict[str, Any] = {"prompt_version": PROMPT_VERSION, "model": config.model}
+    if not config.allow_same_family and same_family(config.model, config.worker_model):
+        # 9.10 安达信条款纵深防御：policy 被手改绕过 configure_regulator 时，
+        # 运行时仍拒绝假异构监管；strict 下 verify 拦截，非 strict 记缺口降级。
+        return {
+            **base,
+            "outcome": "unavailable",
+            "reason": f"same-family: regulator {model_family(config.model)} == worker {model_family(config.worker_model)}",
+            "gap": "监管与 worker 同族（安达信条款），本次缺独立 AI 监管",
+        }
     try:
         diff_text = _collect_diff(worktree, str(task["source"]["head"]))
         portrait = str(task.get("portrait") or "")

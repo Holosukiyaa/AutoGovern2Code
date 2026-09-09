@@ -381,6 +381,8 @@ def build_parser() -> argparse.ArgumentParser:
     regulator_cmd.add_argument("--enable", choices=("on", "off"), default="")
     regulator_cmd.add_argument("--endpoint", default="")
     regulator_cmd.add_argument("--model", default="")
+    regulator_cmd.add_argument("--worker-model", default="", help="被治理 worker 的模型名（9.10 安达信条款：与监管同族时拒绝配置）")
+    regulator_cmd.add_argument("--allow-same-family", choices=("on", "off"), default="", help="显式豁免同族检测（进账本并大字警告）")
     regulator_cmd.add_argument("--api-key-env", default="")
     regulator_cmd.add_argument("--strict", choices=("on", "off"), default="")
     regulator_cmd.add_argument("--timeout", type=int, default=0)
@@ -960,7 +962,11 @@ def main(argv: list[str] | None = None) -> int:
                     api_key_env=args.api_key_env or None,
                     strict={"on": True, "off": False}.get(args.strict) if args.strict else None,
                     timeout=args.timeout or None,
+                    worker_model=args.worker_model or None,
+                    allow_same_family={"on": True, "off": False}.get(args.allow_same_family) if args.allow_same_family else None,
                 )
+                if isinstance(result, dict) and result.get("warning"):
+                    print(result["warning"], file=sys.stderr)
             elif args.govern_command == "apply":
                 result = apply_change(
                     Path.cwd(),

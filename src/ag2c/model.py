@@ -99,7 +99,11 @@ class Coverage:
 
 @dataclass(frozen=True)
 class RegulatorConfig:
-    """AI 监管（agent-review）配置：verify 机器项全过后调用的外部模型。"""
+    """AI 监管（agent-review）配置：verify 机器项全过后调用的外部模型。
+
+    worker_model 声明被治理方的模型（9.10 安达信条款）：监管与 worker 同族
+    时配置被拒，除非 allow_same_family 显式豁免（会进账本并大字警告）。
+    """
 
     enabled: bool = False
     endpoint: str = ""
@@ -107,6 +111,8 @@ class RegulatorConfig:
     api_key_env: str = "AG2C_REGULATOR_API_KEY"
     strict: bool = False
     timeout: int = 180
+    worker_model: str = ""
+    allow_same_family: bool = False
 
 
 @dataclass(frozen=True)

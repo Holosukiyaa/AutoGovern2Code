@@ -758,12 +758,17 @@ def configure_regulator(
     api_key_env: str | None = None,
     strict: bool | None = None,
     timeout: int | None = None,
+    worker_model: str | None = None,
+    allow_same_family: bool | None = None,
 ) -> dict[str, Any]:
     """Configure the AI regulator (agent-review) without hand-editing policy.json.
 
     Only the fields passed are changed; disabling keeps endpoint/model so a
     parked regulator can be re-enabled without retyping. Enabling without
     endpoint/model fails policy validation and rolls back.
+
+    9.10 安达信条款：启用状态下监管模型与 worker_model 同族时拒绝配置，
+    除非 allow_same_family=True 显式豁免（豁免进账本并返回大字警告）。
     """
     actor = actor.strip()
     reason = reason.strip()
@@ -776,9 +781,11 @@ def configure_regulator(
         and api_key_env is None
         and strict is None
         and timeout is None
+        and worker_model is None
+        and allow_same_family is None
     ):
         raise AG2CError(
-            "nothing to change; pass --enable, --endpoint, --model, --api-key-env, --strict, or --timeout"
+            "nothing to change; pass --enable, --endpoint, --model, --api-key-env, --strict, --timeout, --worker-model, or --allow-same-family"
         )
     root = repository_root(start)
     manifest = load_manifest(discover_manifest(root), project_root=root)
@@ -806,6 +813,29 @@ def configure_regulator(
             raise AG2CError("timeout must be positive")
         target["timeout"] = timeout
         changes["timeout"] = timeout
+    if worker_model is not None:
+        target["worker_model"] = worker_model.strip()
+        changes["worker_model"] = target["worker_model"]
+    if allow_same_family is not None:
+        target["allow_same_family"] = allow_same_family
+        changes["allow_same_family"] = allow_same_family
+    # 9.10 安达信条款：对合并后的目标状态做同族检测（启用才判定）。
+    from .review import model_family, same_family
+
+    family_warning = ""
+    if target.get("enabled") and same_family(str(target.get("model", "")), str(target.get("worker_model", ""))):
+        regulator_family = model_family(str(target.get("model", "")))
+        if not target.get("allow_same_family"):
+            raise AG2CError(
+                "监管模型与 worker 同族（安达信条款），配置被拒绝："
+                f"regulator={target.get('model')} worker={target.get('worker_model')} 同属 {regulator_family}。"
+                "监管的钱不能由被监管者出——换一个厂商的监管模型，"
+                "或显式 --allow-same-family 申报豁免（会进账本）。"
+            )
+        family_warning = (
+            f"⚠⚠⚠ 安达信条款豁免：监管与 worker 同属 {regulator_family} 家族，异构名存实亡。"
+            "此豁免已写入 policy 与账本，复盘时须说明理由。⚠⚠⚠"
+        )
     raw["regulator"] = target
     before = manifest.policy_path.read_text(encoding="utf-8")
     _atomic_json(manifest.policy_path, raw)
@@ -818,7 +848,15 @@ def configure_regulator(
     event = append_event(
         manifest.ledger_path,
         "governance-applied",
-        {"action": "update", "kind": "regulator", "id": "regulator", "changes": changes, "actor": actor, "reason": reason},
+        {
+            "action": "update",
+            "kind": "regulator",
+            "id": "regulator",
+            "changes": changes,
+            "actor": actor,
+            "reason": reason,
+            **({"same_family_exemption": family_warning} if family_warning else {}),
+        },
     )
     pending_updates(root)
     return {
@@ -828,6 +866,7 @@ def configure_regulator(
         "actor": actor,
         "reason": reason,
         "ledger_event_digest": event["event_digest"],
+        **({"warning": family_warning} if family_warning else {}),
     }
 
 

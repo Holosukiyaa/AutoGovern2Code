@@ -379,4 +379,6 @@ def _regulator_config(value: Any) -> RegulatorConfig | None:
         api_key_env=api_key_env,
         strict=strict,
         timeout=timeout,
+        worker_model=str(value.get("worker_model", "") or "").strip(),
+        allow_same_family=bool(value.get("allow_same_family", False)),
     )

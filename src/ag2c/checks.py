@@ -419,9 +419,16 @@ def baseline_debt(manifest: Manifest) -> dict[str, Any]:
 # time while still present hardens into a gate block. Informational hints
 # (cross-slice-dependency) describe blast radius, not defects — a hub module
 # cannot "fix" being imported — so they are tracked but never escalate.
+#
+# 计数语义（t25 调优）："无视"按任务计，不按 verify 运行次数计——同一任务
+# 内重试 verify（修无关问题、普查过期、换行符事故）不等于无视警告。调用方
+# 传 count_key（verify 传 task_id）时按 key 去重；不传 count_key 的调用
+# （CLI check / 金丝雀 / CI 重放）只读不写——金丝雀跑的是变异代码，其警告
+# 不应污染历史。
 WARNING_ESCALATION_THRESHOLD = 3
 WARNING_HISTORY_SCHEMA = "ag2c.warning-history.v1"
 ESCALATABLE_KINDS = frozenset({"over-budget", "possible-duplicate"})
+_MAX_COUNT_KEYS = 50
 
 
 def _warning_history_path(manifest: Manifest) -> Path:
@@ -445,13 +452,19 @@ def _load_warning_history(manifest: Manifest) -> dict[str, Any]:
     return raw
 
 
-def _record_warnings_and_find_escalated(manifest: Manifest, warnings: list[dict[str, str]]) -> list[dict[str, Any]]:
+def _record_warnings_and_find_escalated(
+    manifest: Manifest, warnings: list[dict[str, str]], count_key: str | None = None
+) -> list[dict[str, Any]]:
     """Persist this run's warning appearances; return the ones that just hardened.
 
     A warning escalates when its cumulative appearance count reaches
     WARNING_ESCALATION_THRESHOLD and it is still present in this run. A warning
     that disappears stops blocking; its count is kept, so a recurring problem
     does not reset the clock.
+
+    count_key（verify 传 task_id）按任务去重：同一任务重试多次只计一次。
+    count_key 为 None 的调用（CLI check / 金丝雀 / CI 重放）只读不写——
+    仍然依据既有计数报告已升级的警告，但不产生新计数。
     """
     history = _load_warning_history(manifest)
     store = history["warnings"]
@@ -466,18 +479,25 @@ def _record_warnings_and_find_escalated(manifest: Manifest, warnings: list[dict[
         entry = store.get(fingerprint)
         if not isinstance(entry, dict):
             entry = {"kind": warning.get("kind"), "key": warning.get("key"), "count": 0, "first_seen": now}
-            store[fingerprint] = entry
-        entry["count"] = int(entry.get("count") or 0) + 1
-        entry["last_seen"] = now
-        entry["detail"] = str(warning.get("detail") or "")
-        if str(entry.get("kind") or "") in ESCALATABLE_KINDS and entry["count"] >= WARNING_ESCALATION_THRESHOLD:
+            if count_key is not None:
+                store[fingerprint] = entry
+        if count_key is not None:
+            count_keys = entry.setdefault("count_keys", [])
+            if count_key not in count_keys:
+                entry["count"] = int(entry.get("count") or 0) + 1
+                count_keys.append(count_key)
+                del count_keys[:-_MAX_COUNT_KEYS]  # 只留最近一批 key；count 单调不回退
+            entry["last_seen"] = now
+            entry["detail"] = str(warning.get("detail") or "")
+        if str(entry.get("kind") or "") in ESCALATABLE_KINDS and int(entry.get("count") or 0) >= WARNING_ESCALATION_THRESHOLD:
             escalated.append({**warning, "count": entry["count"]})
-    try:
-        path = _warning_history_path(manifest)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(history, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    except OSError:
-        return []  # best-effort: without persistence there is no memory, so no escalation
+    if count_key is not None:
+        try:
+            path = _warning_history_path(manifest)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(history, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        except OSError:
+            return []  # best-effort: without persistence there is no memory, so no escalation
     return escalated
 
 
@@ -888,7 +908,7 @@ def run_checks(
     if warnings:
         report["warnings"] = warnings
     # 9.7: count appearances; defect-class warnings harden into gate blocks.
-    escalated = _record_warnings_and_find_escalated(manifest, warnings)
+    escalated = _record_warnings_and_find_escalated(manifest, warnings, count_key=task_id)
     if escalated:
         report["escalated_warnings"] = escalated
     # 9.12: baseline debt vs ratcheting target (advisory; the dashboard alerts).

@@ -255,7 +255,7 @@ class WarningEscalationTests(unittest.TestCase):
     def test_first_appearances_do_not_escalate(self) -> None:
         warning = self._budget_warning()
         for expected_count in (1, 2):
-            escalated = _record_warnings_and_find_escalated(self.manifest, [warning])
+            escalated = _record_warnings_and_find_escalated(self.manifest, [warning], count_key=f"task-{expected_count}")
             self.assertEqual([], escalated)
             history = _load_warning_history(self.manifest)
             counts = [e["count"] for e in history["warnings"].values()]
@@ -263,30 +263,53 @@ class WarningEscalationTests(unittest.TestCase):
 
     def test_third_appearance_escalates(self) -> None:
         warning = self._budget_warning()
-        _record_warnings_and_find_escalated(self.manifest, [warning])
-        _record_warnings_and_find_escalated(self.manifest, [warning])
-        escalated = _record_warnings_and_find_escalated(self.manifest, [warning])
+        _record_warnings_and_find_escalated(self.manifest, [warning], count_key="task-1")
+        _record_warnings_and_find_escalated(self.manifest, [warning], count_key="task-2")
+        escalated = _record_warnings_and_find_escalated(self.manifest, [warning], count_key="task-3")
         self.assertEqual(1, len(escalated))
         self.assertEqual("over-budget", escalated[0]["kind"])
         self.assertEqual(WARNING_ESCALATION_THRESHOLD, escalated[0]["count"])
 
+    def test_same_count_key_retries_count_once(self) -> None:
+        """9.7 计数语义（t25）：同一任务内 verify 重试不等于无视警告。"""
+        warning = self._budget_warning()
+        for _ in range(WARNING_ESCALATION_THRESHOLD + 2):
+            escalated = _record_warnings_and_find_escalated(self.manifest, [warning], count_key="task-1")
+            self.assertEqual([], escalated)  # 重试不升级
+        history = _load_warning_history(self.manifest)
+        counts = [e["count"] for e in history["warnings"].values()]
+        self.assertEqual([1], counts)
+
+    def test_none_count_key_is_read_only(self) -> None:
+        """无 count_key 的调用（CLI check/金丝雀/CI 重放）只读不写：
+        不产生新计数，但仍依据既有计数报告已升级的警告。"""
+        warning = self._budget_warning()
+        escalated = _record_warnings_and_find_escalated(self.manifest, [warning])
+        self.assertEqual([], escalated)
+        history = _load_warning_history(self.manifest)
+        self.assertEqual({}, history["warnings"])  # 未写入
+        for i in range(WARNING_ESCALATION_THRESHOLD):
+            _record_warnings_and_find_escalated(self.manifest, [warning], count_key=f"task-{i}")
+        escalated = _record_warnings_and_find_escalated(self.manifest, [warning])  # 只读仍报升级
+        self.assertEqual(1, len(escalated))
+
     def test_disappeared_warning_does_not_escalate_but_count_is_kept(self) -> None:
         warning = self._budget_warning()
-        _record_warnings_and_find_escalated(self.manifest, [warning])
-        _record_warnings_and_find_escalated(self.manifest, [warning])
+        _record_warnings_and_find_escalated(self.manifest, [warning], count_key="task-1")
+        _record_warnings_and_find_escalated(self.manifest, [warning], count_key="task-2")
         # Warning fixed: absent from this run -> no escalation.
-        escalated = _record_warnings_and_find_escalated(self.manifest, [])
+        escalated = _record_warnings_and_find_escalated(self.manifest, [], count_key="task-3")
         self.assertEqual([], escalated)
         # Reappears later: count continues, third appearance hardens.
-        escalated = _record_warnings_and_find_escalated(self.manifest, [warning])
+        escalated = _record_warnings_and_find_escalated(self.manifest, [warning], count_key="task-4")
         self.assertEqual(1, len(escalated))
 
     def test_informational_hint_never_escalates(self) -> None:
         hint = {"kind": "cross-slice-dependency", "key": "src/ag2c/checks.py",
                 "detail": "src/ag2c/checks.py 被切片外 5 个文件 import"}
         self.assertNotIn("cross-slice-dependency", ESCALATABLE_KINDS)
-        for _ in range(WARNING_ESCALATION_THRESHOLD + 2):
-            escalated = _record_warnings_and_find_escalated(self.manifest, [hint])
+        for i in range(WARNING_ESCALATION_THRESHOLD + 2):
+            escalated = _record_warnings_and_find_escalated(self.manifest, [hint], count_key=f"task-{i}")
             self.assertEqual([], escalated)
         history = _load_warning_history(self.manifest)
         counts = [e["count"] for e in history["warnings"].values()]
@@ -295,7 +318,7 @@ class WarningEscalationTests(unittest.TestCase):
     def test_corrupt_history_file_starts_fresh(self) -> None:
         path = self._tmp / "state" / "warning-history.json"
         path.write_text("{not json", encoding="utf-8")
-        escalated = _record_warnings_and_find_escalated(self.manifest, [self._budget_warning()])
+        escalated = _record_warnings_and_find_escalated(self.manifest, [self._budget_warning()], count_key="task-1")
         self.assertEqual([], escalated)
         history = _load_warning_history(self.manifest)
         self.assertEqual(1, len(history["warnings"]))
@@ -303,7 +326,7 @@ class WarningEscalationTests(unittest.TestCase):
     def test_fingerprint_distinguishes_dimensions(self) -> None:
         lines = self._budget_warning()
         chars = {**lines, "dimension": "chars", "key": "knowledge.room:chars"}
-        _record_warnings_and_find_escalated(self.manifest, [lines, chars])
+        _record_warnings_and_find_escalated(self.manifest, [lines, chars], count_key="task-1")
         history = _load_warning_history(self.manifest)
         self.assertEqual(2, len(history["warnings"]))
 
@@ -339,12 +362,12 @@ class WarningEscalationTests(unittest.TestCase):
         """Several instances of one logical warning = one appearance per run."""
         warning = self._budget_warning()
         three_instances = [dict(warning), dict(warning), dict(warning)]
-        for _ in range(2):
-            escalated = _record_warnings_and_find_escalated(self.manifest, three_instances)
+        for i in range(2):
+            escalated = _record_warnings_and_find_escalated(self.manifest, three_instances, count_key=f"task-{i}")
             self.assertEqual([], escalated)
         history = _load_warning_history(self.manifest)
         counts = [e["count"] for e in history["warnings"].values()]
-        self.assertEqual([2], counts)  # 2 runs, not 6 instances
+        self.assertEqual([2], counts)  # 2 tasks, not 6 instances
 
     def test_unittest_convention_methods_not_flagged_as_duplicates(self) -> None:
         """setUp/tearDown are scaffolding, not duplication (noise must not escalate)."""

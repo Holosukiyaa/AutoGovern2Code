@@ -32,6 +32,17 @@ HAZARD_LABELS = {
     "stale": "普查过期",
 }
 
+#: 检查阶段标签：阴影行用，大白话（代码库内阶段名只有英文）。
+STAGE_LABELS = {
+    "static": "静态检查",
+    "floor": "房间测试",
+    "boundary": "边界测试",
+    "scenario": "场景测试",
+}
+
+#: 阴影行里最多点名的跳过 checker 数，超出折叠为"等 N 项"。
+MAX_LISTED_SHADOW_SKIPS = 2
+
 
 def _text(row: dict[str, Any] | None, key: str) -> str:
     if not isinstance(row, dict):
@@ -43,6 +54,38 @@ def _text(row: dict[str, Any] | None, key: str) -> str:
 def _clip(value: str, limit: int = MAX_GOAL_CHARS) -> str:
     value = " ".join(str(value).split())
     return value if len(value) <= limit else value[: limit - 1].rstrip() + "…"
+
+
+def verification_shadow(verification: dict[str, Any]) -> list[str]:
+    """绿灯的阴影：本次验证"没有检查什么"，固定模板，制度在说话。
+
+    数据全部来自验证记录既有字段（acceptance / checker_results / regulator），
+    不新增采集。任何字段缺失或畸形都静默跳过对应条目——未知不编造。
+    """
+    shadow: list[str] = []
+    acceptance = verification.get("acceptance")
+    if isinstance(acceptance, dict) and acceptance:
+        if acceptance.get("complete") != "passed":
+            shadow.append("未做全量验收")
+        for stage, label in STAGE_LABELS.items():
+            state = acceptance.get(stage)
+            if state == "not-run":
+                shadow.append(f"{label}未运行")
+            elif state == "not-applicable":
+                shadow.append(f"{label}未配置")
+    skipped = [
+        _text(item, "id")
+        for item in verification.get("checker_results") or []
+        if isinstance(item, dict) and item.get("status") == "skipped" and _text(item, "id")
+    ]
+    if skipped:
+        named = "、".join(skipped[:MAX_LISTED_SHADOW_SKIPS])
+        if len(skipped) > MAX_LISTED_SHADOW_SKIPS:
+            named += f" 等 {len(skipped)} 项"
+        shadow.append(f"跳过的检查：{named}")
+    if not isinstance(verification.get("regulator"), dict):
+        shadow.append("无 AI 监管记录")
+    return shadow
 
 
 def open_tasks(details: dict[str, Any]) -> list[dict[str, Any]]:
@@ -57,6 +100,7 @@ def open_tasks(details: dict[str, Any]) -> list[dict[str, Any]]:
         worktree = task.get("worktree") if isinstance(task.get("worktree"), dict) else {}
         lifecycle = _text(worktree, "lifecycle")
         regulator = ""
+        shadow: list[str] = []
         verifications = task.get("verifications")
         if isinstance(verifications, list) and verifications:
             last = verifications[-1]
@@ -64,6 +108,7 @@ def open_tasks(details: dict[str, Any]) -> list[dict[str, Any]]:
                 reg = last.get("regulator")
                 if isinstance(reg, dict):
                     regulator = _text(reg, "outcome")
+                shadow = verification_shadow(last)
         tasks.append(
             {
                 "id": _text(task, "id"),
@@ -74,6 +119,7 @@ def open_tasks(details: dict[str, Any]) -> list[dict[str, Any]]:
                 "diverged": bool(worktree.get("diverged")),
                 "created_at": _text(task, "created_at"),
                 "regulator": regulator,
+                "shadow": shadow,
             }
         )
     return tasks
@@ -295,6 +341,10 @@ def draw_dashboard(model: dict[str, Any]) -> None:
                 "unavailable": ("监管：本次缺 AI 监管", (0.95, 0.70, 0.30, 1.0)),
             }.get(regulator, (f"监管：{regulator}", (0.95, 0.70, 0.30, 1.0)))
             imgui.text_colored(reg_color, label)
+        # 绿灯带阴影：每个"通过"旁标注本次未检查什么，让绿灯自带存疑。
+        shadow = task.get("shadow") or []
+        if shadow:
+            imgui.text_disabled("本次未检查：" + "；".join(shadow))
     imgui.separator()
 
     imgui.text("巡逻记录")

@@ -34,6 +34,7 @@ FAST = [
     "test_floor_ladder",
     "test_front_back",
     "test_graph",
+    "test_green_shadow",
     "test_harnesses",
     "test_hazard",
     "test_index",

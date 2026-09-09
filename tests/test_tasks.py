@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import bootstrap
 
 from ag2c.model import Manifest
 from ag2c.tasks import _finish_hints
 
-from support import write_project
+from support import git_project, record_census, write_project
 
 
 def _bare_manifest(root: Path) -> Manifest:
@@ -150,6 +153,128 @@ class VerificationEvidenceTests(unittest.TestCase):
             manifest, task, verification, valid = self._fixture(Path(directory))
             verification["changed_paths"] = ["app:src/other.py"]
             self.assertFalse(valid(manifest, task, verification))
+
+
+class AutoRefreshTests(unittest.TestCase):
+    """并行税自愈：canonical 增量与任务路径不相交时，verify/finish 自动 refresh 而非报错。"""
+
+    def _project(self, tmp: str) -> Path:
+        """生产拓扑夹具：enroll_project 外部存储 + gated 夹具 policy。
+
+        仓内 .ag2c 夹具的 state/ledger 是 per-checkout 的，finish 的 receipt 验证
+        会找不到文件；真实项目是 enroll 的外部存储（canonical 与 worktree 共享）。
+        """
+        import os
+        import shutil
+
+        from ag2c.enrollment import enroll_project
+
+        base = Path(tmp)
+        root = git_project(base / "proj")
+        # 夹具房间文件（write_project 只写在 scratch 里做 policy 母本，项目树要自己带）
+        (root / "src" / "api").mkdir(parents=True)
+        (root / "src" / "worker").mkdir(parents=True)
+        (root / "src" / "api" / "service.py").write_text("VALUE = 'api'\n", encoding="utf-8")
+        (root / "src" / "worker" / "job.py").write_text("VALUE = 'worker'\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(root), "add", "--all"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(root), "commit", "-m", "rooms"], check=True, capture_output=True)
+        with mock.patch.dict(os.environ, {"AG2C_DATA_ROOT": str(base / "ag2c-data")}, clear=False):
+            result = enroll_project(root, skill_root=base / "skills", harnesses=("agents",))
+        store = Path(result["store"])
+        scratch = base / "scratch"
+        write_project(scratch, gated=True)
+        shutil.copy2(scratch / ".ag2c" / "policy.json", store / "policy.json")
+        # enroll 保持工作树干净（外部存储拓扑），无需提交；canonical 干净即可开任务
+        return root
+
+    def _start(self, root: Path):
+        from ag2c.tasks import start_task
+
+        portrait = (
+            "Done looks like: 服务函数返回值变更。Surfaces: verify 通过。"
+            "Out of result: 不动其他模块。验证层: 机器验证 tests 套件全绿，输出片段进 finish proof。"
+        )
+        return start_task(
+            root,
+            goal="change",
+            path_specs=["app:src/api/service.py"],
+            contract_specs=[],
+            portrait=portrait,
+            worktree_root=root.parent / "worktrees",
+        )
+
+    def _touch_task_file(self, worktree: Path) -> None:
+        service = worktree / "src" / "api" / "service.py"
+        service.write_text(service.read_text(encoding="utf-8") + "# touched by task\n", encoding="utf-8")
+
+    def _diverge_canonical(self, root: Path, rel: str) -> None:
+        target = root / rel
+        target.write_text(target.read_text(encoding="utf-8") + "# other lane\n", encoding="utf-8")
+        # 只提交目标文件 + --no-verify：模拟另一条泳道的 finish 合并（merge 不触发 pre-commit）
+        subprocess.run(["git", "-C", str(root), "add", "--", rel], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(root), "commit", "--no-verify", "-m", "other lane"], check=True, capture_output=True)
+
+    def _task_record(self, root: Path, task_id: str) -> dict:
+        from ag2c.config import discover_manifest, load_manifest
+
+        manifest = load_manifest(discover_manifest(root), project_root=root)
+        return json.loads((manifest.state_dir / "tasks" / f"{task_id}.json").read_text(encoding="utf-8"))
+
+    def test_verify_auto_refreshes_on_disjoint_divergence(self) -> None:
+        from ag2c.tasks import verify_task
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._project(tmp)
+            task = self._start(root)
+            worktree = Path(task["worktree"]["path"])
+            self._touch_task_file(worktree)
+            record_census(worktree)
+            self._diverge_canonical(root, "src/worker/job.py")
+            report = verify_task(worktree)
+            self.assertTrue(report["passed"])
+            self.assertEqual("verified", report["state"])
+            # refresh 的干预记录存在，且 worktree 已含 canonical 增量
+            record = self._task_record(root, task["id"])
+            self.assertIn("source-refreshed", [item["kind"] for item in record["interventions"]])
+            self.assertIn("# other lane", (worktree / "src" / "worker" / "job.py").read_text(encoding="utf-8"))
+            self.assertIn("# touched by task", (worktree / "src" / "api" / "service.py").read_text(encoding="utf-8"))
+
+    def test_verify_still_refuses_overlapping_divergence(self) -> None:
+        from ag2c.errors import AG2CError
+        from ag2c.tasks import verify_task
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._project(tmp)
+            task = self._start(root)
+            worktree = Path(task["worktree"]["path"])
+            self._touch_task_file(worktree)
+            record_census(worktree)
+            self._diverge_canonical(root, "src/api/service.py")  # 与任务路径相交
+            with self.assertRaisesRegex(AG2CError, "canonical HEAD changed"):
+                verify_task(worktree)
+            record = self._task_record(root, task["id"])
+            self.assertIn("canonical-head-diverged", [item["kind"] for item in record["interventions"]])
+
+    def test_finish_auto_recovers_on_disjoint_divergence(self) -> None:
+        from ag2c.tasks import finish_task, verify_task
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._project(tmp)
+            task = self._start(root)
+            worktree = Path(task["worktree"]["path"])
+            self._touch_task_file(worktree)
+            record_census(worktree)
+            self.assertTrue(verify_task(worktree)["passed"])
+            # verify 之后、finish 之前，另一条泳道合并了不相干的改动
+            self._diverge_canonical(root, "src/worker/job.py")
+            result = finish_task(root, task["id"], message="实现服务函数变更", proof="机器验证：夹具 checker 全绿")
+            self.assertEqual("completed", result["state"])
+            # 内联重验确实发生：两次验证记录，第二次绑定新 HEAD
+            record = self._task_record(root, task["id"])
+            self.assertEqual(2, len(record["verifications"]))
+            self.assertTrue(all(item["passed"] for item in record["verifications"]))
+            self.assertIn("# touched by task", (root / "src" / "api" / "service.py").read_text(encoding="utf-8"))
+            self.assertIn("# other lane", (root / "src" / "worker" / "job.py").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

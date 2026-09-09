@@ -807,7 +807,25 @@ def declare_front_back(start: Path, *, reason: str) -> dict[str, Any]:
     return {"task": task["id"], "touches_verification": declaration}
 
 
-def verify_task(start: Path) -> dict[str, Any]:
+def _committed_delta(canonical: Path, base: str, manifest) -> list[str]:
+    """canonical 在 base 之后已提交的增量文件。不含未跟踪文件——rebase 不碰它们；
+    账本/状态目录即使被误跟踪也视为噪声（否则并行泳道永远假相交）。"""
+    raw = str(git(canonical, "diff", "--name-only", "--no-renames", base, "HEAD"))
+    paths = sorted(line.strip().replace("\\", "/") for line in raw.splitlines() if line.strip())
+    noise: list[str] = []
+    for candidate in (manifest.ledger_path, manifest.state_dir):
+        try:
+            noise.append(Path(candidate).resolve().relative_to(canonical.resolve()).as_posix().rstrip("/"))
+        except (ValueError, OSError):
+            continue
+
+    def keep(path: str) -> bool:
+        return not any(path == prefix or path.startswith(prefix + "/") or path.startswith(prefix + ".") for prefix in noise)
+
+    return [path for path in paths if keep(path)]
+
+
+def verify_task(start: Path, *, _auto_refreshed: bool = False) -> dict[str, Any]:
     worktree = repository_root(start)
     canonical, task = _task_from_worktree(worktree)
     _require_open_task(task)
@@ -816,7 +834,18 @@ def verify_task(start: Path) -> dict[str, Any]:
     if formal_dirty:
         _record_intervention(canonical, canonical_manifest, task, "canonical-write-blocked", {"paths": formal_dirty})
         raise AG2CError("canonical worktree changed during the task; refusing verification")
+    actual_paths = changed_paths(worktree, task["source"]["head"])
+    if not actual_paths:
+        raise AG2CError("task worktree has no changes to verify")
     if head(canonical) != task["source"]["head"]:
+        # 并行税自愈：canonical 增量与任务改动路径不相交时，自动 refresh 后继续，
+        # 不再要求 agent 手动跑 refresh + 重普查 + 重 verify 的三路命令循环。
+        # 相交（或增量为空但 HEAD 变了，如空提交）维持硬报错——路径级重叠需要人工判断。
+        delta = _committed_delta(canonical, str(task["source"]["head"]), canonical_manifest)
+        overlap = sorted(set(delta) & set(actual_paths))
+        if not _auto_refreshed and delta and not overlap:
+            refresh_task(canonical, str(task["id"]))
+            return verify_task(start, _auto_refreshed=True)
         _record_intervention(
             canonical,
             canonical_manifest,
@@ -828,9 +857,6 @@ def verify_task(start: Path) -> dict[str, Any]:
     stale_receipt = receipt_path(canonical_manifest, str(task["id"]))
     if stale_receipt.is_file():
         stale_receipt.unlink()
-    actual_paths = changed_paths(worktree, task["source"]["head"])
-    if not actual_paths:
-        raise AG2CError("task worktree has no changes to verify")
     manifest = load_manifest(discover_manifest(worktree), project_root=worktree)
     policy = load_policy(manifest)
     path_specs, unmanaged = _changed_specs(manifest, actual_paths)
@@ -1108,7 +1134,7 @@ def _auto_drill(canonical: Path) -> list[str]:
     return notes
 
 
-def finish_task(start: Path, task_id: str, *, message: str, proof: str = "") -> dict[str, Any]:
+def finish_task(start: Path, task_id: str, *, message: str, proof: str = "", _auto_recovered: bool = False) -> dict[str, Any]:
     root = repository_root(start)
     status = activation_status(root)
     canonical = Path(status["canonical_root"])
@@ -1137,6 +1163,20 @@ def finish_task(start: Path, task_id: str, *, message: str, proof: str = "") -> 
         _record_intervention(canonical, manifest, task, "merge-blocked-canonical-dirty", {"paths": dirty})
         raise AG2CError("canonical worktree is dirty; refusing merge")
     if head(canonical) != task["source"]["head"] or current_branch(canonical) != task["source"]["branch"]:
+        # 并行税自愈：canonical 增量与已验证的任务路径不相交时，自动 refresh +
+        # 内联重验 + 重入 finish（全部门禁重跑，证据重新绑定到新 HEAD）。
+        # 分支变更或路径相交维持硬报错。
+        if (
+            not _auto_recovered
+            and current_branch(canonical) == task["source"]["branch"]
+            and head(canonical) != task["source"]["head"]
+        ):
+            verified_paths = set(task["verifications"][-1].get("changed_paths", []))
+            delta = set(_committed_delta(canonical, str(task["source"]["head"]), manifest))
+            if delta and not (delta & verified_paths):
+                refresh_task(canonical, task_id)
+                verify_task(worktree)
+                return finish_task(start, task_id, message=message, proof=proof, _auto_recovered=True)
         raise AG2CError("canonical branch or HEAD changed; run `ag2c task refresh` or start a new task")
     current_digest = change_digest(worktree, task["source"]["head"])
     if current_digest != task["verifications"][-1]["change_digest"]:

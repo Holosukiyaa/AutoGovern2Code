@@ -83,6 +83,15 @@ def write_project(root: Path, *, extra_file: bool = False, gated: bool = False):
     (root / "src" / "worker").mkdir(parents=True)
     (root / "src" / "api" / "service.py").write_text("VALUE = 'api'\n", encoding="utf-8")
     (root / "src" / "worker" / "job.py").write_text("VALUE = 'worker'\n", encoding="utf-8")
+    # 与生产保真：enroll 的 IGNORE_BLOCK 忽略治理状态，否则 start_task 的账本写入
+    # 会让 canonical 永远 "dirty"，verify/finish 的脏检查直接误伤。
+    gitignore = root / ".gitignore"
+    existing = gitignore.read_text(encoding="utf-8") if gitignore.is_file() else ""
+    if ".ag2c/state/" not in existing:
+        gitignore.write_text(
+            existing + "# AG2C:BEGIN\n.ag2c/state/\n.ag2c/ledger.jsonl\n.ag2c/ledger.jsonl.lock\n# AG2C:END\n",
+            encoding="utf-8",
+        )
     if extra_file:
         (root / "src" / "other.py").write_text("VALUE = 'other'\n", encoding="utf-8")
     manifest = {
@@ -221,11 +230,13 @@ def record_census(root: Path, *, actor: str = "tester", reason: str = "fixture c
 
     if not (root / ".git").exists():
         subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, capture_output=True)
-    from ag2c.config import load_manifest, load_policy
+    from ag2c.config import discover_manifest, load_manifest, load_policy
     from ag2c.household_commands import review_census
     from ag2c.index import build_index
 
-    manifest = load_manifest(root / ".ag2c" / "manifest.json")
+    in_repo = root / ".ag2c" / "manifest.json"
+    # 外部存储拓扑（生产 enroll）：仓内没有 .ag2c，经 git config 发现共享 manifest
+    manifest = load_manifest(in_repo) if in_repo.is_file() else load_manifest(discover_manifest(root), project_root=root)
     policy = load_policy(manifest)
     build_index(manifest, policy)
     review_census(root, card_ids=[], all_cards=True, actor=actor, reason=reason)

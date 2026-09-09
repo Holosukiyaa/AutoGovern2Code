@@ -102,6 +102,27 @@ class AutoDrillTests(unittest.TestCase):
             self.assertIn("canary", command)
             self.assertEqual("mutation", command[command.index("--mode") + 1])
 
+    def test_drill_capture_forces_utf8(self) -> None:
+        """Windows 控制台是 GBK：子进程输出含 UTF-8 时 text=True 的默认编码
+        会在 reader 线程炸 UnicodeDecodeError（t22 实战教训）；纪要文本也不
+        能含 GBK 不可打印字符（finish hints 要打印）。"""
+        captured: list = []
+        fake = mock.Mock()
+
+        def run(cmd, **kwargs):
+            captured.append(kwargs)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        fake.run = run
+        with TemporaryDirectory() as tmp:
+            root = self._project_with_canary(Path(tmp))
+            with mock.patch("ag2c.patrol.DRILL_INTERVAL_DAYS", -1), mock.patch("ag2c.tasks.subprocess", fake):
+                notes = _auto_drill(root)
+            self.assertEqual("utf-8", captured[0].get("encoding"))
+            self.assertEqual("replace", captured[0].get("errors"))
+            for note in notes:
+                note.encode("gbk")  # GBK 控制台可打印，不抛即过
+
     def test_failed_drill_notes_alarm_without_raising(self) -> None:
         with TemporaryDirectory() as tmp:
             root = self._project_with_canary(Path(tmp))

@@ -465,6 +465,28 @@ def lint_portrait(portrait: str) -> list[str]:
     return violations
 
 
+def require_trunk(manifest, canonical: Path) -> str:
+    """正主必须处于登记主干分支。返回当前分支名。
+
+    finish 原本只问"任务期间分支变没变"，从不问"是不是主干"——2026-09-09
+    事故：正主停在旧 feature 分支上，全天 12 个任务的合并全部落在它头上，
+    主干原地不动而无人报警。一致性检查防漂移，身份检查防错位，两者都要。
+    """
+    branch = current_branch(canonical)
+    trunk = getattr(manifest, "trunk", "")
+    if not trunk:
+        raise AG2CError(
+            "正主未登记主干分支；请运行 ag2c govern trunk --branch <name> 登记"
+            f"（当前分支：{branch or 'detached'}）"
+        )
+    if branch != trunk:
+        raise AG2CError(
+            f"正主不在登记主干上（当前 {branch or 'detached'}，登记主干 {trunk}）；"
+            "请切回主干后再试"
+        )
+    return branch
+
+
 def start_task(
     start: Path,
     *,
@@ -504,6 +526,7 @@ def start_task(
         _notify_gate_block(canonical, "gate-block", "房间债务拦截", str(exc)[:200])
         raise
     manifest, policy = _canonical_manifest(canonical)
+    require_trunk(manifest, canonical)
     build_index(manifest, policy, index_path(manifest))
     entry_slice = compile_slice(
         manifest,
@@ -1024,6 +1047,7 @@ def finish_task(start: Path, task_id: str, *, message: str, proof: str = "") -> 
     task = _load_task(canonical, task_id)
     _require_open_task(task)
     manifest, policy = _canonical_manifest(canonical)
+    require_trunk(manifest, canonical)
     if not _start_evidence_valid(manifest, task):
         raise AG2CError("task start evidence is missing or inconsistent")
     if not task["verifications"] or not task["verifications"][-1]["passed"]:

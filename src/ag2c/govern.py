@@ -870,6 +870,59 @@ def configure_regulator(
     }
 
 
+def configure_trunk(start: Path, *, branch: str, actor: str, reason: str) -> dict[str, Any]:
+    """登记/变更正主的登记主干分支（manifest project.trunk），进账本。
+
+    start/finish 的 trunk 守卫以此为准。登记的分支必须真实存在——
+    把主干登记成一个不存在的分支等于没有守卫。
+    """
+    actor = actor.strip()
+    reason = reason.strip()
+    branch = branch.strip()
+    if not actor or not reason:
+        raise AG2CError("governance trunk requires --actor and --reason")
+    if not branch:
+        raise AG2CError("governance trunk requires --branch")
+    root = repository_root(start)
+    from .gitops import git
+
+    git(root, "rev-parse", "--verify", f"refs/heads/{branch}")
+    manifest = load_manifest(discover_manifest(root), project_root=root)
+    raw = _read_json(manifest.path)
+    project = raw.setdefault("project", {})
+    previous = str(project.get("trunk") or "")
+    if previous == branch:
+        return {"action": "update", "kind": "trunk", "changes": {}, "actor": actor, "reason": reason}
+    project["trunk"] = branch
+    _atomic_json(manifest.path, raw)
+    try:
+        load_manifest(manifest.path)
+    except ConfigurationError as exc:
+        project["trunk"] = previous
+        _atomic_json(manifest.path, raw)
+        raise AG2CError(f"updated manifest is invalid (rolled back): {exc}") from exc
+    event = append_event(
+        manifest.ledger_path,
+        "governance-applied",
+        {
+            "action": "update",
+            "kind": "trunk",
+            "id": "trunk",
+            "changes": {"trunk": {"from": previous, "to": branch}},
+            "actor": actor,
+            "reason": reason,
+        },
+    )
+    return {
+        "action": "update",
+        "kind": "trunk",
+        "changes": {"trunk": {"from": previous, "to": branch}},
+        "actor": actor,
+        "reason": reason,
+        "ledger_event_digest": event["event_digest"],
+    }
+
+
 def retrieve_guidance(start: Path, *, path_specs: list[str], contract_specs: list[str] | None = None, goal: str = "", all_mode: bool = False) -> dict[str, Any]:
     root = repository_root(start)
     manifest = load_manifest(discover_manifest(root), project_root=root)

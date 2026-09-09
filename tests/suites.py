@@ -42,6 +42,7 @@ FAST = [
     "test_suites",
     "test_sunset",
     "test_tasks",
+    "test_trunk_guard",
 ]
 
 SUITES = {

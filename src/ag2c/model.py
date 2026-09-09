@@ -21,6 +21,7 @@ class Manifest:
     state_dir: Path
     ledger_path: Path
     targets: tuple[Target, ...]
+    trunk: str = ""  # 登记主干分支；空 = 未登记（fail-closed：start/finish 拒绝）
 
     def target(self, target_id: str) -> Target:
         return next(target for target in self.targets if target.target_id == target_id)

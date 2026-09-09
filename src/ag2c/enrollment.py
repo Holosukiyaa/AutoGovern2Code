@@ -560,7 +560,7 @@ def enroll_project(
     checkers = _native_checkers(root)
     manifest = {
         "schema": MANIFEST_SCHEMA,
-        "project": {"id": project_id, "root": str(root)},
+        "project": {"id": project_id, "root": str(root), "trunk": current_branch(root)},
         "policy": "policy.json",
         "state_dir": "state",
         "ledger": "ledger.jsonl",
@@ -1237,6 +1237,15 @@ def activation_status(start: Path) -> dict[str, Any]:
         issues.append("AG2C Git guard hook is missing")
     elif activation and digest_file(guard) != activation.get("guard_digest"):
         issues.append("AG2C Git guard hook changed after activation")
+    branch_info: dict[str, Any] = {}
+    if manifest is not None:
+        current = current_branch(canonical)
+        trunk = manifest.trunk
+        branch_info = {"current": current, "trunk": trunk, "on_trunk": bool(trunk) and current == trunk}
+        if trunk and current != trunk:
+            issues.append(
+                f"canonical worktree is not on the registered trunk (current {current or 'detached'}, trunk {trunk})"
+            )
     return {
         "managed": not issues,
         "canonical_root": str(canonical),
@@ -1244,6 +1253,7 @@ def activation_status(start: Path) -> dict[str, Any]:
         "store": str(manifest_path.parent) if manifest_path is not None else None,
         "issues": issues,
         "activation": activation,
+        "branch": branch_info,
     }
 
 

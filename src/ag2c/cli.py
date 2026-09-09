@@ -389,6 +389,10 @@ def build_parser() -> argparse.ArgumentParser:
     regulator_cmd.add_argument("--actor", required=True)
     regulator_cmd.add_argument("--reason", required=True)
     regulator_cmd.add_argument("--format", choices=("text", "json"), default="json")
+    trunk_cmd = govern_commands.add_parser("trunk", help="登记/变更正主的登记主干分支（start/finish 前置守卫以此为准）")
+    trunk_cmd.add_argument("--branch", required=True)
+    trunk_cmd.add_argument("--actor", required=True)
+    trunk_cmd.add_argument("--reason", required=True)
 
     doctor = subparsers.add_parser("doctor", help="check configuration, activation, tools, index, and ledger")
     doctor.add_argument("--repair", action="store_true", help="restore the Skill, Git guard, activation, and index")
@@ -967,6 +971,10 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 if isinstance(result, dict) and result.get("warning"):
                     print(result["warning"], file=sys.stderr)
+            elif args.govern_command == "trunk":
+                from .govern import configure_trunk
+
+                result = configure_trunk(Path.cwd(), branch=args.branch, actor=args.actor, reason=args.reason)
             elif args.govern_command == "apply":
                 result = apply_change(
                     Path.cwd(),

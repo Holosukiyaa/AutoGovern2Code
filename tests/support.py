@@ -87,7 +87,8 @@ def write_project(root: Path, *, extra_file: bool = False, gated: bool = False):
         (root / "src" / "other.py").write_text("VALUE = 'other'\n", encoding="utf-8")
     manifest = {
         "schema": "ag2c.manifest.v1",
-        "project": {"id": "test-project"},
+        # enroll 现在会自动登记当前分支为 trunk；夹具与生产保真（git_project 一律 init -b main）
+        "project": {"id": "test-project", "trunk": "main"},
         "policy": ".ag2c/policy.json",
         "state_dir": ".ag2c/state",
         "ledger": ".ag2c/ledger.jsonl",

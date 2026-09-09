@@ -136,6 +136,7 @@ def load_manifest(path: Path, *, project_root: Path | None = None) -> Manifest:
         state_dir=(config_root / state_rel).resolve(),
         ledger_path=(config_root / ledger_rel).resolve(),
         targets=tuple(targets),
+        trunk=str(project.get("trunk") or "").strip(),
     )
 
 

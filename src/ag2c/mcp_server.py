@@ -89,6 +89,11 @@ def _launch_src(module_file: Path, cwd: Path) -> Path:
     module's own src.
     """
     module_src = module_file.resolve().parents[1]
+    if "worktrees" not in {part.lower() for part in module_src.parts}:
+        # Fast path: a module outside any worktrees dir can never satisfy
+        # is_relative_to(worktrees) below. Skip manifest discovery — it spawns
+        # a git subprocess (~60ms on Windows) and the tray calls this per frame.
+        return module_src
     try:
         from .config import discover_manifest, load_manifest
 

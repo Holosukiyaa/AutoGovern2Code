@@ -1217,6 +1217,67 @@ class TrayHostHelperTests(unittest.TestCase):
             self.assertEqual(listed.call_count, 2)
 
 
+class McpHealthCacheTests(unittest.TestCase):
+    """项目栏每帧调 mcp_health_snapshot；底层探测含文件/子进程开销，必须走 TTL 缓存。"""
+
+    def setUp(self) -> None:
+        from ag2c_gui import tray_host
+
+        tray_host._mcp_health_cache.clear()
+
+    def tearDown(self) -> None:
+        from ag2c_gui import tray_host
+
+        tray_host._mcp_health_cache.clear()
+
+    def _counting_health(self):
+        calls = []
+
+        def _fake(**kwargs):
+            calls.append(kwargs)
+            return {"ok": True, "label": "MCP 正常", "calls": len(calls)}
+
+        return calls, _fake
+
+    def test_same_key_reuses_cached_snapshot(self) -> None:
+        from unittest.mock import patch
+
+        from ag2c_gui import tray_host
+
+        calls, fake = self._counting_health()
+        with patch("ag2c.mcp_server.mcp_health", fake):
+            first = tray_host.mcp_health_snapshot(handshake=False, cwd="proj", managed=True)
+            second = tray_host.mcp_health_snapshot(handshake=False, cwd="proj", managed=True)
+        self.assertEqual(1, len(calls))
+        self.assertIs(first, second)
+
+    def test_cache_expires_after_ttl(self) -> None:
+        from unittest.mock import patch
+
+        from ag2c_gui import tray_host
+
+        calls, fake = self._counting_health()
+        clock = {"now": 1000.0}
+        fake_time = type("T", (), {"monotonic": staticmethod(lambda: clock["now"])})
+        with patch("ag2c.mcp_server.mcp_health", fake), patch.object(tray_host, "time", fake_time):
+            tray_host.mcp_health_snapshot(handshake=False, cwd="proj", managed=True)
+            clock["now"] += tray_host._MCP_HEALTH_TTL_S + 0.1
+            tray_host.mcp_health_snapshot(handshake=False, cwd="proj", managed=True)
+        self.assertEqual(2, len(calls))
+
+    def test_different_key_probes_separately(self) -> None:
+        from unittest.mock import patch
+
+        from ag2c_gui import tray_host
+
+        calls, fake = self._counting_health()
+        with patch("ag2c.mcp_server.mcp_health", fake):
+            tray_host.mcp_health_snapshot(handshake=False, cwd="proj-a", managed=True)
+            tray_host.mcp_health_snapshot(handshake=False, cwd="proj-b", managed=True)
+            tray_host.mcp_health_snapshot(handshake=True, cwd="proj-a", managed=True)
+        self.assertEqual(3, len(calls))
+
+
 class TrayGateTests(unittest.TestCase):
     def test_project_gate_rows_report_entry_delivery_records_and_anomalies(self) -> None:
         from ag2c_gui.tray_host import project_gate_rows

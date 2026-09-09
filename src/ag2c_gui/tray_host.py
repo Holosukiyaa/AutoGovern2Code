@@ -8,6 +8,7 @@ import secrets
 import socket
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -269,6 +270,10 @@ def mcp_entry_text(project_root: str = "") -> str:
     return text if text.endswith("\n") else text + "\n"
 
 
+_MCP_HEALTH_TTL_S = 5.0
+_mcp_health_cache: dict[tuple[Any, ...], tuple[float, dict[str, Any]]] = {}
+
+
 def mcp_health_snapshot(
     *,
     handshake: bool = False,
@@ -276,9 +281,33 @@ def mcp_health_snapshot(
     cwd: str | Path | None = None,
     managed: bool | None = None,
 ) -> dict[str, Any]:
+    """UI 侧健康快照：短 TTL 缓存。
+
+    项目栏每帧都会调用（文件树窗口打开时）；底层 mcp_health 的
+    mcp_launch_spec 在 worktree 场景要做 manifest 发现（git 子进程，
+    Windows 上约 60ms），逐帧调用会把 165fps 拖到 15fps。健康状态
+    变化是秒级事件，5s 缓存足够新鲜。
+    """
+    key = (
+        bool(handshake),
+        str(home) if home is not None else None,
+        str(cwd) if cwd is not None else None,
+        managed,
+    )
+    now = time.monotonic()
+    hit = _mcp_health_cache.get(key)
+    if hit is not None and now - hit[0] < _MCP_HEALTH_TTL_S:
+        return hit[1]
     from ag2c.mcp_server import mcp_health
 
-    return mcp_health(handshake=handshake, home=home, cwd=cwd, managed=managed)
+    value = mcp_health(handshake=handshake, home=home, cwd=cwd, managed=managed)
+    _mcp_health_cache[key] = (now, value)
+    if len(_mcp_health_cache) > 32:
+        # 项目切换会产生新 key；兜底清理过期项，避免长时间运行堆积。
+        stale = [k for k, (ts, _) in _mcp_health_cache.items() if now - ts >= _MCP_HEALTH_TTL_S]
+        for k in stale:
+            _mcp_health_cache.pop(k, None)
+    return value
 
 
 def project_gate_rows(

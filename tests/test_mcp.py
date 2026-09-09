@@ -81,6 +81,44 @@ class LaunchSrcTests(unittest.TestCase):
             module_file.write_text("", encoding="utf-8")
             self.assertEqual(module_file.parents[1], _launch_src(module_file, Path(directory)))
 
+    def test_non_worktree_module_never_discovers(self) -> None:
+        """托盘项目栏每帧调 mcp_launch_spec；发现内部起 git 子进程（Windows 约 60ms），
+        非 worktree 安装必须走快路径，完全不做 manifest 发现。"""
+        from unittest.mock import patch
+
+        from ag2c.mcp_server import _launch_src
+
+        def _forbidden(*args: object, **kwargs: object) -> None:
+            raise AssertionError("discover_manifest must not run for non-worktree installs")
+
+        with tempfile.TemporaryDirectory() as directory:
+            module_file = Path(directory) / "install" / "src" / "ag2c" / "mcp_server.py"
+            module_file.parent.mkdir(parents=True)
+            module_file.write_text("", encoding="utf-8")
+            with patch("ag2c.config.discover_manifest", _forbidden):
+                self.assertEqual(module_file.parents[1].resolve(), _launch_src(module_file, Path(directory)))
+
+    def test_worktree_module_still_discovers(self) -> None:
+        """路径里带 worktrees 时保持旧行为：发现仍会被调用（大小写不敏感）。"""
+        from unittest.mock import patch
+
+        from ag2c.mcp_server import _launch_src
+
+        called = []
+
+        def _spy(*args: object, **kwargs: object) -> None:
+            called.append(True)
+            raise RuntimeError("stop after proving discovery ran")
+
+        with tempfile.TemporaryDirectory() as directory:
+            module_file = Path(directory) / "WorkTrees" / "task-x" / "src" / "ag2c" / "mcp_server.py"
+            module_file.parent.mkdir(parents=True)
+            module_file.write_text("", encoding="utf-8")
+            with patch("ag2c.config.discover_manifest", _spy):
+                # 发现失败时回退模块自身 src；关键是发现被尝试了
+                self.assertEqual(module_file.parents[1].resolve(), _launch_src(module_file, Path(directory)))
+            self.assertTrue(called)
+
 
 class ResultGateTests(unittest.TestCase):
     def test_task_start_schema_requires_the_portrait(self) -> None:

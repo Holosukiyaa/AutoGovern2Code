@@ -1,0 +1,195 @@
+"""危房名单：把既有治理信号聚合成一张只读危楼清单，供市长看见哪些楼该修。
+
+反向开发不是删代码，是合并同类、提高复用、顺便丢废弃。名单只负责"看得见"，
+不动手。数据源全部已存在：
+- 变异存活（最重）：账本 canary 事件里 mutation 演习未被拦住 → 该区域测试空心
+- 查重警告：warning-history 的 possible-duplicate → 合并同类的机会
+- 预算超标：warning-history 的 over-budget → 楼体肥胖
+- 普查陈旧 / 过期卡片：census freshness=="stale" 的房间与 status=="stale" 的知识卡
+
+与 patrol 同一条军规：任何输入异常都降级为空报告，绝不抛异常——看板必须在
+项目出问题时也能渲染，因为那正是用户看它的时刻。
+"""
+from __future__ import annotations
+
+import json
+import re
+from datetime import datetime, timezone
+from typing import Any
+
+from .ledger import read_events
+
+HAZARD_SCHEMA = "ag2c.hazard.v1"
+
+#: 严重度基线：hollow（安全网缺失，最危险）> duplicate（复用债）> budget（肥胖）> stale（档案旧）。
+_KIND_WEIGHT = {"hollow": 40, "duplicate": 30, "budget": 20, "stale": 10}
+
+#: 固定建议模板——制度在说话，不是 AI 自由文本。
+SUGGESTIONS = {"hollow": "补杀变异测试", "duplicate": "合并同类", "budget": "瘦身或拆分", "stale": "复核普查"}
+
+#: 变异描述里的文件定位，形如 "比较符 >→>=（src/ag2c_gui/graph.py:248）"。
+_MUTATION_PATH = re.compile(r"（([^（）]+?):(\d+)）")
+
+#: 警告历史的升级计数只影响同档内排序，封顶避免淹没种类权重。
+_MAX_COUNT_BONUS = 5
+
+
+def _mutation_target(text: object) -> tuple[str, int | None]:
+    """从变异描述提取（文件路径, 行号）；提取不到返回空路径。"""
+    if not isinstance(text, str):
+        return "", None
+    match = _MUTATION_PATH.search(text)
+    if not match:
+        return "", None
+    return match.group(1).strip(), int(match.group(2))
+
+
+def _hollow_hazards(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """变异存活 = 该区域测试空心。后续同文件演习通过则标注 resolved（疑似已修复）。"""
+    survivors: dict[str, dict[str, Any]] = {}
+    passed_files: set[str] = set()
+    for event in events:
+        if event.get("event_type") != "canary":
+            continue
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if str(payload.get("mode") or "") != "mutation":
+            continue
+        path, line = _mutation_target(payload.get("mutation"))
+        if not path:
+            continue
+        if str(payload.get("canary") or "") == "failed":
+            survivors[path] = {
+                "target": path,
+                "kind": "hollow",
+                "line": line,
+                "detail": f"变异存活：{payload.get('mutation')}",
+                "evidence": {"store": "ledger", "event": "canary", "at": event.get("occurred_at")},
+                "resolved": False,
+            }
+        elif str(payload.get("canary") or "") == "passed":
+            passed_files.add(path)
+    hazards = []
+    for path, entry in survivors.items():
+        if path in passed_files:
+            entry["resolved"] = True
+            entry["detail"] += "（后续同文件演习已通过，疑似已修复）"
+        hazards.append(entry)
+    return hazards
+
+
+def _load_warning_history(manifest) -> dict[str, Any]:
+    """只读打开 state/warning-history.json；任何损坏都视为没有历史。"""
+    try:
+        raw = json.loads((manifest.state_dir / "warning-history.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict) or not isinstance(raw.get("warnings"), dict):
+        return {}
+    return raw["warnings"]
+
+
+def _warning_hazards(manifest) -> list[dict[str, Any]]:
+    """查重与预算警告：被无视的复用债与肥胖楼。count 越高同档内排越前。"""
+    hazards = []
+    for entry in _load_warning_history(manifest).values():
+        if not isinstance(entry, dict):
+            continue
+        kind = {"possible-duplicate": "duplicate", "over-budget": "budget"}.get(str(entry.get("kind") or ""))
+        if kind is None:
+            continue
+        key = str(entry.get("key") or entry.get("detail") or "")
+        target = key.rsplit(":", 1)[0] if ":" in key else key
+        count = int(entry.get("count") or 0)
+        hazards.append(
+            {
+                "target": target or key,
+                "kind": kind,
+                "count": count,
+                "detail": str(entry.get("detail") or key),
+                "evidence": {
+                    "store": "warning-history",
+                    "count": count,
+                    "first_seen": entry.get("first_seen"),
+                    "last_seen": entry.get("last_seen"),
+                },
+            }
+        )
+    return hazards
+
+
+def _stale_hazards(manifest, policy) -> list[dict[str, Any]]:
+    """普查陈旧的房间 + 过期的知识卡（日落条款）。需要 policy；缺席则跳过本源。"""
+    if policy is None:
+        return []
+    hazards = []
+    try:
+        from .households import census_report
+
+        for room in census_report(manifest, policy).get("households") or []:
+            if isinstance(room, dict) and room.get("freshness") == "stale":
+                hazards.append(
+                    {
+                        "target": str(room.get("id") or ""),
+                        "kind": "stale",
+                        "detail": "普查陈旧：房间声明与现状已漂移",
+                        "evidence": {"store": "census", "freshness": "stale"},
+                    }
+                )
+    except Exception:
+        pass
+    try:
+        from .knowledge import knowledge_status
+
+        for card in knowledge_status(manifest, policy):
+            # 带 jurisdiction 的卡其状态派生自普查，上面已报，避免重复挂牌。
+            if not isinstance(card, dict) or card.get("jurisdiction"):
+                continue
+            if card.get("status") == "stale":
+                hazards.append(
+                    {
+                        "target": str(card.get("id") or ""),
+                        "kind": "stale",
+                        "detail": "知识卡过期：" + ", ".join(str(r) for r in card.get("reasons") or []),
+                        "evidence": {"store": "knowledge", "reasons": card.get("reasons") or []},
+                    }
+                )
+    except Exception:
+        pass
+    return hazards
+
+
+def hazard_report(manifest, policy=None, *, now: datetime | None = None) -> dict[str, Any]:
+    """汇总危房名单。任何输入异常都降级为空报告，绝不抛异常。"""
+    now = now or datetime.now(timezone.utc)
+    hazards: list[dict[str, Any]] = []
+    try:
+        events = read_events(manifest.ledger_path)
+    except Exception:
+        events = []
+    try:
+        hazards.extend(_hollow_hazards(events))
+    except Exception:
+        pass
+    try:
+        hazards.extend(_warning_hazards(manifest))
+    except Exception:
+        pass
+    try:
+        hazards.extend(_stale_hazards(manifest, policy))
+    except Exception:
+        pass
+    for entry in hazards:
+        kind = str(entry.get("kind") or "")
+        entry["severity"] = _KIND_WEIGHT.get(kind, 0) + min(int(entry.get("count") or 0), _MAX_COUNT_BONUS)
+        entry["suggestion"] = SUGGESTIONS.get(kind, "")
+    hazards.sort(key=lambda item: (-int(item.get("severity") or 0), str(item.get("kind") or ""), str(item.get("target") or "")))
+    counts: dict[str, int] = {}
+    for entry in hazards:
+        kind = str(entry.get("kind") or "")
+        counts[kind] = counts.get(kind, 0) + 1
+    return {
+        "schema": HAZARD_SCHEMA,
+        "generated_at": now.isoformat(),
+        "hazards": hazards,
+        "counts": counts,
+    }

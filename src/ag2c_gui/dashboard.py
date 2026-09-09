@@ -22,6 +22,15 @@ LIFECYCLE_LABELS = {
 
 MAX_GOAL_CHARS = 60
 MAX_LISTED_ANOMALIES = 12
+MAX_LISTED_HAZARDS = 5
+
+#: 危房种类的城市语言（名单只负责"看得见"，每条带制度建议）。
+HAZARD_LABELS = {
+    "hollow": "危楼·无安全网",
+    "duplicate": "双胞胎楼",
+    "budget": "超重楼",
+    "stale": "旧档案",
+}
 
 
 def _text(row: dict[str, Any] | None, key: str) -> str:
@@ -172,6 +181,29 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
             {"severity": "ok", "text": f"拦截通报：近 {window} 天拦截 {int(interceptions.get('in_window') or 0)} 次绕过尝试"}
         )
 
+    # 旧城改造：危房名单（只读聚合，不动手）。hollow（安全网缺失）是最危险的
+    # 一类，除列表外同时进异常清单；与 patrol 段同规约——段缺席 = 未知，静默降级。
+    hazard_lines: list[dict[str, str]] = []
+    hazards = details.get("hazards") if isinstance(details.get("hazards"), dict) else None
+    if hazards is not None:
+        items = [item for item in hazards.get("hazards") or [] if isinstance(item, dict)]
+        for item in items:
+            if item.get("kind") == "hollow" and not item.get("resolved"):
+                anomalies.append(
+                    {"severity": "warn", "text": f"危楼·无安全网：{_text(item, 'target')}——{_text(item, 'suggestion') or '补杀变异测试'}"}
+                )
+        for item in items[:MAX_LISTED_HAZARDS]:
+            label = HAZARD_LABELS.get(str(item.get("kind") or ""), str(item.get("kind") or "危房"))
+            target = _text(item, "target")
+            suggestion = _text(item, "suggestion")
+            resolved = "（疑似已修复）" if item.get("resolved") else ""
+            hazard_lines.append(
+                {
+                    "severity": "error" if item.get("kind") == "hollow" and not item.get("resolved") else "warn",
+                    "text": f"{label}：{target}{resolved} → {suggestion}",
+                }
+            )
+
     overflow = max(0, len(anomalies) - MAX_LISTED_ANOMALIES)
     listed = anomalies[:MAX_LISTED_ANOMALIES]
     if overflow:
@@ -199,6 +231,7 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
         "health": health,
         "audit": {"pending": audit_pending, "due": bool(audit.get("due"))},
         "patrol": patrol_lines,
+        "hazards": hazard_lines,
     }
 
 
@@ -251,6 +284,16 @@ def draw_dashboard(model: dict[str, Any]) -> None:
             "error": (0.95, 0.35, 0.30, 1.0),
         }.get(line["severity"], (0.95, 0.70, 0.30, 1.0))
         imgui.text_colored(color, "●")
+        imgui.same_line(0.0, 8.0)
+        imgui.text_wrapped(line["text"])
+    imgui.separator()
+
+    imgui.text("旧城改造")
+    if not model["hazards"]:
+        imgui.text_disabled("危房名单是空的")
+    for line in model["hazards"]:
+        color = (0.95, 0.35, 0.30, 1.0) if line["severity"] == "error" else (0.95, 0.70, 0.30, 1.0)
+        imgui.text_colored(color, "▲")
         imgui.same_line(0.0, 8.0)
         imgui.text_wrapped(line["text"])
     imgui.separator()

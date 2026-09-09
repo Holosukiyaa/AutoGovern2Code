@@ -32,6 +32,7 @@ FAST = [
     "test_front_back",
     "test_graph",
     "test_harnesses",
+    "test_hazard",
     "test_index",
     "test_knowledge",
     "test_ledger",

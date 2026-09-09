@@ -365,6 +365,7 @@ def project_details(path: Path, *, refresh: bool = False) -> dict[str, Any]:
         _write_details_cache(root, fingerprint, result)
     _overlay_audit_status(root, result)
     _overlay_patrol_status(root, result)
+    _overlay_hazard_status(root, result)
     return result
 
 
@@ -382,6 +383,22 @@ def _overlay_patrol_status(root: Path, result: dict[str, Any]) -> None:
         result["patrol"] = patrol_report(manifest)
     except (AG2CError, OSError, ValueError):
         result["patrol"] = {"drills": {}, "interceptions": {"total": 0, "in_window": 0, "recent": []}}
+
+
+def _overlay_hazard_status(root: Path, result: dict[str, Any]) -> None:
+    """危房名单（变异存活/查重/预算/陈旧）：与 patrol 同模式——每次调用现算，不随 details 缓存。"""
+    if not result.get("available"):
+        return
+    try:
+        manifest_path = discover_manifest(root)
+        if manifest_path is None:
+            return
+        manifest = load_manifest(manifest_path, project_root=root)
+        from .hazard import hazard_report
+
+        result["hazards"] = hazard_report(manifest, load_policy(manifest))
+    except (AG2CError, OSError, ValueError):
+        result["hazards"] = {"schema": "ag2c.hazard.v1", "hazards": [], "counts": {}}
 
 
 def _overlay_audit_status(root: Path, result: dict[str, Any]) -> None:

@@ -124,12 +124,18 @@ def mutation_targets(manifest, policy) -> list[Path]:
     return sorted(targets)
 
 
-def run_mutation_canary(manifest, policy, *, actor: str, reason: str, seed: int | None = None) -> tuple[dict[str, Any], int]:
+def run_mutation_canary(
+    manifest, policy, *, actor: str, reason: str, seed: int | None = None, target: str | None = None
+) -> tuple[dict[str, Any], int]:
     """跑一次变异金丝雀。返回 (结果 dict, 退出码)。
 
     语义与门禁金丝雀相反：checker 失败（测试变红）才是好消息——变异被杀，
     测试有牙；全部通过 = 变异存活 = 测试空心化，canary failed 并报警。
     文件无论如何都会被还原；index/census 自毒按金丝雀模式见证。
+
+    target（可选）：定向变异指定文件（path_spec 或仓内相对路径），文件内
+    变异点仍随机。用途：危房名单里的变异存活记录靠"同文件演习通过"销案，
+    随机选文件可能永远摇不中——定向复跑让已修复的空心区能正式摘帽。
     """
     from .checks import run_checks
     from .household_commands import review_census
@@ -139,14 +145,31 @@ def run_mutation_canary(manifest, policy, *, actor: str, reason: str, seed: int 
     from .slicer import compile_slice
 
     rng = random.Random(seed)
-    candidates = mutation_targets(manifest, policy)
-    rng.shuffle(candidates)
+    target_root = manifest.target_root(manifest.targets[0].target_id)
+    if target:
+        # 归一化：剥掉 path_spec 前缀，统一成仓内相对路径
+        relative_input = target.partition(":")[2] if ":" in target else target
+        chosen = (target_root / relative_input).resolve()
+        allowed = {path.resolve() for path in mutation_targets(manifest, policy)}
+        if chosen not in allowed:
+            result = {
+                "schema": "ag2c.canary.v1",
+                "mode": "mutation",
+                "canary": "error",
+                "reason": f"target-not-mutable: {target} 不在可变异集合（需要带 unittest 门禁的 floor 房间内的产品代码）",
+                "actor": actor,
+            }
+            append_event(manifest.ledger_path, "canary", result)
+            return result, 2
+        candidates = [chosen]
+    else:
+        candidates = mutation_targets(manifest, policy)
+        rng.shuffle(candidates)
 
     def _stale_households() -> set[str]:
         report = census_report(manifest, policy)
         return {item["id"] for item in report["households"] if item["freshness"] != "current"}
 
-    target_root = manifest.target_root(manifest.targets[0].target_id)
     chosen: Path | None = None
     mutation: Mutation | None = None
     original = ""
@@ -163,11 +186,16 @@ def run_mutation_canary(manifest, policy, *, actor: str, reason: str, seed: int 
             chosen, mutation, original = path, picked, source
             break
     if chosen is None or mutation is None:
+        no_candidate_reason = (
+            f"no-mutation-candidate: 目标文件 {target} 里没有可变异点（比较符/布尔/数字）"
+            if target
+            else "no-mutation-candidate: 受治理产品代码里没有可变异点"
+        )
         result = {
             "schema": "ag2c.canary.v1",
             "mode": "mutation",
             "canary": "error",
-            "reason": "no-mutation-candidate: 受治理产品代码里没有可变异点",
+            "reason": no_candidate_reason,
             "actor": actor,
         }
         append_event(manifest.ledger_path, "canary", result)

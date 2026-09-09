@@ -246,5 +246,62 @@ class MutationCanaryEndToEndTests(unittest.TestCase):
             self.assertEqual(crlf, (root / "src" / "value.py").read_bytes())
 
 
+class TargetedCanaryTests(unittest.TestCase):
+    """定向变异金丝雀：危房销案靠同文件复跑，随机选文件可能永远摇不中。"""
+
+    def test_target_picks_the_named_file(self) -> None:
+        from ag2c.household_commands import review_census
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, policy = _mutation_project(root, test_body=_TEETH_TEST)
+            review_census(root, card_ids=[], all_cards=True, actor="test", reason="initial review")
+            result, exit_code = run_mutation_canary(
+                manifest, policy, actor="test", reason="targeted", target="app:src/value.py"
+            )
+            self.assertEqual(0, exit_code)
+            self.assertEqual("passed", result["canary"])
+            self.assertEqual("app:src/value.py", result["target"])
+
+    def test_target_accepts_bare_relative_path(self) -> None:
+        from ag2c.household_commands import review_census
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, policy = _mutation_project(root, test_body=_TEETH_TEST)
+            review_census(root, card_ids=[], all_cards=True, actor="test", reason="initial review")
+            result, exit_code = run_mutation_canary(
+                manifest, policy, actor="test", reason="targeted", target="src/value.py"
+            )
+            self.assertEqual(0, exit_code)
+            self.assertEqual("app:src/value.py", result["target"])
+
+    def test_target_outside_mutable_set_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, policy = _mutation_project(root, test_body=_TEETH_TEST)
+            # tests/ 里的文件不是可变异目标（变异测试文件证明不了产品代码被 pinning）
+            result, exit_code = run_mutation_canary(
+                manifest, policy, actor="test", reason="targeted", target="app:tests/test_value.py"
+            )
+            self.assertEqual(2, exit_code)
+            self.assertEqual("error", result["canary"])
+            self.assertIn("target-not-mutable", result["reason"])
+
+    def test_target_without_mutation_point_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, policy = _mutation_project(root, test_body=_TEETH_TEST)
+            (root / "src" / "value.py").write_text("NAME = 'hello'\n", encoding="utf-8")
+            _git(root, "add", "--all")
+            _git(root, "commit", "-m", "no mutation point")
+            result, exit_code = run_mutation_canary(
+                manifest, policy, actor="test", reason="targeted", target="app:src/value.py"
+            )
+            self.assertEqual(2, exit_code)
+            self.assertEqual("error", result["canary"])
+            self.assertIn("src/value.py", result["reason"])
+
+
 if __name__ == "__main__":
     unittest.main()

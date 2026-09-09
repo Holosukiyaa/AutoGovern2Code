@@ -416,6 +416,7 @@ def build_parser() -> argparse.ArgumentParser:
     canary.add_argument("--actor", required=True)
     canary.add_argument("--reason", required=True)
     canary.add_argument("--mode", choices=("gate", "mutation"), default="gate", help="gate: 投放失败用例验门禁；mutation: 改坏一行产品代码验测试有牙")
+    canary.add_argument("--target", default=None, help="mutation 模式专用：定向变异指定文件（path_spec 或仓内相对路径），用于危房销案复跑")
     canary.add_argument("--format", choices=("text", "json"), default="json")
     return parser
 
@@ -1133,7 +1134,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.mode == "mutation":
                 from .mutation import run_mutation_canary
 
-                result, exit_code = run_mutation_canary(manifest, policy, actor=args.actor, reason=args.reason)
+                result, exit_code = run_mutation_canary(manifest, policy, actor=args.actor, reason=args.reason, target=args.target)
                 if args.format == "json":
                     print(_json(result))
                 else:

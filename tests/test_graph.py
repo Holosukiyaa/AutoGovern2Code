@@ -8,6 +8,7 @@ from ag2c_gui.graph import (
     KNOWLEDGE_TITLE_LIMIT,
     build_governance_graph,
     clip_knowledge_title,
+    is_empty_leftover_parent,
     knowledge_lineage_index,
     knowledge_title,
 )
@@ -494,6 +495,32 @@ class GovernanceGraphTests(unittest.TestCase):
         self.assertEqual("开工", node["statusLabel"])
         self.assertNotIn("placeholder", node["flags"])
         self.assertNotIn("unreviewed", node["flags"])
+
+
+class EmptyLeftoverParentTests(unittest.TestCase):
+    """is_empty_leftover_parent 的杀变异测试。
+
+    变异记录：graph.py 的 file_count > 0 → >= 0 曾存活（t17 变异金丝雀抓获，
+    看板常驻警情）——file_count=0 的合法占位卡必须判定为 True，否则谱系图
+    不再跳过它们。"""
+
+    def _placeholder_card(self):
+        return {
+            "id": "knowledge.src",
+            "jurisdiction": {
+                "meaning": "none",
+                "implementation": "rooms/src.exploring",
+                "status": "current",
+            },
+            # 占位卡的标志：只持有排除护栏（src/** minus src/ag2c/** ...）
+            "scopes": [{"target": "app", "include": ["src/**"], "exclude": ["src/ag2c/**"]}],
+        }
+
+    def test_zero_files_valid_placeholder_is_empty_leftover(self):
+        self.assertTrue(is_empty_leftover_parent(self._placeholder_card(), file_count=0))
+
+    def test_with_files_is_not_leftover(self):
+        self.assertFalse(is_empty_leftover_parent(self._placeholder_card(), file_count=1))
 
 
 class CanvasRemovalTests(unittest.TestCase):

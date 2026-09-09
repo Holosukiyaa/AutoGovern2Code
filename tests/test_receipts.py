@@ -142,6 +142,20 @@ class ReceiptDeltaTests(unittest.TestCase):
             self.assertEqual(1, rows["src/value.py"]["added"])
             self.assertEqual({"path": "fresh.txt", "added": 1, "removed": 0}, rows["fresh.txt"])
 
+    def test_write_receipt_twice_overwrites_without_raising(self) -> None:
+        """重试验收会重写同 task_id 的回执：目录已存在也不能崩。
+
+        变异记录：write_receipt 的 mkdir exist_ok True→False 曾存活
+        （t21 自动演习抓获，看板常驻警情）。"""
+        with tempfile.TemporaryDirectory() as directory:
+            root, manifest, policy, base = self._enrolled(directory)
+            task = _fake_task(root, base, "ag2c/test-branch", _verification_for(root, base))
+            receipt = build_receipt(manifest, policy, task)
+            first = write_receipt(manifest, receipt)
+            second = write_receipt(manifest, receipt)  # 目录已存在，必须幂等覆盖
+            self.assertEqual(first, second)
+            self.assertTrue(second.exists())
+
     def test_ci_accepts_matching_deltas(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root, manifest, policy, base = self._enrolled(directory)

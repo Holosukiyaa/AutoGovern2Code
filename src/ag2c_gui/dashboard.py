@@ -224,6 +224,9 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
     days_since = audit.get("days_since")
     health.append({"label": "距上次抽查", "value": days_since if isinstance(days_since, int) else "—"})
     health.append({"label": "距上次演习", "value": min(drill_days) if drill_days else "—"})
+    if hazards is not None:
+        dismissed = hazards.get("dismissed")
+        health.append({"label": "豁免中危房", "value": dismissed if isinstance(dismissed, int) else 0})
     project = details.get("project") if isinstance(details.get("project"), dict) else {}
     return {
         "project": _text(project, "name"),

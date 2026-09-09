@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +35,73 @@ _MUTATION_PATH = re.compile(r"（([^（）]+?):(\d+)）")
 
 #: 警告历史的升级计数只影响同档内排序，封顶避免淹没种类权重。
 _MAX_COUNT_BONUS = 5
+
+#: 豁免登记的默认日落期：到期自动重现，防止"豁免了然后它真的烂了"。
+DEFAULT_DISMISSAL_DAYS = 90
+
+DISMISSAL_SCHEMA = "ag2c.hazard-dismissals.v1"
+
+
+def _dismissals_path(manifest) -> Path:
+    return manifest.state_dir / "hazard-dismissals.json"
+
+
+def load_dismissals(manifest) -> list[dict[str, Any]]:
+    """只读打开豁免登记；任何损坏都视为没有豁免（宁多报不漏报）。"""
+    try:
+        raw = json.loads(_dismissals_path(manifest).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(raw, dict) or not isinstance(raw.get("dismissals"), list):
+        return []
+    return [d for d in raw["dismissals"] if isinstance(d, dict)]
+
+
+def _dismissal_active(dismissal: dict[str, Any], now: datetime) -> bool:
+    """没有有效日落期的记录不可信：按已过期处理，让条目重新出现。"""
+    expires = _parse_seen(dismissal.get("expires_at"))
+    if expires is None:
+        return False
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    return expires > now
+
+
+def dismiss_hazard(manifest, target: str, kind: str, *, actor: str, reason: str, days: int = DEFAULT_DISMISSAL_DAYS, now: datetime | None = None) -> dict[str, Any]:
+    """豁免一条危房：审过、判定不拆，带理由与日落期。到期自动重现。
+
+    豁免不是删除证据，是声明"这条我看过了"——豁免存量登上看板健康行，
+    豁免太多等于市长在掩耳盗铃。同 target+kind 重复豁免视为续期（替换不堆叠）。"""
+    from .errors import AG2CError
+    from .ledger import append_event
+    from .util import atomic_json_write
+
+    target = str(target or "").strip()
+    kind = str(kind or "").strip()
+    if not target:
+        raise AG2CError("hazard-dismiss requires a target")
+    if kind not in _KIND_WEIGHT:
+        raise AG2CError(f"unknown hazard kind: {kind!r}（可选：{', '.join(sorted(_KIND_WEIGHT))}）")
+    if days < 1:
+        raise AG2CError("dismissal days must be >= 1")
+    now = now or datetime.now(timezone.utc)
+    record = {
+        "target": target,
+        "kind": kind,
+        "actor": actor,
+        "reason": reason,
+        "dismissed_at": now.isoformat(),
+        "expires_at": (now + timedelta(days=days)).isoformat(),
+    }
+    dismissals = [d for d in load_dismissals(manifest) if not (d.get("target") == target and d.get("kind") == kind)]
+    dismissals.append(record)
+    atomic_json_write(_dismissals_path(manifest), {"schema": DISMISSAL_SCHEMA, "dismissals": dismissals})
+    append_event(
+        manifest.ledger_path,
+        "hazard-dismiss",
+        {"target": target, "kind": kind, "actor": actor, "reason": reason, "days": days, "expires_at": record["expires_at"]},
+    )
+    return record
 
 
 def _mutation_target(text: object) -> tuple[str, int | None]:
@@ -229,6 +296,13 @@ def hazard_report(manifest, policy=None, *, now: datetime | None = None) -> dict
         hazards.extend(_stale_hazards(manifest, policy))
     except Exception:
         pass
+    try:
+        dismissals = [d for d in load_dismissals(manifest) if _dismissal_active(d, now)]
+    except Exception:
+        dismissals = []
+    if dismissals:
+        dismissed_keys = {(str(d.get("target") or ""), str(d.get("kind") or "")) for d in dismissals}
+        hazards = [h for h in hazards if (str(h.get("target") or ""), str(h.get("kind") or "")) not in dismissed_keys]
     for entry in hazards:
         kind = str(entry.get("kind") or "")
         entry["severity"] = _KIND_WEIGHT.get(kind, 0) + min(int(entry.get("count") or 0), _MAX_COUNT_BONUS)
@@ -250,4 +324,5 @@ def hazard_report(manifest, policy=None, *, now: datetime | None = None) -> dict
         "generated_at": now.isoformat(),
         "hazards": hazards,
         "counts": counts,
+        "dismissed": len(dismissals),
     }

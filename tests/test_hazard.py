@@ -7,17 +7,18 @@ import os
 import subprocess
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
 import bootstrap
 
-from ag2c.hazard import HAZARD_SCHEMA, SUGGESTIONS, _warning_freshness, hazard_report
-from ag2c.ledger import append_event
+from ag2c.errors import AG2CError
+from ag2c.hazard import HAZARD_SCHEMA, SUGGESTIONS, _warning_freshness, dismiss_hazard, hazard_report, load_dismissals
+from ag2c.ledger import append_event, read_events
 from ag2c_gui.dashboard import dashboard_model
 
-from support import _git, bare_manifest
+from support import _git, bare_manifest, write_project
 
 
 def _mutation_canary(manifest, *, result: str, mutation: str) -> None:
@@ -223,6 +224,98 @@ class FreshnessTests(unittest.TestCase):
         self.assertEqual("standing", _warning_freshness(later, earlier))
         self.assertEqual("standing", _warning_freshness(None, later))
         self.assertEqual("standing", _warning_freshness(earlier, None))
+
+
+class DismissalTests(unittest.TestCase):
+    """豁免：审过判定不拆的条目带理由+日落期隐藏，到期自动重现。"""
+
+    @staticmethod
+    def _dupe(key: str) -> dict:
+        return {
+            "kind": "possible-duplicate",
+            "key": key,
+            "detail": key,
+            "count": 2,
+            "first_seen": "2026-09-01T00:00:00+00:00",
+            "last_seen": "2026-09-01T00:00:00+00:00",
+        }
+
+    def test_dismissed_hazard_hidden_until_expiry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = bare_manifest(Path(directory))
+            _write_warning_history(manifest, [self._dupe("src/a.py:f")])
+            now = datetime(2026, 9, 9, tzinfo=timezone.utc)
+            dismiss_hazard(manifest, "src/a.py", "duplicate", actor="mayor", reason="审过：巧合性相似", now=now)
+            report = hazard_report(manifest, now=now + timedelta(days=1))
+            self.assertEqual([], report["hazards"])
+            self.assertEqual(1, report["dismissed"])
+            expired = hazard_report(manifest, now=now + timedelta(days=91))
+            self.assertEqual(1, len(expired["hazards"]))
+            self.assertEqual(0, expired["dismissed"])
+
+    def test_renewal_replaces_instead_of_stacking(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = bare_manifest(Path(directory))
+            now = datetime(2026, 9, 9, tzinfo=timezone.utc)
+            dismiss_hazard(manifest, "src/a.py", "duplicate", actor="mayor", reason="首次豁免", now=now)
+            later = dismiss_hazard(manifest, "src/a.py", "duplicate", actor="mayor", reason="续期", now=now + timedelta(days=30))
+            dismissals = load_dismissals(manifest)
+            self.assertEqual(1, len(dismissals))
+            self.assertEqual(later["expires_at"], dismissals[0]["expires_at"])
+            self.assertEqual("续期", dismissals[0]["reason"])
+
+    def test_ledger_event_recorded(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = bare_manifest(Path(directory))
+            dismiss_hazard(manifest, "src/a.py", "duplicate", actor="mayor", reason="留痕", now=datetime(2026, 9, 9, tzinfo=timezone.utc))
+            events = read_events(manifest.ledger_path)
+            self.assertEqual("hazard-dismiss", events[-1].get("event_type"))
+            self.assertEqual("src/a.py", events[-1].get("payload", {}).get("target"))
+
+    def test_corrupt_dismissals_store_degrades_to_no_dismissals(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = bare_manifest(Path(directory))
+            _write_warning_history(manifest, [self._dupe("src/a.py:f")])
+            manifest.state_dir.mkdir(parents=True, exist_ok=True)
+            (manifest.state_dir / "hazard-dismissals.json").write_text("{broken", encoding="utf-8")
+            report = hazard_report(manifest, now=datetime(2026, 9, 9, tzinfo=timezone.utc))
+            self.assertEqual(1, len(report["hazards"]))
+            self.assertEqual(0, report["dismissed"])
+
+    def test_rejects_unknown_kind_and_empty_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = bare_manifest(Path(directory))
+            with self.assertRaises(AG2CError):
+                dismiss_hazard(manifest, "src/a.py", "unknown-kind", actor="a", reason="r")
+            with self.assertRaises(AG2CError):
+                dismiss_hazard(manifest, "  ", "duplicate", actor="a", reason="r")
+
+    def test_cli_end_to_end(self) -> None:
+        """CLI 层全路径：解析 → 分发 → 落盘。t19 教训：每一层都要有自己的测试。"""
+        import io
+        import os
+
+        from ag2c.cli import main
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "proj"
+            write_project(root)
+            previous = Path.cwd()
+            stdout = io.StringIO()
+            try:
+                os.chdir(root)
+                with mock.patch("sys.stdout", stdout):
+                    exit_code = main(["govern", "hazard-dismiss", "tests/support.py", "--kind", "duplicate",
+                                      "--actor", "test", "--reason", "CLI 全路径", "--days", "30"])
+            finally:
+                os.chdir(previous)
+            self.assertEqual(0, exit_code)
+            from ag2c.config import discover_manifest, load_manifest
+
+            manifest = load_manifest(discover_manifest(root))
+            dismissals = load_dismissals(manifest)
+            self.assertEqual(1, len(dismissals))
+            self.assertEqual("tests/support.py", dismissals[0]["target"])
 
 
 class DashboardIntegrationTests(unittest.TestCase):

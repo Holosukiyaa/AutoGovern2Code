@@ -394,6 +394,13 @@ def build_parser() -> argparse.ArgumentParser:
     trunk_cmd.add_argument("--actor", required=True)
     trunk_cmd.add_argument("--reason", required=True)
     trunk_cmd.add_argument("--format", choices=("text", "json"), default="json")
+    dismiss_cmd = govern_commands.add_parser("hazard-dismiss", help="豁免一条危房（审过判定不拆），带理由与日落期，到期自动重现")
+    dismiss_cmd.add_argument("target", help="危房目标，与看板上一致（如 tests/support.py）")
+    dismiss_cmd.add_argument("--kind", required=True, choices=("hollow", "duplicate", "budget", "stale"))
+    dismiss_cmd.add_argument("--days", type=int, default=90, help="日落期天数，到期自动重现（默认 90）")
+    dismiss_cmd.add_argument("--actor", required=True)
+    dismiss_cmd.add_argument("--reason", required=True)
+    dismiss_cmd.add_argument("--format", choices=("text", "json"), default="json")
 
     doctor = subparsers.add_parser("doctor", help="check configuration, activation, tools, index, and ledger")
     doctor.add_argument("--repair", action="store_true", help="restore the Skill, Git guard, activation, and index")
@@ -976,6 +983,10 @@ def main(argv: list[str] | None = None) -> int:
                 from .govern import configure_trunk
 
                 result = configure_trunk(Path.cwd(), branch=args.branch, actor=args.actor, reason=args.reason)
+            elif args.govern_command == "hazard-dismiss":
+                from .hazard import dismiss_hazard
+
+                result = dismiss_hazard(manifest, args.target, args.kind, actor=args.actor, reason=args.reason, days=args.days)
             elif args.govern_command == "apply":
                 result = apply_change(
                     Path.cwd(),

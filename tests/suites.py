@@ -26,6 +26,7 @@ FAST = [
     "test_cli",
     "test_config",
     "test_dep_hint",
+    "test_fixture_fidelity",
     "test_floor_ladder",
     "test_front_back",
     "test_graph",

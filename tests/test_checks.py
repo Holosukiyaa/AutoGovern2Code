@@ -14,7 +14,7 @@ from ag2c.index import build_index
 from ag2c.ledger import verify_ledger
 from ag2c.slicer import compile_slice
 
-from support import write_project
+from support import record_census, write_project
 
 
 def _add_checker(root: Path, checker: dict, *, bind_to: str = "floor.api"):
@@ -49,20 +49,24 @@ def _unittest_checker(command_body: str, **extra) -> dict:
 class CheckerTests(unittest.TestCase):
     def test_all_mode_records_complete_acceptance(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            manifest, policy = write_project(Path(directory))
+            root = Path(directory)
+            manifest, policy = write_project(root, gated=True)
             build_index(manifest, policy)
+            record_census(root)
             entry_slice = compile_slice(manifest, policy, all_mode=True)
             report = run_checks(manifest, policy, entry_slice, all_mode=True)
             self.assertEqual(report["acceptance"]["complete"], "passed")
             self.assertEqual({result["status"] for result in report["results"]}, {"passed"})
             self.assertEqual(verify_ledger(manifest.ledger_path), [])
-            self.assertEqual(report["ledger_sequence"], 1)
+            # Sequence 1 is the fixture census record; the acceptance entry follows it.
+            self.assertEqual(report["ledger_sequence"], 2)
             self.assertIn("python", report["environment"])
             self.assertTrue(report["environment"]["has_git"])
 
     def test_checker_can_skip_with_an_explicit_reason(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            manifest, policy = write_project(Path(directory))
+            root = Path(directory)
+            manifest, policy = write_project(root, gated=True)
             raw = json.loads(policy.path.read_text(encoding="utf-8"))
             for card in raw["cards"]:
                 if card.get("id") == "floor.api":
@@ -86,6 +90,7 @@ class CheckerTests(unittest.TestCase):
             manifest = load_manifest(manifest.path)
             policy = load_policy(manifest)
             build_index(manifest, policy)
+            record_census(root)
             entry_slice = compile_slice(manifest, policy, all_mode=True)
             report = run_checks(manifest, policy, entry_slice, all_mode=True)
             skipped = next(item for item in report["results"] if item["id"] == "check.skip")
@@ -148,10 +153,11 @@ class CheckerTests(unittest.TestCase):
         body = "import sys; print('FAIL: test_a (tests.test_a)', file=sys.stderr); sys.exit(1)"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            write_project(root)
+            write_project(root, gated=True)
             _add_checker(root, _unittest_checker(body, always=True))
             manifest, policy = _reload(root)
             build_index(manifest, policy)
+            record_census(root)
             entry_slice = compile_slice(manifest, policy, all_mode=True)
             report = run_checks(manifest, policy, entry_slice, all_mode=True)
             result = next(item for item in report["results"] if item["id"] == "check.tests")
@@ -173,7 +179,7 @@ class CheckerTests(unittest.TestCase):
         passing = "print('ok')"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            write_project(root)
+            write_project(root, gated=True)
             _add_checker(root, _unittest_checker(failing, always=True))
             manifest, policy = _reload(root)
             build_index(manifest, policy)
@@ -188,6 +194,7 @@ class CheckerTests(unittest.TestCase):
             policy_path.write_text(json.dumps(raw), encoding="utf-8")
             manifest, policy = _reload(root)
             build_index(manifest, policy)
+            record_census(root)
             entry_slice = compile_slice(manifest, policy, all_mode=True)
             report = run_checks(manifest, policy, entry_slice, all_mode=True)
             result = next(item for item in report["results"] if item["id"] == "check.tests")
@@ -199,10 +206,11 @@ class CheckerTests(unittest.TestCase):
         body = "import sys; print('boom', file=sys.stderr); sys.exit(2)"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            write_project(root)
+            write_project(root, gated=True)
             _add_checker(root, _unittest_checker(body, always=True))
             manifest, policy = _reload(root)
             build_index(manifest, policy)
+            record_census(root)
             entry_slice = compile_slice(manifest, policy, all_mode=True)
             report = run_checks(manifest, policy, entry_slice, all_mode=True)
             result = next(item for item in report["results"] if item["id"] == "check.tests")
@@ -215,30 +223,35 @@ class CheckerTests(unittest.TestCase):
 
     def test_room_bound_unittest_checker_runs_only_when_the_room_is_sliced(self) -> None:
         body = "import sys; print('FAIL: test_worker (tests.test_worker)', file=sys.stderr); sys.exit(1)"
-        jurisdiction = {
-            "capability": "worker",
-            "implementation": "worker.main",
-            "status": "current",
-            "entrypoints": [],
-            "grain": "subtree",
-            "meaning": "named",
-            "contract": "none",
-            "decider": "none",
-            "span": "folder",
-        }
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            write_project(root)
-            # Only directory households (knowledge cards with a jurisdiction) may own checkers.
-            _add_checker(root, _unittest_checker(body), bind_to="knowledge.worker")
+            write_project(root, gated=True)
+            policy_path = root / ".ag2c" / "policy.json"
+            # Only directory households (knowledge cards with a jurisdiction) may own checkers:
+            # a plain reference-only card must be refused.
+            raw = json.loads(policy_path.read_text(encoding="utf-8"))
+            raw["cards"].append(
+                {
+                    "id": "knowledge.plain",
+                    "type": "knowledge",
+                    "title": "Plain notes",
+                    "summary": "Reference-only notes without jurisdiction.",
+                    "scopes": [{"target": "app", "include": ["docs/**"], "ownership": "reference"}],
+                    "references": [],
+                }
+            )
+            policy_path.write_text(json.dumps(raw), encoding="utf-8")
+            _add_checker(root, _unittest_checker(body), bind_to="knowledge.plain")
             manifest = load_manifest(root / ".ag2c" / "manifest.json")
             with self.assertRaisesRegex(ConfigurationError, "cannot own checkers"):
                 load_policy(manifest)
-            policy_path = root / ".ag2c" / "policy.json"
+            # Rebind the checker to the jurisdictioned worker room.
             raw = json.loads(policy_path.read_text(encoding="utf-8"))
             for card in raw["cards"]:
+                if card.get("id") == "knowledge.plain":
+                    card.pop("checkers", None)
                 if card.get("id") == "knowledge.worker":
-                    card["jurisdiction"] = jurisdiction
+                    card.setdefault("checkers", []).append("check.tests")
             policy_path.write_text(json.dumps(raw), encoding="utf-8")
             manifest, policy = _reload(root)
             build_index(manifest, policy)
@@ -252,6 +265,7 @@ class CheckerTests(unittest.TestCase):
             worker_slice = compile_slice(manifest, policy, path_specs=["app:src/worker/job.py"])
             self.assertIn("knowledge.worker", {card["id"] for card in worker_slice["cards"]})
             self.assertIn("check.tests", {item["id"] for item in worker_slice["check_plan"]})
+            record_census(root)
             report = run_checks(manifest, policy, worker_slice)
             result = next(item for item in report["results"] if item["id"] == "check.tests")
             self.assertEqual("failed", result["status"])
@@ -264,12 +278,13 @@ class CheckerTests(unittest.TestCase):
     def test_docs_only_diff_skips_always_test_suites(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            write_project(root)
+            write_project(root, gated=True)
             (root / "docs").mkdir()
             (root / "docs" / "guide.md").write_text("# guide\n", encoding="utf-8")
             _add_checker(root, _unittest_checker("print('ok')", always=True))
             manifest, policy = _reload(root)
             build_index(manifest, policy)
+            record_census(root)
 
             docs_slice = compile_slice(manifest, policy, path_specs=["app:docs/guide.md"])
             report = run_checks(manifest, policy, docs_slice)
@@ -283,41 +298,16 @@ class CheckerTests(unittest.TestCase):
             self.assertEqual("passed", result["status"])
 
     def test_neighbour_room_checkers_stay_out_of_the_check_plan(self) -> None:
-        jurisdiction = {
-            "capability": "worker",
-            "implementation": "worker.main",
-            "status": "current",
-            "entrypoints": [],
-            "grain": "subtree",
-            "meaning": "named",
-            "contract": "none",
-            "decider": "none",
-            "span": "folder",
-        }
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            write_project(root)
+            # gated=True: both rooms carry a jurisdiction and household_required=true,
+            # so the enforce-mode gate sees owned code on both sides.
+            write_project(root, gated=True)
             _add_checker(root, _unittest_checker("print('ok')"), bind_to="knowledge.worker")
             policy_path = root / ".ag2c" / "policy.json"
             raw = json.loads(policy_path.read_text(encoding="utf-8"))
-            for card in raw["cards"]:
-                if card.get("id") == "knowledge.worker":
-                    card["jurisdiction"] = jurisdiction
             # Both rooms explain the SAME floor, like every src room explains floor.src.
             raw["relations"].append({"source": "knowledge.worker", "type": "explains", "target": "floor.api"})
-            # The api side needs its own household so the enforce-mode gate sees owned code.
-            raw["cards"].append(
-                {
-                    "id": "knowledge.api",
-                    "type": "knowledge",
-                    "title": "API navigation",
-                    "summary": "Explains api source.",
-                    "scopes": [{"target": "app", "include": ["src/api/**"], "ownership": "reference"}],
-                    "references": [],
-                    "jurisdiction": {**jurisdiction, "capability": "api", "implementation": "api.main"},
-                }
-            )
-            raw["relations"].append({"source": "knowledge.api", "type": "explains", "target": "floor.api"})
             policy_path.write_text(json.dumps(raw), encoding="utf-8")
             manifest, policy = _reload(root)
             build_index(manifest, policy)
@@ -335,16 +325,7 @@ class CheckerTests(unittest.TestCase):
             # touched room must have every bound checker selected.
             from ag2c.households import enforce_households
 
-            raw["household_required"] = True
-            policy_path.write_text(json.dumps(raw), encoding="utf-8")
-            manifest, policy = _reload(root)
-            build_index(manifest, policy)
-            import subprocess
-
-            subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, capture_output=True)
-            from ag2c.household_commands import review_census
-
-            review_census(root, card_ids=["knowledge.api"], all_cards=False, actor="tester", reason="record api room")
+            record_census(root)
             manifest, policy = _reload(root)
             build_index(manifest, policy)
             api_slice = compile_slice(manifest, policy, path_specs=["app:src/api/service.py"])

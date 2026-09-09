@@ -67,7 +67,17 @@ def external_state(root: Path) -> Path:
     return external_manifest(root).state_dir
 
 
-def write_project(root: Path, *, extra_file: bool = False):
+def write_project(root: Path, *, extra_file: bool = False, gated: bool = False):
+    """Build a minimal governed project fixture.
+
+    gated=True upgrades the fixture to production gate fidelity (夹具保真度,
+    see tests/test_sunset.py's _canary_project): knowledge cards get a
+    jurisdiction, every room explains its floor, and household_required=true
+    is declared. Any test that exercises gate logic (run_checks / verify_task /
+    enforce_households / finish_task) must use this mode — a fixture more
+    lenient than production is itself a hole. Pair it with record_census()
+    after the final policy mutation so the household gate sees fresh census.
+    """
     (root / ".ag2c").mkdir(parents=True)
     (root / "src" / "api").mkdir(parents=True)
     (root / "src" / "worker").mkdir(parents=True)
@@ -155,8 +165,67 @@ def write_project(root: Path, *, extra_file: bool = False):
             {"id": "check.scenario", "stage": "scenario", "target": "app", "command": success},
         ],
     }
+    if gated:
+        _apply_gate_fidelity(policy)
     manifest_path = root / ".ag2c" / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     (root / ".ag2c" / "policy.json").write_text(json.dumps(policy, indent=2), encoding="utf-8")
     loaded_manifest = load_manifest(manifest_path)
     return loaded_manifest, load_policy(loaded_manifest)
+
+
+def _jurisdiction(capability: str, implementation: str) -> dict:
+    return {
+        "capability": capability,
+        "implementation": implementation,
+        "status": "current",
+        "entrypoints": [],
+        "grain": "subtree",
+        "meaning": "named",
+        "contract": "none",
+        "decider": "none",
+        "span": "folder",
+    }
+
+
+def _apply_gate_fidelity(policy: dict) -> None:
+    """Mutate a write_project policy dict into household_required=true shape."""
+    for card in policy["cards"]:
+        if card.get("id") == "knowledge.worker":
+            card["jurisdiction"] = _jurisdiction("worker", "worker.main")
+    policy["cards"].append(
+        {
+            "id": "knowledge.api",
+            "type": "knowledge",
+            "title": "API navigation",
+            "summary": "Explains api source.",
+            "scopes": [{"target": "app", "include": ["src/api/**"], "ownership": "reference"}],
+            "references": [],
+            "jurisdiction": _jurisdiction("api", "api.main"),
+        }
+    )
+    policy["relations"].append({"source": "knowledge.api", "type": "explains", "target": "floor.api"})
+    policy["household_required"] = True
+
+
+def record_census(root: Path, *, actor: str = "tester", reason: str = "fixture census") -> None:
+    """git init (idempotent) + record census for every card + rebuild the index.
+
+    Call after the FINAL policy mutation, right before the gate entry under
+    test: the household gate refuses stale census, exactly like production
+    verify does. git init and the census writes both dirty the worktree, so
+    the index is rebuilt last to keep compile_slice's freshness check happy.
+    """
+    import subprocess
+
+    if not (root / ".git").exists():
+        subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, capture_output=True)
+    from ag2c.config import load_manifest, load_policy
+    from ag2c.household_commands import review_census
+    from ag2c.index import build_index
+
+    manifest = load_manifest(root / ".ag2c" / "manifest.json")
+    policy = load_policy(manifest)
+    build_index(manifest, policy)
+    review_census(root, card_ids=[], all_cards=True, actor=actor, reason=reason)
+    build_index(manifest, policy)

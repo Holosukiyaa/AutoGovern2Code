@@ -150,7 +150,7 @@ class ResultGateTests(unittest.TestCase):
 class PortraitLintTests(unittest.TestCase):
     GOOD = (
         "Done looks like: 状态条开关点击后抽屉真实出现（机器验证：test_desktop 断言 toggle_dock 翻转 "
-        "is_visible；实机：预览实例点击截图）。Out of result: 抽屉内容。"
+        "is_visible；实机：预览实例点击截图）。Out of result: 抽屉内容。无加料。"
     )
 
     def test_good_portrait_passes(self) -> None:
@@ -204,9 +204,38 @@ class PortraitLintTests(unittest.TestCase):
 
         portrait = (
             "Done looks like: 抽屉开关生效，不再是按钮变蓝但面板不出现（机器验证：test_desktop 断言；"
-            "实机：点击截图对照）。"
+            "实机：点击截图对照）。无加料。"
         )
         self.assertEqual([], lint_portrait(portrait))
+
+    def test_missing_inference_ledger_is_refused(self) -> None:
+        from ag2c.tasks import lint_portrait
+
+        portrait = "Done looks like: 抽屉开关生效（机器验证：test_desktop 断言 toggle 翻转）。"
+        violations = lint_portrait(portrait)
+        self.assertTrue(any(v.startswith("no-inference-ledger") for v in violations))
+
+    def test_inferences_section_satisfies_the_ledger(self) -> None:
+        from ag2c.tasks import lint_portrait
+
+        portrait = (
+            "Done looks like: 抽屉开关生效（机器验证：test_desktop 断言）。"
+            "Inferences: INFERRED 用户说的抽屉指右侧详情面板。"
+        )
+        self.assertEqual([], lint_portrait(portrait))
+
+    def test_inference_section_extraction(self) -> None:
+        from ag2c.tasks import portrait_inference_section
+
+        portrait = (
+            "Done looks like: x（机器验证：测试）。Surfaces: verify。 "
+            "Inferences: INFERRED 并行 4 路在本机安全。"
+        )
+        section = portrait_inference_section(portrait)
+        self.assertIn("INFERRED 并行 4 路", section)
+        self.assertNotIn("Done looks like", section)
+        self.assertEqual("", portrait_inference_section("Done looks like: x（机器验证：测试）。无加料。"))
+        self.assertEqual("", portrait_inference_section(""))
 
     def test_mcp_start_refuses_vague_portrait(self) -> None:
         from ag2c.errors import AG2CError

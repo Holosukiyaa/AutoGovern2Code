@@ -110,6 +110,21 @@ class PromptTests(unittest.TestCase):
         self.assertIn("diff 内容", user)
         self.assertIn("机器报告内容", user)
 
+    def test_portrait_additions_are_front_loaded_for_review(self) -> None:
+        portrait = "Done looks like: x（机器验证：测试）。Inferences: INFERRED 用户没要求但顺手重构了登录模块。"
+        messages = build_messages(portrait, "diff", "机器报告")
+        user = messages[1]["content"]
+        system = messages[0]["content"]
+        # 加料清单单独成块浮现，监管前置审查
+        self.assertIn("AI 加料清单", user)
+        self.assertIn("顺手重构了登录模块", user)
+        self.assertIn("加料", system)
+
+    def test_no_additions_means_no_block(self) -> None:
+        portrait = "Done looks like: x（机器验证：测试）。无加料。"
+        messages = build_messages(portrait, "diff", "机器报告")
+        self.assertNotIn("AI 加料清单", messages[1]["content"])
+
 
 class ParseTests(unittest.TestCase):
     def test_plain_json(self) -> None:

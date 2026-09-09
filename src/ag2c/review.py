@@ -23,7 +23,7 @@ from typing import Any
 from .gitops import git
 from .model import Policy, RegulatorConfig
 
-PROMPT_VERSION = "agent-review.v1"
+PROMPT_VERSION = "agent-review.v2"
 
 #: fail 项的证据位置必须形如 path:line（tasks.py:347）。
 _EVIDENCE_REF = re.compile(r"[\w./\\\-一-鿿]+:\d+")
@@ -79,6 +79,7 @@ _SYSTEM_PROMPT = """你是交付监管，不是验收员。你的唯一任务是
 
 审查规则：
 - 逐条核对画像里的每个承诺：承诺 X，在 diff 或机器证据里真的兑现了吗？指得出位置吗？
+- 前置审加料：画像里标注了哪些是用户没明说、施工者自行添加的内容（加料清单）。逐条问：这条添加服务用户目标吗？还是为施工者自己方便加的（过度设计、顺手重构、夹带私货）？加料失控是 reject 理由。
 - 对抗性读 diff：专挑边界条件、错误处理、空输入、与既有代码的重复逻辑。
 - 每条 fail 必须给出证据位置（file:line）。没有证据的批评是废话，会被机器判作废。
 - 机器已经判过的事项（测试通过、预算达标）不要重复裁决，把注意力留给机器判不了的：承诺兑现、逻辑对错、复用与写法约定。
@@ -104,10 +105,21 @@ def build_messages(portrait: str, diff_text: str, machine_summary: str, *, self_
             "本任务已申报同时修改产品代码与验证它的测试（自我阅卷）。"
             "请重点核对：测试改动是否削弱断言、删除用例、放宽门槛以迁就产品改动。\n\n"
         )
+    from .tasks import portrait_inference_section
+
+    additions = portrait_inference_section(portrait)
+    additions_block = ""
+    if additions:
+        additions_block = (
+            "## AI 加料清单（用户没明说、施工者自行添加的内容）\n\n"
+            + additions
+            + "\n\n逐条裁决：这条添加服务用户目标吗？加料失控（过度设计、顺手重构、夹带私货）是 reject 理由。\n\n"
+        )
     user = (
         banner
         + "## 画像（当初锁定的承诺）\n\n" + (portrait.strip() or "（无画像）")
-        + "\n\n## 机器检查结果\n\n" + (machine_summary.strip() or "（无机器检查记录）")
+        + "\n\n" + additions_block
+        + "## 机器检查结果\n\n" + (machine_summary.strip() or "（无机器检查记录）")
         + "\n\n## diff（实际改动）\n\n" + (diff_text.strip() or "（无改动）")
     )
     return [

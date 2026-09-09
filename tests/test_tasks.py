@@ -192,7 +192,7 @@ class AutoRefreshTests(unittest.TestCase):
 
         portrait = (
             "Done looks like: 服务函数返回值变更。Surfaces: verify 通过。"
-            "Out of result: 不动其他模块。验证层: 机器验证 tests 套件全绿，输出片段进 finish proof。"
+            "Out of result: 不动其他模块。验证层: 机器验证 tests 套件全绿，输出片段进 finish proof。无加料。"
         )
         return start_task(
             root,
@@ -219,6 +219,28 @@ class AutoRefreshTests(unittest.TestCase):
 
         manifest = load_manifest(discover_manifest(root), project_root=root)
         return json.loads((manifest.state_dir / "tasks" / f"{task_id}.json").read_text(encoding="utf-8"))
+
+    def test_start_surfaces_ai_additions(self) -> None:
+        from ag2c.tasks import start_task
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._project(tmp)
+            started = self._start(root)
+            # 夹具画像声明了无加料 → 空清单
+            self.assertEqual("", started["ai_additions"])
+
+            started2 = start_task(
+                root,
+                goal="g2",
+                path_specs=["app:src/worker/job.py"],
+                contract_specs=[],
+                portrait=(
+                    "Done looks like: 任务函数变更。验证层: 机器验证 tests 套件全绿。"
+                    "Inferences: INFERRED 用户说的任务指 worker/job.py。"
+                ),
+                worktree_root=root.parent / "worktrees",
+            )
+            self.assertIn("INFERRED 用户说的任务", started2["ai_additions"])
 
     def test_verify_auto_refreshes_on_disjoint_divergence(self) -> None:
         from ag2c.tasks import verify_task

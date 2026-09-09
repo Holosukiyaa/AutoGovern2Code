@@ -201,7 +201,7 @@ def rehome_file_card(
     goal = f"rehome {old_rel} -> {new_rel} (card {card_id} into room {target_room})"
     portrait = (
         f"完成态：{old_rel} 移到 {new_rel}，卡 {card_id} 的 scope 指向新路径，"
-        f"全仓 {old_module} 引用改写为 {new_module}，verify 通过后合并；失败则全部回滚。"
+        f"全仓 {old_module} 引用改写为 {new_module}，verify 通过后合并；失败则全部回滚。无加料。"
     )
     _rewrite_card_scope(canonical, card_id, old_rel, new_rel, actor, reason, "card-rehome-scope")
     task_id = ""

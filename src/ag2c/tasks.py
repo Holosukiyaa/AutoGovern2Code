@@ -418,6 +418,39 @@ _PORTRAIT_LAYER_MARKERS = (
     "output",
 )
 
+# 加料清单（反向引导收口）：画像必须说清哪些是用户没明说、AI 自行添加的。
+# 要么给 Inferences/推断/加料 段落，要么明确声明"无加料"——沉默等同于隐瞒。
+_PORTRAIT_INFERENCE_MARKERS = ("inferences:", "inference:", "推断", "加料")
+_PORTRAIT_NO_ADDITION_PHRASES = ("无加料", "无推断", "无 ai 添加", "无ai添加", "no inference", "no additions")
+
+
+def portrait_inference_section(portrait: str) -> str:
+    """提取画像的加料清单段原文（供 start/orient 浮现给人、供监管前置审查）。
+
+    机器不做语义判断：返回标记行到下一个已知段落标题（或文末）之间的原文，
+    让"看见"发生在人侧和监管侧。显式无加料声明返回空串。
+    """
+    text = str(portrait or "").strip()
+    if not text:
+        return ""
+    lowered = text.lower()
+    if any(phrase in lowered for phrase in _PORTRAIT_NO_ADDITION_PHRASES):
+        return ""
+    start = -1
+    for marker in _PORTRAIT_INFERENCE_MARKERS:
+        index = lowered.find(marker)
+        if index >= 0 and (start < 0 or index < start):
+            start = index
+    if start < 0:
+        return ""
+    rest = text[start:]
+    # 已知段落标题出现时截断（加料段通常在最后，但防御性处理）
+    for header in ("Done looks like", "Surfaces", "Out of result", "验证层"):
+        cut = rest.find(header, 1)
+        if cut > 0:
+            rest = rest[:cut]
+    return rest.strip()
+
 # Vague phrases can never serve as acceptance criteria. A negated use
 # ("不再是…", "不…") is a checkable anti-claim and stays legal.
 _PORTRAIT_VAGUE_PHRASES = (
@@ -458,6 +491,13 @@ def lint_portrait(portrait: str) -> list[str]:
         violations.append(
             "no-verification-layer: declare how each done-state gets checked "
             "(机器验证 / 实机 / 用户确认 / 测试 / 输出 / assert / test / verify ...)"
+        )
+    if not any(marker in lowered for marker in _PORTRAIT_INFERENCE_MARKERS) and not any(
+        phrase in lowered for phrase in _PORTRAIT_NO_ADDITION_PHRASES
+    ):
+        violations.append(
+            "no-inference-ledger: declare what the AI added beyond the user's words "
+            "(Inferences: ...)，或明确声明 无加料——沉默等同于隐瞒"
         )
     for phrase in _PORTRAIT_VAGUE_PHRASES:
         start = 0
@@ -622,7 +662,12 @@ def start_task(
     _atomic_json(record_path, task)
     from .govern import retrieve_guidance
 
-    return {**task, "guidance": retrieve_guidance(canonical, path_specs=path_specs, contract_specs=contract_specs, goal=goal, all_mode=all_mode)}
+    return {
+        **task,
+        # 加料清单浮现：用户没说、AI 自行添加的部分，start 当场给人看
+        "ai_additions": portrait_inference_section(task["portrait"]),
+        "guidance": retrieve_guidance(canonical, path_specs=path_specs, contract_specs=contract_specs, goal=goal, all_mode=all_mode),
+    }
 
 
 def _require_open_task(task: dict[str, Any]) -> None:
@@ -1452,6 +1497,7 @@ def orient_task(start: Path, task_id: str | None = None) -> dict[str, Any]:
         "task": task_id,
         "goal": row.get("goal"),
         "portrait": task.get("portrait") or "",
+        "ai_additions": portrait_inference_section(str(task.get("portrait") or "")),
         "phase": lifecycle,
         "checklist": checklist,
         "next": _orient_next(

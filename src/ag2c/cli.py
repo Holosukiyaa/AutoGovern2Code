@@ -387,6 +387,7 @@ def build_parser() -> argparse.ArgumentParser:
     canary = subparsers.add_parser("canary", help="plant a known defect and verify the gate catches it")
     canary.add_argument("--actor", required=True)
     canary.add_argument("--reason", required=True)
+    canary.add_argument("--mode", choices=("gate", "mutation"), default="gate", help="gate: 投放失败用例验门禁；mutation: 改坏一行产品代码验测试有牙")
     canary.add_argument("--format", choices=("text", "json"), default="json")
     return parser
 
@@ -1082,6 +1083,20 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "doctor":
             return _doctor(manifest, policy)
         if args.command == "canary":
+            if args.mode == "mutation":
+                from .mutation import run_mutation_canary
+
+                result, exit_code = run_mutation_canary(manifest, policy, actor=args.actor, reason=args.reason)
+                if args.format == "json":
+                    print(_json(result))
+                else:
+                    if result["canary"] == "passed":
+                        print(f"变异被杀（测试有牙）: {result.get('mutation', '')}")
+                    elif result["canary"] == "failed":
+                        print(f"变异存活（测试空心！）: {result.get('mutation', '')} 未触发任何测试失败")
+                    else:
+                        print(f"变异金丝雀未能执行: {result.get('reason', '')}")
+                return exit_code
             return _canary(manifest, policy, actor=args.actor, reason=args.reason, output_format=args.format)
         parser.error("unhandled command")
     except (AG2CError, OSError, ValueError) as exc:

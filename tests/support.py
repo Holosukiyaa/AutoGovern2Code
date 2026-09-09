@@ -21,6 +21,21 @@ def _git(root: Path, *args: str) -> str:
     return completed.stdout.strip()
 
 
+def bare_manifest(root: Path):
+    """Minimal in-memory Manifest for tests that need no real policy files."""
+    from ag2c.model import Manifest
+
+    return Manifest(
+        path=root / "manifest.json",
+        project_id="test-proj",
+        project_root=root,
+        targets=[],
+        ledger_path=root / "ledger.jsonl",
+        policy_path=root / "policy.json",
+        state_dir=root / "state",
+    )
+
+
 def git_project(root: Path) -> Path:
     root.mkdir(parents=True)
     (root / "src").mkdir()

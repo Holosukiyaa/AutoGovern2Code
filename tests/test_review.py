@@ -3,7 +3,6 @@ validation, and the degrade paths. All LLM calls are mocked — no network."""
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -23,15 +22,7 @@ from ag2c.review import (
 )
 
 
-def _git(root: Path, *args: str) -> str:
-    completed = subprocess.run(
-        ["git", "-C", str(root), *args],
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
-    return completed.stdout.strip()
+from support import _git
 
 
 def _governed_repo(root: Path, *, regulator: dict | None = None):

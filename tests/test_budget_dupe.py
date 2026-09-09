@@ -25,17 +25,11 @@ from ag2c.checks import (
 from ag2c.config import load_policy
 from ag2c.model import Card, Manifest, Target
 
+from support import bare_manifest
+
 
 def _budget_manifest(root: Path) -> Manifest:
-    return Manifest(
-        path=root / "manifest.json",
-        project_id="test-proj",
-        project_root=root,
-        targets=[],
-        ledger_path=root / "ledger.jsonl",
-        policy_path=root / "policy.json",
-        state_dir=root / "state",
-    )
+    return bare_manifest(root)
 
 
 class BudgetWarningTests(unittest.TestCase):
@@ -438,12 +432,28 @@ class DuplicatePrecisionTests(unittest.TestCase):
         )
         self.assertEqual([], self._warnings_for("src/new.py"))
 
-    def test_same_name_still_flagged_regardless_of_size(self) -> None:
+    def test_same_name_small_divergent_bodies_not_flagged(self) -> None:
+        """同名同参数数但函数体结构不同 = 命名撞车，不是重复（_clip 教训：
+        checks 截断输出 vs dashboard 截断显示，同名不同义）。"""
         self._write("src/old.py", "def helper(a, b):\n    return a + b\n")
         self._write("src/new.py", "def helper(a, b):\n    return a * b\n")
+        self.assertEqual([], self._warnings_for("src/new.py"))
+
+    def test_same_name_same_shape_flagged(self) -> None:
+        """同名 + 同参数数 + 结构一致（>=4 行）= 重实现的助手，必须报警。"""
+        body = "    x = a + b\n    y = x * 2\n    z = y - 1\n    return z\n"
+        self._write("src/old.py", f"def helper(a, b):\n{body}")
+        self._write("src/new.py", f"def helper(a, b):\n{body}")
         warnings = self._warnings_for("src/new.py")
         self.assertEqual(1, len(warnings))
         self.assertIn("同名函数", warnings[0]["detail"])
+
+    def test_entry_point_main_not_flagged(self) -> None:
+        """main(argv) 是通用入口名，同名同参数数不携带重复信号——9.7 曾把
+        这个误报硬化成门禁拦截（suites.py:main、cli.py:main 一天两次）。"""
+        self._write("src/old.py", "def main(argv):\n    return 0\n")
+        self._write("src/new.py", "def main(argv):\n    return 1\n")
+        self.assertEqual([], self._warnings_for("src/new.py"))
 
 
 class BaselineDebtTests(unittest.TestCase):

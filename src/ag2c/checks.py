@@ -198,6 +198,12 @@ _UNITTEST_CONVENTION_METHODS = frozenset({
     "setUp", "tearDown", "setUpClass", "tearDownClass", "setUpModule", "tearDownModule",
 })
 
+# Entry-point names carry no semantic signal: every CLI module has a
+# ``main(argv)``, so same-name-same-arity matches on them are noise by
+# definition. 9.7 escalation hardened this false positive into gate blocks
+# twice within a day (tests/suites.py:main, src/ag2c/cli.py:main).
+_NON_SIGNALING_NAMES = frozenset({"main"})
+
 
 def _duplicate_warnings(manifest: Manifest, entry_slice: dict[str, Any]) -> list[dict[str, str]]:
     """Soft duplicate detection: warn when new functions look like existing ones.
@@ -258,26 +264,38 @@ def _duplicate_warnings(manifest: Manifest, entry_slice: dict[str, Any]) -> list
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     body_lines = (node.end_lineno or 0) - (node.lineno or 0)
                     existing.append((rel, node.name, len(node.args.args), body_lines, _function_shape(node)))
-    # Compare new vs existing. Two signals, both deliberately high-precision:
-    # same name + same arity (re-implemented helper), or a SUBSTANTIAL body
-    # (>=8 lines) with a near-identical AST node-type multiset (copy-paste).
-    # Bare body-length similarity matched every short function in the repo —
-    # noise that 9.7 escalation would otherwise harden into blocks.
+    # Compare new vs existing. Deliberately high-precision, because 9.7
+    # escalation hardens repeated warnings into gate blocks:
+    # - same name + same arity + near-identical body shape (re-implemented
+    #   helper), with a 4-line floor — below that, shape is meaningless;
+    # - or a SUBSTANTIAL body (>=8 lines) with a near-identical AST node-type
+    #   multiset under any name (copy-paste).
+    # Name+arity ALONE was noise: conventional helper names (main, _git,
+    # _clip) collide across modules without shared code, and escalation
+    # hardened four such false positives into gate blocks within one day.
     for new_file, new_name, new_args, new_lines, new_shape in new_funcs:
+        if new_name in _NON_SIGNALING_NAMES:
+            continue
         for old_file, old_name, old_args, old_lines, old_shape in existing:
-            if new_name == old_name and new_args == old_args:
+            if new_args != old_args:
+                continue
+            shape_close = _shape_similarity(new_shape, old_shape) >= 0.9
+            if (
+                new_name == old_name
+                and min(new_lines, old_lines) >= 4
+                and shape_close
+            ):
                 warnings.append({
                     "kind": "possible-duplicate",
                     "key": f"{new_file}:{new_name}",
-                    "detail": f"同名函数 {new_name}（{new_file}）与 {old_file} 参数数相同",
+                    "detail": f"同名函数 {new_name}（{new_file}）与 {old_file} 参数数与结构均一致",
                 })
                 break
             if (
                 new_lines >= 8
                 and old_lines >= 8
-                and new_args == old_args
                 and min(new_lines, old_lines) / max(new_lines, old_lines) >= 0.8
-                and _shape_similarity(new_shape, old_shape) >= 0.9
+                and shape_close
             ):
                 warnings.append({
                     "kind": "possible-duplicate",

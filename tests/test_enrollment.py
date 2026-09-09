@@ -19,6 +19,39 @@ from ag2c.household_commands import register_household, set_household_span, tigh
 from ag2c.households import census_report, design_summary_for_file
 
 
+class FirstDrillTests(unittest.TestCase):
+    """新手首演：enroll 后主动提议消防演习——先见价值，再付税。"""
+
+    def _enrolled(self, directory: str):
+        root = git_project(Path(directory) / "demo")
+        result = enroll_project(root, skill_root=Path(directory) / "skills", harnesses=("agents",))
+        return root, result
+
+    def test_enroll_result_offers_first_drill(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _, result = self._enrolled(directory)
+            step = result.get("next_step") or {}
+            self.assertEqual("first-drill", step.get("action"))
+            self.assertIn("ag2c canary", step.get("command") or "")
+            self.assertTrue(step.get("why"))
+
+    def test_guard_status_hints_first_drill_until_team_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, _ = self._enrolled(directory)
+            status = activation_status(root)
+            self.assertIsNotNone(status.get("first_drill"))  # 未建队：有提示
+            self.assertEqual("first-drill", status["first_drill"]["action"])
+            # 提示是 onboarding 引导，不是故障
+            self.assertFalse(any("drill" in issue or "演习" in issue for issue in status["issues"]))
+
+            from ag2c.ledger import append_event
+
+            manifest = load_manifest(discover_manifest(root), project_root=root)
+            append_event(manifest.ledger_path, "canary", {"mode": "gate", "canary": "passed"})
+            status = activation_status(root)
+            self.assertIsNone(status.get("first_drill"))  # 建队后：提示消失
+
+
 class EnrollmentTests(unittest.TestCase):
     def test_enroll_allows_a_dirty_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

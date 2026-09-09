@@ -526,6 +526,15 @@ def recover_relocated_enrollment(
     }
 
 
+def _first_drill_step() -> dict[str, str]:
+    """新手首演建议（固定模板）：enroll 后先看一场演习——先见价值，再付税。"""
+    return {
+        "action": "first-drill",
+        "command": 'ag2c canary --actor <你的名字> --reason "首次演习：看门禁如何拦住缺陷"',
+        "why": "在付出任何治理成本之前，先看守卫当场抓住一个故意投放的缺陷——这是这套系统价值的 60 秒演示",
+    }
+
+
 def enroll_project(
     start: Path,
     *,
@@ -636,6 +645,7 @@ def enroll_project(
         "skill_paths": [item["path"] for item in activation["skills"]],
         "ledger_event": event["event_digest"],
         "recovery": recovery,
+        "next_step": _first_drill_step(),
     }
 
 
@@ -1246,6 +1256,18 @@ def activation_status(start: Path) -> dict[str, Any]:
             issues.append(
                 f"canonical worktree is not on the registered trunk (current {current or 'detached'}, trunk {trunk})"
             )
+    # 首演提示：账本无 canary 事件 = 巡逻队未建队。不是故障（不进 issues），
+    # 只是 onboarding 引导——新用户应在付第一笔治理税之前先看到价值演示。
+    first_drill: dict[str, str] | None = None
+    if manifest is not None:
+        try:
+            from .ledger import read_events
+
+            drilled = any(event.get("event_type") == "canary" for event in read_events(manifest.ledger_path))
+        except Exception:
+            drilled = True  # 账本不可读时不骚扰
+        if not drilled:
+            first_drill = _first_drill_step()
     return {
         "managed": not issues,
         "canonical_root": str(canonical),
@@ -1253,6 +1275,7 @@ def activation_status(start: Path) -> dict[str, Any]:
         "store": str(manifest_path.parent) if manifest_path is not None else None,
         "issues": issues,
         "activation": activation,
+        "first_drill": first_drill,
         "branch": branch_info,
     }
 

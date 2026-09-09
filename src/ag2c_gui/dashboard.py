@@ -134,6 +134,44 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
             {"severity": severity, "text": f"{label}：{len(audit_pending)} 项待人工核对（如 {first}），确认点下方「已抽查」"}
         )
 
+    # 巡逻叙事：演习（金丝雀）与拦截通报。巡逻队不巡逻，等于没有巡逻队——
+    # 从未演习与演习超期本身就是警情；演习失败（变异存活/门禁漏检）是最高级警情。
+    # 注意：patrol 段缺席（overlay 未运行/失败）= 未知，静默降级；只有段在场
+    # 且 runs 为 0 才报"从未演习"——未知不等于未演习。
+    patrol_lines: list[dict[str, str]] = []
+    drill_days: list[int] = []
+    patrol = details.get("patrol") if isinstance(details.get("patrol"), dict) else None
+    if patrol is not None:
+        drills = patrol.get("drills") if isinstance(patrol.get("drills"), dict) else {}
+        interval = int(patrol.get("drill_interval_days") or 7)
+        for mode in ("gate", "mutation"):
+            drill = drills.get(mode) if isinstance(drills.get(mode), dict) else {}
+            label = _text(drill, "label") or {"gate": "安检演习", "mutation": "消防演习"}.get(mode, mode)
+            days = drill.get("days_since")
+            result = _text(drill, "last_result")
+            command = "ag2c canary" + (" --mode mutation" if mode == "mutation" else "")
+            if not drill.get("runs"):
+                anomalies.append({"severity": "warn", "text": f"{label}从未举行：巡逻队还没出过警 → 建议运行 {command}"})
+                patrol_lines.append({"severity": "warn", "text": f"{label}：从未举行"})
+                continue
+            if isinstance(days, int):
+                drill_days.append(days)
+            if result == "failed":
+                detail = _text(drill, "last_detail")
+                anomalies.append(
+                    {"severity": "error", "text": f"{label}报警：{detail or '上次演习未被拦住'}——测试可能空心，建议检查该区域并补测试"}
+                )
+            elif drill.get("overdue"):
+                anomalies.append({"severity": "warn", "text": f"{label}超期：已 {days} 天未演习（间隔 {interval} 天）→ 建议运行 {command}"})
+            verb = {"passed": "咬住了", "failed": "未被拦住！", "error": "未能执行"}.get(result, result or "未知")
+            when = "从未" if not isinstance(days, int) else ("今天" if days == 0 else f"{days} 天前")
+            patrol_lines.append({"severity": "error" if result == "failed" else "ok", "text": f"{label}：{when}演习，{verb}"})
+        interceptions = patrol.get("interceptions") if isinstance(patrol.get("interceptions"), dict) else {}
+        window = int(interceptions.get("window_days") or 30)
+        patrol_lines.append(
+            {"severity": "ok", "text": f"拦截通报：近 {window} 天拦截 {int(interceptions.get('in_window') or 0)} 次绕过尝试"}
+        )
+
     overflow = max(0, len(anomalies) - MAX_LISTED_ANOMALIES)
     listed = anomalies[:MAX_LISTED_ANOMALIES]
     if overflow:
@@ -151,6 +189,7 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
     health.append({"label": "基线债务", "value": debt_total})
     days_since = audit.get("days_since")
     health.append({"label": "距上次抽查", "value": days_since if isinstance(days_since, int) else "—"})
+    health.append({"label": "距上次演习", "value": min(drill_days) if drill_days else "—"})
     project = details.get("project") if isinstance(details.get("project"), dict) else {}
     return {
         "project": _text(project, "name"),
@@ -159,6 +198,7 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
         "anomaly_count": len(anomalies),
         "health": health,
         "audit": {"pending": audit_pending, "due": bool(audit.get("due"))},
+        "patrol": patrol_lines,
     }
 
 
@@ -169,11 +209,16 @@ def draw_dashboard(model: dict[str, Any]) -> None:
     if model["project"]:
         imgui.text_disabled(model["project"])
 
-    # 健康度：三个数，零是绿色，非零吸注意力。
+    # 健康度：几个数，零是绿色，非零吸注意力；"—"（无数据）灰色静默。
     for i, item in enumerate(model["health"]):
         if i:
             imgui.same_line(0.0, 28.0)
-        value = int(item["value"])
+        raw_value = item["value"]
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            imgui.text_disabled(f"{item['label']} —")
+            continue
         color = (0.45, 0.80, 0.50, 1.0) if value == 0 else (0.95, 0.70, 0.30, 1.0)
         imgui.text_colored(color, f"{item['label']} {value}")
     imgui.separator()
@@ -194,6 +239,20 @@ def draw_dashboard(model: dict[str, Any]) -> None:
                 "unavailable": ("监管：本次缺 AI 监管", (0.95, 0.70, 0.30, 1.0)),
             }.get(regulator, (f"监管：{regulator}", (0.95, 0.70, 0.30, 1.0)))
             imgui.text_colored(reg_color, label)
+    imgui.separator()
+
+    imgui.text("巡逻记录")
+    if not model["patrol"]:
+        imgui.text_disabled("还没有巡逻记录")
+    for line in model["patrol"]:
+        color = {
+            "ok": (0.45, 0.80, 0.50, 1.0),
+            "warn": (0.95, 0.70, 0.30, 1.0),
+            "error": (0.95, 0.35, 0.30, 1.0),
+        }.get(line["severity"], (0.95, 0.70, 0.30, 1.0))
+        imgui.text_colored(color, "●")
+        imgui.same_line(0.0, 8.0)
+        imgui.text_wrapped(line["text"])
     imgui.separator()
 
     imgui.text("异常清单")

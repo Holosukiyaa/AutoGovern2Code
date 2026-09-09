@@ -37,6 +37,7 @@ FAST = [
     "test_mcp",
     "test_mutation",
     "test_notify",
+    "test_patrol",
     "test_review",
     "test_slicer",
     "test_suites",

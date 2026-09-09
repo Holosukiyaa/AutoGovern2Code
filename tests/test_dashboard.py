@@ -42,7 +42,7 @@ class DashboardModelTests(unittest.TestCase):
         self.assertEqual([], model["tasks"])
         self.assertEqual([], model["anomalies"])
         self.assertEqual(0, model["anomaly_count"])
-        self.assertEqual([0, 0, 0, 0, 0, "—"], [h["value"] for h in model["health"]])
+        self.assertEqual([0, 0, 0, 0, 0, "—", "—"], [h["value"] for h in model["health"]])
         self.assertEqual("", model["project"])
 
     def test_all_green_project_is_nearly_empty(self):

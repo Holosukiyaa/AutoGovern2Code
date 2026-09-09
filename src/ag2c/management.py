@@ -364,7 +364,24 @@ def project_details(path: Path, *, refresh: bool = False) -> dict[str, Any]:
         result = _compute_project_details(root)
         _write_details_cache(root, fingerprint, result)
     _overlay_audit_status(root, result)
+    _overlay_patrol_status(root, result)
     return result
+
+
+def _overlay_patrol_status(root: Path, result: dict[str, Any]) -> None:
+    """巡逻叙事（演习/拦截）：与 audit 同模式——每次调用现算，不随 details 缓存。"""
+    if not result.get("available"):
+        return
+    try:
+        manifest_path = discover_manifest(root)
+        if manifest_path is None:
+            return
+        manifest = load_manifest(manifest_path, project_root=root)
+        from .patrol import patrol_report
+
+        result["patrol"] = patrol_report(manifest)
+    except (AG2CError, OSError, ValueError):
+        result["patrol"] = {"drills": {}, "interceptions": {"total": 0, "in_window": 0, "recent": []}}
 
 
 def _overlay_audit_status(root: Path, result: dict[str, Any]) -> None:

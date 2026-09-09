@@ -14,10 +14,13 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from .ledger import read_events
+from .util import hidden_process_kwargs
 
 HAZARD_SCHEMA = "ag2c.hazard.v1"
 
@@ -88,9 +91,54 @@ def _load_warning_history(manifest) -> dict[str, Any]:
     return raw["warnings"]
 
 
+def _parse_seen(value: object) -> datetime | None:
+    """解析 warning-history 的 ISO 时间戳；解析不了返回 None。"""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return datetime.fromisoformat(value.strip())
+    except ValueError:
+        return None
+
+
+def _file_last_commit(root: Path, relpath: str) -> datetime | None:
+    """文件在 git 里的最后提交时间。查询失败返回 None——调用方按 standing 处理（宁多报不漏报）。"""
+    try:
+        proc = subprocess.run(
+            ["git", "log", "-1", "--format=%cI", "--", relpath],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            **hidden_process_kwargs(),
+        )
+    except Exception:
+        return None
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None
+    return _parse_seen(proc.stdout)
+
+
+def _warning_freshness(last_seen: datetime | None, committed: datetime | None) -> str:
+    """standing = 警告针对当前文件内容发出；unconfirmed = 文件在 last_seen 之后改过，记录可能已死。
+
+    任一时间缺失都按 standing——保鲜机制只负责标注，不负责赦免。"""
+    if last_seen is not None and committed is not None and last_seen < committed:
+        return "unconfirmed"
+    return "standing"
+
+
 def _warning_hazards(manifest) -> list[dict[str, Any]]:
-    """查重与预算警告：被无视的复用债与肥胖楼。count 越高同档内排越前。"""
+    """查重与预算警告：被无视的复用债与肥胖楼。count 越高同档内排越前。
+
+    保鲜（2026-09-09）：警告历史是账本，只记"上次触发"，不记"是否已修复"。
+    检测器是 HEAD 感知的，只有文件被改动才会重新评估——所以文件在 last_seen
+    之后有过提交而警告没再触发，这条记录就降级为 unconfirmed（待复核），
+    避免拆迁队照着死记录拆错楼。"""
     hazards = []
+    commit_cache: dict[str, datetime | None] = {}
     for entry in _load_warning_history(manifest).values():
         if not isinstance(entry, dict):
             continue
@@ -100,11 +148,14 @@ def _warning_hazards(manifest) -> list[dict[str, Any]]:
         key = str(entry.get("key") or entry.get("detail") or "")
         target = key.rsplit(":", 1)[0] if ":" in key else key
         count = int(entry.get("count") or 0)
+        if target and target not in commit_cache:
+            commit_cache[target] = _file_last_commit(manifest.project_root, target)
         hazards.append(
             {
                 "target": target or key,
                 "kind": kind,
                 "count": count,
+                "freshness": _warning_freshness(_parse_seen(entry.get("last_seen")), commit_cache.get(target)),
                 "detail": str(entry.get("detail") or key),
                 "evidence": {
                     "store": "warning-history",
@@ -182,7 +233,14 @@ def hazard_report(manifest, policy=None, *, now: datetime | None = None) -> dict
         kind = str(entry.get("kind") or "")
         entry["severity"] = _KIND_WEIGHT.get(kind, 0) + min(int(entry.get("count") or 0), _MAX_COUNT_BONUS)
         entry["suggestion"] = SUGGESTIONS.get(kind, "")
-    hazards.sort(key=lambda item: (-int(item.get("severity") or 0), str(item.get("kind") or ""), str(item.get("target") or "")))
+    hazards.sort(
+        key=lambda item: (
+            1 if item.get("freshness") == "unconfirmed" else 0,  # 待复核的排最后
+            -int(item.get("severity") or 0),
+            str(item.get("kind") or ""),
+            str(item.get("target") or ""),
+        )
+    )
     counts: dict[str, int] = {}
     for entry in hazards:
         kind = str(entry.get("kind") or "")

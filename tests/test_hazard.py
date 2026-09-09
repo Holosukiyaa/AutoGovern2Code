@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
 import bootstrap
 
-from ag2c.hazard import HAZARD_SCHEMA, SUGGESTIONS, hazard_report
+from ag2c.hazard import HAZARD_SCHEMA, SUGGESTIONS, _warning_freshness, hazard_report
 from ag2c.ledger import append_event
 from ag2c_gui.dashboard import dashboard_model
 
-from support import bare_manifest
+from support import _git, bare_manifest
 
 
 def _mutation_canary(manifest, *, result: str, mutation: str) -> None:
@@ -141,6 +144,87 @@ class DegradationTests(unittest.TestCase):
             self.assertEqual([], report["hazards"])
 
 
+class FreshnessTests(unittest.TestCase):
+    """保鲜：警告历史只记"上次触发"，文件在 last_seen 之后改过的记录降级 unconfirmed。"""
+
+    def _repo(self, root: Path) -> None:
+        _git(root, "init", "-b", "main")
+        _git(root, "config", "user.name", "T")
+        _git(root, "config", "user.email", "t@example.invalid")
+
+    def _commit_file(self, root: Path, relpath: str, content: str, when: str) -> None:
+        path = root / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        env = dict(os.environ, GIT_AUTHOR_DATE=when, GIT_COMMITTER_DATE=when)
+        subprocess.run(["git", "-C", str(root), "add", relpath], check=True, capture_output=True, env=env)
+        subprocess.run(["git", "-C", str(root), "commit", "-m", "c"], check=True, capture_output=True, env=env)
+
+    @staticmethod
+    def _dupe(key: str, last_seen: str) -> dict:
+        return {"kind": "possible-duplicate", "key": key, "detail": key, "count": 2, "first_seen": last_seen, "last_seen": last_seen}
+
+    def test_warning_older_than_file_commit_is_unconfirmed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._repo(root)
+            self._commit_file(root, "src/a.py", "A = 1\n", "2026-09-09T10:00:00+08:00")
+            manifest = bare_manifest(root)
+            # 01:00 UTC = 09:00 (+08)，早于文件提交 10:00 (+08) → 记录可能已死
+            _write_warning_history(manifest, [self._dupe("src/a.py:f", "2026-09-09T01:00:00+00:00")])
+            report = hazard_report(manifest)
+            self.assertEqual("unconfirmed", report["hazards"][0]["freshness"])
+
+    def test_warning_newer_than_file_commit_is_standing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._repo(root)
+            self._commit_file(root, "src/a.py", "A = 1\n", "2026-09-09T08:00:00+08:00")
+            manifest = bare_manifest(root)
+            # 01:30 UTC = 09:30 (+08)，晚于文件提交 08:00 (+08) → 警告针对当前内容
+            _write_warning_history(manifest, [self._dupe("src/a.py:f", "2026-09-09T01:30:00+00:00")])
+            report = hazard_report(manifest)
+            self.assertEqual("standing", report["hazards"][0]["freshness"])
+
+    def test_unconfirmed_sorts_after_standing_despite_higher_severity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._repo(root)
+            self._commit_file(root, "src/new.py", "A = 1\n", "2026-09-09T08:00:00+08:00")
+            self._commit_file(root, "src/old.py", "B = 1\n", "2026-09-09T12:00:00+08:00")
+            manifest = bare_manifest(root)
+            _write_warning_history(
+                manifest,
+                [
+                    # duplicate（权重 30）但文件 12:00 改过、last_seen 01:00 UTC → unconfirmed
+                    self._dupe("src/old.py:f", "2026-09-09T01:00:00+00:00"),
+                    # budget（权重 20）但 last_seen 02:00 UTC = 10:00 (+08) 晚于 08:00 提交 → standing
+                    {"kind": "over-budget", "key": "src/new.py:g", "detail": "src/new.py:g", "count": 1,
+                     "first_seen": "2026-09-09T02:00:00+00:00", "last_seen": "2026-09-09T02:00:00+00:00"},
+                ],
+            )
+            report = hazard_report(manifest)
+            self.assertEqual("src/new.py", report["hazards"][0]["target"])
+            self.assertEqual("standing", report["hazards"][0]["freshness"])
+            self.assertEqual("src/old.py", report["hazards"][1]["target"])
+            self.assertEqual("unconfirmed", report["hazards"][1]["freshness"])
+
+    def test_git_failure_degrades_to_standing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = bare_manifest(Path(directory))  # 无 git 仓库
+            _write_warning_history(manifest, [self._dupe("src/a.py:f", "2026-09-09T01:00:00+00:00")])
+            report = hazard_report(manifest)
+            self.assertEqual("standing", report["hazards"][0]["freshness"])
+
+    def test_pure_freshness_rules(self) -> None:
+        earlier = datetime(2026, 9, 9, 1, 0, tzinfo=timezone.utc)
+        later = datetime(2026, 9, 9, 2, 0, tzinfo=timezone.utc)
+        self.assertEqual("unconfirmed", _warning_freshness(earlier, later))
+        self.assertEqual("standing", _warning_freshness(later, earlier))
+        self.assertEqual("standing", _warning_freshness(None, later))
+        self.assertEqual("standing", _warning_freshness(earlier, None))
+
+
 class DashboardIntegrationTests(unittest.TestCase):
     def _details(self, hazards: list[dict]) -> dict:
         return {"project": {"name": "demo"}, "hazards": {"schema": HAZARD_SCHEMA, "hazards": hazards, "counts": {}}}
@@ -170,6 +254,13 @@ class DashboardIntegrationTests(unittest.TestCase):
         model = dashboard_model({"project": {"name": "demo"}}, {})
         self.assertEqual([], model["hazards"])
         self.assertEqual([], model["anomalies"])
+
+    def test_unconfirmed_hazard_is_labeled_for_review(self) -> None:
+        hazards = [
+            {"target": "src/ag2c/govern.py", "kind": "duplicate", "severity": 32, "suggestion": "合并同类", "freshness": "unconfirmed"}
+        ]
+        model = dashboard_model(self._details(hazards), {})
+        self.assertIn("待复核", model["hazards"][0]["text"])
 
 
 if __name__ == "__main__":

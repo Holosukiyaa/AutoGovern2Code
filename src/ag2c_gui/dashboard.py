@@ -197,6 +197,8 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
             target = _text(item, "target")
             suggestion = _text(item, "suggestion")
             resolved = "（疑似已修复）" if item.get("resolved") else ""
+            if item.get("freshness") == "unconfirmed":
+                resolved += "（待复核：文件已改动，记录可能已死）"
             hazard_lines.append(
                 {
                     "severity": "error" if item.get("kind") == "hollow" and not item.get("resolved") else "warn",

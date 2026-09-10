@@ -30,7 +30,7 @@ Only policy-declared argv checkers run. Failed attempts remain in evidence; a la
 
 Yes: **MCP for entry, Git hook for delivery.** Neither is enough alone. Connecting MCP cannot replace the hook.
 
-1. **MCP (soft).** `ag2c mcp` serves the Skill workflow as `instructions`, full SKILL.md as resources, and live tools (`ag2c_task_start` returns `guidance.lineage`). Enrollment writes this server into local MCP configs. A model can ignore tools. Reading copies still live in [docs/skills](skills/README.md) for humans.
+1. **MCP (soft).** `ag2c mcp` serves the Skill workflow as `instructions`, full SKILL.md as resources, and live tools (`ag2c_task_start` returns `guidance.lineage`). Enrollment writes this server into local MCP configs. A model can ignore tools. The packaged skills ship inside the package (`src/ag2c/skills/`); non-MCP agents install them with `ag2c skill install`.
 2. **Git hijack (hard).** The project's `.git` stays put. Activation sets `core.hooksPath` to an external directory: AG2C `pre-commit` runs first, then every hook that was already there (husky, leftover, default `.git/hooks`) is forwarded by name. That guard refuses commits in the canonical worktree, refuses branches not named `ag2c/…`, and refuses a worktree that does not match an open task record. History and remotes are unchanged. AG2C operations use bundled MinGit when it is available. The tray can be closed. `git commit` on `main` still dies.
 3. **Worktree isolation.** Construction is a second Git checkout. Even when the agent obeys MCP tools, the product branch does not move until `task finish` fast-forwards verified bytes.
 

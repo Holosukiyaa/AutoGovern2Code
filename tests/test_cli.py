@@ -38,7 +38,7 @@ class CLITests(unittest.TestCase):
         self.assertIn("ag2c skill install", text)
         self.assertIn("ag2c skill version", text)
         self.assertIn("ag2c guard status", text)
-        self.assertIn("docs/skills/ag2c-governed-development", text)
+        self.assertNotIn("docs/skills", text)
         self.assertIn("ag2c-directory-census", text)
         self.assertIn("ag2c-knowledge-authoring", text)
         self.assertIn(f"version {__version__}", text)

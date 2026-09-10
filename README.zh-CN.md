@@ -102,7 +102,7 @@ Knowledge、Floor 和公开界面卡片是维护者工具（`ag2c knowledge`、`
 - [架构与证据模型](docs/ARCHITECTURE.md)
 - [目录户口](docs/DIRECTORY-CENSUS.md)
 - [本机证据与 CI](docs/CI_VERIFICATION.md)
-- [Skill 副本](docs/skills/README.md)
+- Agent Skills 随包发布（`src/ag2c/skills/`）：MCP 客户端经 instructions 与 `ag2c://skill/<name>` 资源获取，其他 Agent 用 `ag2c skill install` 安装
 - [参与贡献](CONTRIBUTING.md)
 - [安全策略](SECURITY.md)
 - [更新记录](CHANGELOG.md)

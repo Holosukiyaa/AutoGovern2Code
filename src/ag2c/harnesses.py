@@ -28,9 +28,7 @@ Required Skill versions (replace the installed copy if missing or different):
 
 1. Read `version:` from each installed SKILL.md frontmatter. A missing version is stale.
 2. If the installed version or digest is not exactly a Required line above, replace the whole skill folder. Do not keep a folder because one already exists, and do not keep a higher version from elsewhere.
-3. Source, in order:
-   - this repo's {skill_docs}, if present
-   - otherwise run: ag2c skill install
+3. Source: run: ag2c skill install (it copies this package's own skills). Agents connected via MCP already hold the same text as instructions and ag2c://skill/<name> resources; never paste skill text into the project.
    Typical skills homes: Codex ~/.codex/skills ; Claude Code ~/.claude/skills ; Cursor ~/.cursor/skills ; other Agent Skills hosts ~/.agents/skills. If your product uses another folder, use that.
 4. Confirm required versions with: ag2c skill version
 5. Then in this repository run: ag2c guard status
@@ -77,22 +75,15 @@ def packaged_skills_report() -> dict[str, object]:
 def skill_entry_prompt(*, project: Path | None = None) -> str:
     from . import __version__
 
-    root = (project or Path.cwd()).resolve()
     identities = [packaged_skill_identity(name) for name in PACKAGED_SKILLS]
     required = "\n".join(
         f"   - {item['name']} version {item['version']} digest {item['digest'][:12]}"
         for item in identities
     )
-    skill_docs = " and ".join(f"docs/skills/{name}" for name in PACKAGED_SKILLS)
-    text = SKILL_ENTRY_PROMPT.format(
+    return SKILL_ENTRY_PROMPT.format(
         package_version=__version__,
         required=required,
-        skill_docs=skill_docs,
     ).strip() + "\n"
-    local = root / "docs" / "skills" / "ag2c-governed-development" / "SKILL.md"
-    if local.is_file():
-        text += f"\nLocal skill copy in this repo:\n{local}\n"
-    return text
 
 
 def skill_source(name: str = SKILL_NAME) -> Path:

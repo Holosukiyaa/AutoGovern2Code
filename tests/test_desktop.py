@@ -682,11 +682,11 @@ class TraySelectionTests(unittest.TestCase):
 
         label = "ADOPTION.md  ·  在册"
         left = widget_id(label, node_key({"title": "ADOPTION.md", "path": "docs/ADOPTION.md"}))
-        right = widget_id(label, node_key({"title": "ADOPTION.md", "path": "docs/zh-CN/ADOPTION.md"}))
+        right = widget_id(label, node_key({"title": "ADOPTION.md", "path": "docs/i18n/ADOPTION.md"}))
         self.assertNotEqual(left, right)
         self.assertTrue(left.startswith(label))
         self.assertIn("docs/ADOPTION.md", left)
-        self.assertIn("docs/zh-CN/ADOPTION.md", right)
+        self.assertIn("docs/i18n/ADOPTION.md", right)
 
     def test_tray_hides_nav_cursor_and_uses_unique_selectable_ids(self) -> None:
         ui = (Path(__file__).resolve().parents[1] / "src" / "ag2c_gui" / "imgui_tray.py").read_text(encoding="utf-8")

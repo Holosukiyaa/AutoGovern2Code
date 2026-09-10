@@ -26,7 +26,7 @@ from ag2c.harnesses import (
 class HarnessAdapterTests(unittest.TestCase):
     def test_skill_entry_prompt_tells_the_agent_to_install_into_its_own_home(self) -> None:
         prompt = skill_entry_prompt(project=Path(tempfile.gettempdir()))
-        self.assertIn("docs/skills/ag2c-governed-development", prompt)
+        self.assertNotIn("docs/skills", prompt)
         self.assertIn("ag2c skill install", prompt)
         self.assertIn("ag2c skill version", prompt)
         self.assertIn("ag2c guard status", prompt)
@@ -39,10 +39,6 @@ class HarnessAdapterTests(unittest.TestCase):
         for name in PACKAGED_SKILLS:
             identity = packaged_skill_identity(name)
             self.assertIn(f"{name} version {identity['version']} digest {identity['digest'][:12]}", prompt)
-        repo = Path(__file__).resolve().parents[1]
-        local = skill_entry_prompt(project=repo)
-        self.assertIn("Local skill copy in this repo:", local)
-        self.assertIn("docs", local.casefold())
 
     def test_packaged_skills_declare_this_ag2c_version(self) -> None:
         report = packaged_skills_report()

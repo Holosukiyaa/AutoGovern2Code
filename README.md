@@ -102,7 +102,7 @@ Knowledge, floors, and public-interface cards are maintainer tools (`ag2c knowle
 - [Architecture and evidence model](docs/ARCHITECTURE.md)
 - [Directory households](docs/DIRECTORY-CENSUS.md)
 - [Local evidence and CI](docs/CI_VERIFICATION.md)
-- [Skill copies](docs/skills/README.md)
+- Agent skills ship inside the package (`src/ag2c/skills/`); MCP clients receive them as instructions and `ag2c://skill/<name>` resources, other agents install them with `ag2c skill install`
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
 - [Changelog](CHANGELOG.md)

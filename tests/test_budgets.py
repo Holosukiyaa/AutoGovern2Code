@@ -253,5 +253,88 @@ class DynamicBudgetWarningTests(unittest.TestCase):
         self.assertEqual([], self._warnings(["app:src/mod.py"]))
 
 
+class HouseholdBudgetLinesTests(unittest.TestCase):
+    """govern household 的显式行预算：写入 / 省略保留 / 0 清除 / 负数拒绝。
+
+    死锁教训（2026-09-10）：动态预算棘轮只下不上，家庭房间刻意增长后
+    没有任何合法通道抬预算，升级门全局锁死——此参数就是那条通道。
+    """
+
+    def setUp(self) -> None:
+        from support import git_project, write_project
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = git_project(Path(self._tmp.name) / "demo")
+        write_project(self.root)
+
+    def _register(self, **overrides):
+        from ag2c.household_commands import register_household
+
+        params = dict(
+            card_id="knowledge.api-docs",
+            title="api docs",
+            summary="docs household for budget tests",
+            includes=["docs/**"],
+            excludes=[],
+            floors=["floor.api"],
+            capability="docs",
+            implementation="docs.exploring",
+            status="current",
+            actor="test",
+            reason="household budget test",
+        )
+        params.update(overrides)
+        return register_household(self.root, **params)
+
+    def _budget_of(self, card_id: str = "knowledge.api-docs") -> int:
+        from ag2c.config import discover_manifest, load_manifest, load_policy
+
+        manifest = load_manifest(discover_manifest(self.root), project_root=self.root)
+        card = load_policy(manifest).card(card_id)
+        return card.budget_lines
+
+    def test_explicit_budget_written(self) -> None:
+        self._register(budget_lines=500)
+        self.assertEqual(500, self._budget_of())
+
+    def test_omitted_budget_preserves_existing(self) -> None:
+        self._register(budget_lines=500)
+        self._register(summary="updated summary, budget omitted")
+        self.assertEqual(500, self._budget_of())
+
+    def test_zero_clears_explicit_budget(self) -> None:
+        self._register(budget_lines=500)
+        self._register(budget_lines=0)
+        self.assertEqual(0, self._budget_of())
+
+    def test_negative_budget_rejected(self) -> None:
+        from ag2c.errors import AG2CError
+
+        with self.assertRaises(AG2CError):
+            self._register(budget_lines=-1)
+
+    def test_explicit_budget_clears_over_budget_warning(self) -> None:
+        """场景验收（画像承诺②）：写入前 _budget_warnings 报 key=...:lines
+        over-budget；用新参数抬显式预算后，同一 key 从警告里消失。"""
+        from ag2c.config import discover_manifest, load_manifest, load_policy
+
+        doc = self.root / "docs" / "a.md"
+        doc.parent.mkdir(parents=True, exist_ok=True)
+        doc.write_text("line\n" * 20, encoding="utf-8")
+        self._register(budget_lines=10)
+        manifest = load_manifest(discover_manifest(self.root), project_root=self.root)
+        fake_report = {"households": [{"id": "knowledge.api-docs", "code_count": 1, "files": ["app:docs/a.md"]}]}
+
+        def warning_keys() -> list[str]:
+            policy = load_policy(manifest)
+            with mock.patch("ag2c.households.census_report", return_value=fake_report):
+                return [w["key"] for w in _budget_warnings(manifest, policy, {})]
+
+        self.assertIn("knowledge.api-docs:lines", warning_keys())  # 设置前：超预算
+        self._register(budget_lines=500)
+        self.assertNotIn("knowledge.api-docs:lines", warning_keys())  # 写入后：警告消失
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -392,6 +392,7 @@ def tool_defs() -> list[dict[str, Any]]:
                 "command": {"type": "array", "items": {"type": "string"}, "description": "Scenario checker command (argv). Declares a product check for this household."},
                 "provides": {"type": "array", "items": {"type": "string"}, "description": "Reusable capabilities this room offers (货架). Omit to keep existing; pass to replace."},
                 "conventions": {"type": "string", "description": "写法约定: how code in this room is written (state, errors, UI). Omit to keep existing."},
+                "budget_lines": {"type": "integer", "description": "Explicit line budget for this room (人工预算, overrides the dynamic store). Omit to keep existing; 0 clears."},
                 "reason": {"type": "string"},
                 "actor": {"type": "string"},
                 "cwd": _cwd_prop(),
@@ -723,6 +724,7 @@ def _call_household(args: dict[str, Any]) -> Any:
         command=_optional_string_list(args, "command"),
         provides=_optional_string_list(args, "provides"),
         conventions=str(args["conventions"]) if args.get("conventions") is not None else None,
+        budget_lines=int(args["budget_lines"]) if args.get("budget_lines") is not None else None,
         actor=_actor(args),
         reason=str(args.get("reason") or ""),
     )

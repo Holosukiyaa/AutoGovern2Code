@@ -317,6 +317,7 @@ def build_parser() -> argparse.ArgumentParser:
     household.add_argument("--replaced-by", default="")
     household.add_argument("--provides", action="append", default=None, help="Reusable capability this room offers (货架); repeatable. Omit to keep existing.")
     household.add_argument("--conventions", default=None, help="写法约定 for this room. Omit to keep existing.")
+    household.add_argument("--budget-lines", type=int, default=None, help="Explicit line budget for this room (人工预算，优先于动态仓). Omit to keep existing; 0 clears.")
     household.add_argument("--command-json", help="implementation-specific checker argv as JSON")
     household.add_argument("--format", choices=("text", "json"), default="json")
     tighten = govern_commands.add_parser("tighten", help="monotonically tighten a directory household strategy")
@@ -931,7 +932,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
 
                 if args.govern_command == "household":
-                    result = register_household(Path.cwd(), card_id=args.id, title=args.title, summary=args.summary, includes=args.include, excludes=args.exclude, floors=args.floor, capability=args.capability, implementation=args.implementation, status=args.status, replaced_by=args.replaced_by, entrypoints=args.entrypoint, checkers=args.checker, command=json.loads(args.command_json) if args.command_json else None, grain=args.grain, meaning=args.meaning, contract=args.contract, decider=args.decider, span=args.span, provides=args.provides, conventions=args.conventions, actor=args.actor, reason=args.reason)
+                    result = register_household(Path.cwd(), card_id=args.id, title=args.title, summary=args.summary, includes=args.include, excludes=args.exclude, floors=args.floor, capability=args.capability, implementation=args.implementation, status=args.status, replaced_by=args.replaced_by, entrypoints=args.entrypoint, checkers=args.checker, command=json.loads(args.command_json) if args.command_json else None, grain=args.grain, meaning=args.meaning, contract=args.contract, decider=args.decider, span=args.span, provides=args.provides, conventions=args.conventions, budget_lines=args.budget_lines, actor=args.actor, reason=args.reason)
                 elif args.govern_command == "household-gate":
                     result = set_household_enforcement(Path.cwd(), enabled=args.mode == "enforce", actor=args.actor, reason=args.reason)
                 elif args.govern_command == "checker-parallelism":

@@ -146,7 +146,7 @@ def _save_policy(manifest, raw: dict, actor: str, reason: str, event_type: str, 
     return {**payload, "actor": actor, "reason": reason, "ledger_event_digest": event["event_digest"]}
 
 
-def register_household(start: Path, *, card_id: str, title: str, summary: str, includes: list[str], excludes: list[str], floors: list[str], capability: str, implementation: str, status: str, replaced_by: str = "", entrypoints: list[str] | None = None, checkers: list[str] | None = None, command: list[str] | None = None, grain: str = "", meaning: str = "", contract: str = "", decider: str = "", span: str = "", provides: list[str] | None = None, conventions: str | None = None, actor: str, reason: str) -> dict:
+def register_household(start: Path, *, card_id: str, title: str, summary: str, includes: list[str], excludes: list[str], floors: list[str], capability: str, implementation: str, status: str, replaced_by: str = "", entrypoints: list[str] | None = None, checkers: list[str] | None = None, command: list[str] | None = None, grain: str = "", meaning: str = "", contract: str = "", decider: str = "", span: str = "", provides: list[str] | None = None, conventions: str | None = None, budget_lines: int | None = None, actor: str, reason: str) -> dict:
     actor, reason = _identity(actor, reason)
     manifest, policy = _context(start)
     raw = _read_json(manifest.policy_path)
@@ -177,14 +177,20 @@ def register_household(start: Path, *, card_id: str, title: str, summary: str, i
     previous_entrypoints: list[str] = []
     previous_checkers: list[str] = []
     previous_jurisdiction: dict = {}
+    previous_budget_lines = 0
     if previous is not None:
         previous_checkers = [str(item) for item in previous.checkers if str(item)]
+        previous_budget_lines = int(getattr(previous, "budget_lines", 0) or 0)
         if previous.jurisdiction is not None:
             previous_jurisdiction = coerce_jurisdiction(previous.jurisdiction) or {}
             previous_span = str(previous_jurisdiction.get("span") or "none")
             previous_entrypoints = [str(item) for item in previous_jurisdiction.get("entrypoints") or [] if str(item)]
     if provides is not None and (not isinstance(provides, list) or any(not isinstance(item, str) or not item.strip() for item in provides)):
         raise AG2CError("provides must be a list of non-empty strings")
+    if budget_lines is not None:
+        budget_lines = int(budget_lines)
+        if budget_lines < 0:
+            raise AG2CError("budget_lines must be >= 0 (0 clears the explicit budget)")
     selected_checkers = list(dict.fromkeys(checkers if checkers is not None else previous_checkers))
     if command is not None:
         if not command or any(not isinstance(item, str) or not item for item in command):
@@ -205,6 +211,11 @@ def register_household(start: Path, *, card_id: str, title: str, summary: str, i
     merged_conventions = conventions.strip() if conventions is not None else (previous.conventions if previous is not None else "")
     if merged_conventions:
         card["conventions"] = merged_conventions
+    # 显式行预算（人工预算优先于动态仓，budgets.py）：省略保留旧值；传 0 清除
+    # （卡片字典整体重建，不写键即清除，config 读缺失为 0 = 不定预算）。
+    merged_budget_lines = budget_lines if budget_lines is not None else previous_budget_lines
+    if merged_budget_lines:
+        card["budget_lines"] = merged_budget_lines
     raw["cards"] = [item for item in raw.get("cards", []) if item["id"] != card_id] + [card]
     coverage = raw.get("coverage")
     if isinstance(coverage, dict) and coverage.get("level") == "baseline":

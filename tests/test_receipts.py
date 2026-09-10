@@ -124,7 +124,9 @@ class LineDeltaTests(unittest.TestCase):
 class ReceiptDeltaTests(unittest.TestCase):
     def _enrolled(self, directory: str) -> tuple[Path, object, object, str]:
         root = git_project(Path(directory) / "repo")
-        enroll_project(root)
+        # skill_root 必须隔离：缺省会装进操作者真实的 ~/.codex/skills，
+        # 既污染环境又在目录被占用时炸 PermissionError。
+        enroll_project(root, skill_root=Path(directory) / "skills", harnesses=("agents",))
         manifest = load_manifest(discover_manifest(root), project_root=root)
         policy = load_policy(manifest)
         base = head(root)

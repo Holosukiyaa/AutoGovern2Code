@@ -32,6 +32,7 @@ Source = "https://github.com/Holosukiyaa/AutoGovern2Code"
 
 [project.optional-dependencies]
 gui = ["imgui-bundle>=1.5"]
+test = ["pytest>=8", "pytest-xdist>=3"]
 
 [project.scripts]
 ag2c = "ag2c.cli:main"

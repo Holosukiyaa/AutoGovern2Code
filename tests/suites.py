@@ -1,9 +1,18 @@
-"""Named unittest suites for room-bound checkers.
+"""Named test suites for room-bound checkers.
 
 AG2C binds floor-stage checkers to directory households: a suite runs only
 when the task slice touches that room. This module is the single place that
 maps suite names to test modules, so policy checker commands stay tiny:
 ``python -B tests/suites.py <name>``.
+
+Execution delegates to pytest + pytest-xdist (``pip install .[test]``):
+unittest.TestCase suites are collected natively and distributed across CPU
+cores (``-n auto --dist loadgroup``). The gui and fast suites stay serial:
+gui because imgui tray tests are not worker-safe, fast so the Windows spawn
+tax cannot eat its per-module smoke budget. ``tests/conftest.py`` pins the
+gui modules to an ``xdist_group`` so full-run invocations keep them on one
+worker (``SUITES["gui"]`` is exactly ``test_desktop`` + ``test_dashboard``,
+the two pinned modules).
 
 Suite membership is deliberate, not derived:
 - fast: cheap always-on core bound at floor level as the baseline gate.
@@ -20,8 +29,8 @@ test_suites.py keep it honest.
 """
 from __future__ import annotations
 
+import subprocess
 import sys
-import unittest
 from pathlib import Path
 
 # 冒烟集门槛：单模块实测 <=2.5s（2026-09-10 实测，见 t50 账本）。更重的模块
@@ -106,10 +115,22 @@ def main(argv: list[str]) -> int:
         for module in SUITES[name]:
             print(module)
         return 0
-    loader = unittest.TestLoader()
-    suite = unittest.TestSuite(loader.loadTestsFromName(module) for module in SUITES[name])
-    result = unittest.TextTestRunner(verbosity=1).run(suite)
-    return 0 if result.wasSuccessful() else 1
+    try:
+        import pytest  # noqa: F401
+        import xdist  # noqa: F401
+    except ImportError:
+        print("pytest and pytest-xdist are required: pip install .[test]", file=sys.stderr)
+        return 2
+    tests_dir = Path(__file__).resolve().parent
+    files = [str(tests_dir / f"{module}.py") for module in SUITES[name]]
+    cmd = [sys.executable, "-X", "utf8", "-B", "-m", "pytest", "-q", *files]
+    if name not in {"gui", "fast"}:
+        # imgui tray tests are not worker-safe; the fast smoke set stays
+        # serial so spawn tax cannot eat its per-module budget. Every other
+        # suite parallelizes. loadgroup honours the xdist_group("gui") pin
+        # from tests/conftest.py, so the full-run entry keeps gui serial too.
+        cmd += ["-n", "auto", "--dist", "loadgroup"]
+    return subprocess.call(cmd, cwd=str(tests_dir.parent))
 
 
 if __name__ == "__main__":

@@ -4,10 +4,19 @@ AutoGovern2Code is a Windows product. Development requires Python 3.11 or newer.
 
 ```bash
 python -m venv .venv
-python -m pip install -e .
-python -m unittest discover -s tests -v
+python -m pip install -e .[test]
+python -m pytest tests/ -n auto --dist loadgroup
 python -m build
 ```
+
+Tests are standard `unittest.TestCase` suites collected and parallelized by
+pytest + pytest-xdist; `tests/suites.py` maps suite names to modules and is
+what policy checker commands invoke. `--dist loadgroup` honours the
+`xdist_group("gui")` pin in `tests/conftest.py`, so the imgui tray tests
+stay on one worker (serial) even in a full parallel run. On Windows the
+suite cost is dominated by process spawn: pointing `TEMP` at a RAM disk and
+excluding the temp directory from real-time antivirus scanning both cut
+suite wall-clock time substantially.
 
 Contributions should preserve these boundaries:
 

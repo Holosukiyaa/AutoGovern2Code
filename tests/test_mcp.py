@@ -44,7 +44,7 @@ class LaunchSrcTests(unittest.TestCase):
         from support import git_project
 
         root = git_project(Path(directory) / "repo")
-        enroll_project(root)
+        enroll_project(root, skill_root=Path(directory) / "skills", harnesses=("agents",))
         (root / "src" / "ag2c").mkdir()  # canonical src must look like an AG2C install
         return root, root / "src"
 
@@ -246,7 +246,7 @@ class PortraitLintTests(unittest.TestCase):
             from support import git_project
 
             root = git_project(Path(directory) / "repo")
-            enroll_project(root)
+            enroll_project(root, skill_root=Path(directory) / "skills", harnesses=("agents",))
             with self.assertRaises(AG2CError) as raised:
                 _call_start(
                     {

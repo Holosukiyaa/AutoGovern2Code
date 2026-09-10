@@ -194,9 +194,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     task_commands.add_parser("verify")
     task_declare = task_commands.add_parser(
-        "declare", help="中途申报前后台同改（巴林条款）：写入任务记录后 verify 放行并记 intervention"
+        "declare", help="中途申报：默认前后台同改（巴林条款）；--full-scan 申报全量验收（验证成本治理）。写入任务记录后 verify 放行并记 intervention"
     )
     task_declare.add_argument("--reason", required=True)
+    task_declare.add_argument("--full-scan", action="store_true", help="申报全量验收：governance 变化触发全量时需先申报（申请预算语义），申报落账本")
     task_list = task_commands.add_parser("list")
     task_list.add_argument("--format", choices=("text", "json"), default="text")
     task_orient = task_commands.add_parser("orient")
@@ -354,6 +355,10 @@ def build_parser() -> argparse.ArgumentParser:
     budget_recal.add_argument("--actor", default="")
     budget_recal.add_argument("--reason", default="")
     budget_recal.add_argument("--format", choices=("text", "json"), default="text")
+    verify_budget = govern_commands.add_parser("verify-budget", help="按账本耗时历史重标验证成本预算（裸命令=预览表；带 --actor/--reason 才落盘）")
+    verify_budget.add_argument("--actor", default="")
+    verify_budget.add_argument("--reason", default="")
+    verify_budget.add_argument("--format", choices=("text", "json"), default="text")
     span = govern_commands.add_parser("span", help="set a directory room's coverage tag: 未打标, 整夹一张, or 一文件一张")
     span.add_argument("--id", required=True)
     span.add_argument("--tag", required=True, help="未打标 / 整夹一张 / 一文件一张")
@@ -378,6 +383,7 @@ def build_parser() -> argparse.ArgumentParser:
     checker_cmd.add_argument("--command", dest="checker_command", default="", help='JSON argv array, e.g. ["python","-B","tests/suites.py","fast"]; creates the checker when the id is unknown')
     checker_cmd.add_argument("--stage", choices=("static", "floor", "boundary", "scenario"), default="")
     checker_cmd.add_argument("--bind", action="append", default=[], help="card id to bind the checker to (repeatable); required when creating")
+    checker_cmd.add_argument("--budget-seconds", type=float, default=None, help="人工显式验证预算（秒）：>0 优先于动态预算仓；0=清除显式预算")
     checker_cmd.add_argument("--actor", required=True)
     checker_cmd.add_argument("--reason", required=True)
     checker_cmd.add_argument("--format", choices=("text", "json"), default="json")
@@ -764,7 +770,7 @@ def main(argv: list[str] | None = None) -> int:
             print(_json(status))
             return 0 if status["managed"] else 1
         if args.command == "task":
-            from .tasks import abandon_task, declare_front_back, finish_task, list_tasks, orient_task, refresh_task, start_task, task_record, verify_task
+            from .tasks import abandon_task, declare_front_back, declare_full_scan, finish_task, list_tasks, orient_task, refresh_task, start_task, task_record, verify_task
 
             if args.task_command == "start":
                 print(
@@ -788,7 +794,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(_json(result))
                 return 0 if result["passed"] else 1
             if args.task_command == "declare":
-                print(_json(declare_front_back(Path.cwd(), reason=args.reason)))
+                if getattr(args, "full_scan", False):
+                    print(_json(declare_full_scan(Path.cwd(), reason=args.reason)))
+                else:
+                    print(_json(declare_front_back(Path.cwd(), reason=args.reason)))
                 return 0
             if args.task_command == "list":
                 records = list_tasks(Path.cwd())
@@ -966,6 +975,25 @@ def main(argv: list[str] | None = None) -> int:
                     if dry_run and rows:
                         print("（预览：未落盘。带 --actor/--reason 重标才写入预算仓与账本）")
                     return 0
+            elif args.govern_command == "verify-budget":
+                from .config import discover_manifest, load_manifest, load_policy
+                from .verify_costs import recalibrate_verify_budgets
+
+                root = Path.cwd()
+                manifest = load_manifest(discover_manifest(root), project_root=root)
+                # 与 budget-recalibrate 同一告知渠道模式：裸命令 = 预览（只算表
+                # 不落盘不写账本）；真正重标带 --actor/--reason（治理写入纪律）。
+                dry_run = not (args.actor.strip() and args.reason.strip())
+                result = recalibrate_verify_budgets(manifest, load_policy(manifest), actor=args.actor, reason=args.reason, dry_run=dry_run)
+                if args.format == "text":
+                    rows = result.get("checkers") or []
+                    if not rows:
+                        print("没有可预算的 checker（账本里还没有 check-run 耗时记录，或全部人工显式预算）。")
+                    for row in rows:
+                        print(f"{row['checker']}: 实测 {row['measured_seconds']}s（近5次最大），预算 {row['budget_seconds']:.0f}s（{row['action']}）")
+                    if dry_run and rows:
+                        print("（预览：未落盘。带 --actor/--reason 重标才写入预算仓与账本）")
+                    return 0
             elif args.govern_command == "checker":
                 from .govern import update_checker
 
@@ -988,6 +1016,7 @@ def main(argv: list[str] | None = None) -> int:
                     command=command,
                     stage=args.stage or None,
                     bind=list(args.bind),
+                    budget_seconds=float(args.budget_seconds) if args.budget_seconds is not None else None,
                 )
             elif args.govern_command == "test-baseline":
                 from .checks import accept_test_baseline

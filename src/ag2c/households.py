@@ -660,7 +660,11 @@ def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
         # Exclude metadata fields that don't affect jurisdiction/behavior,
         # so adding new optional fields doesn't invalidate all census records.
         card_dict = {k: v for k, v in asdict(card).items() if k not in ("budget_lines", "budget_chars", "budget_ast_nodes", "optional", "maturity")}
-        declaration_digest = digest_json({"card": card_dict, "floors": floors, "replacements": replacements, "checkers": [asdict(policy.checker(checker)) for checker in card.checkers]})
+        # Same exclusion for checker metadata: budget_seconds is a cost-governance
+        # knob, not jurisdiction/behavior — and old code (without the field) must
+        # compute the same digest as new code across a merge boundary.
+        checker_dicts = [{k: v for k, v in asdict(policy.checker(checker)).items() if k != "budget_seconds"} for checker in card.checkers]
+        declaration_digest = digest_json({"card": card_dict, "floors": floors, "replacements": replacements, "checkers": checker_dicts})
         scope_digest = digest_json([{key: item[key] for key in ("target", "path", "digest")} for item in matched])
         previous = latest.get(card.card_id)
         freshness = "never" if previous is None else "current" if previous.get("scope_digest") == scope_digest and previous.get("declaration_digest") == declaration_digest else "stale"

@@ -259,7 +259,13 @@ def load_policy(manifest: Manifest) -> Policy:
         parse = str(item.get("parse") or "").strip()
         if parse not in CHECK_PARSE_MODES:
             raise ConfigurationError(f"checker {checker_id} has unsupported parse mode: {parse}")
-        checkers.append(Checker(checker_id, stage, target_id, command, cwd, timeout, str(item.get("implementation") or ""), always, parse))
+        try:
+            budget_seconds = float(item.get("budget_seconds", 0) or 0)
+        except (TypeError, ValueError):
+            raise ConfigurationError(f"checker {checker_id} budget_seconds must be a number")
+        if budget_seconds < 0:
+            raise ConfigurationError(f"checker {checker_id} budget_seconds must be non-negative")
+        checkers.append(Checker(checker_id, stage, target_id, command, cwd, timeout, str(item.get("implementation") or ""), always, parse, budget_seconds))
     checker_ids = [checker.checker_id for checker in checkers]
     if len(checker_ids) != len(set(checker_ids)):
         raise ConfigurationError("policy checker ids must be unique")

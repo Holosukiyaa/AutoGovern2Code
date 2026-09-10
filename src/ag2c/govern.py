@@ -485,6 +485,19 @@ def settle_pending(start: Path, *, actor: str, reason: str) -> dict[str, Any]:
             actions.append("budgets")
     except (AG2CError, OSError, ValueError, ConfigurationError) as exc:
         budgets_error = f"{type(exc).__name__}: {exc}"
+    # t50 验证成本治理：结算时按账本耗时历史重标验证预算（同动态房间预算规约——
+    # 失败不阻断结算，但必须可观测，写进结果的 verify_budgets_error 字段）。
+    verify_budgets_error = ""
+    try:
+        from .verify_costs import recalibrate_verify_budgets
+
+        root = repository_root(start)
+        manifest = load_manifest(discover_manifest(root), project_root=root)
+        verify_table = recalibrate_verify_budgets(manifest, load_policy(manifest), actor=actor, reason=reason)
+        if any(row.get("action") != "kept" for row in verify_table.get("checkers") or []):
+            actions.append("verify-budgets")
+    except (AG2CError, OSError, ValueError, ConfigurationError) as exc:
+        verify_budgets_error = f"{type(exc).__name__}: {exc}"
     remaining = pending_updates(start)
     event = append_event(
         load_manifest(discover_manifest(repository_root(start))).ledger_path,
@@ -498,6 +511,7 @@ def settle_pending(start: Path, *, actor: str, reason: str) -> dict[str, Any]:
         "settled": items,
         "pending": remaining.get("items") or [],
         "budgets_error": budgets_error,
+        "verify_budgets_error": verify_budgets_error,
         "ledger_event_digest": event["event_digest"],
     }
 
@@ -659,6 +673,7 @@ def update_checker(
     command: list[str] | None = None,
     stage: str | None = None,
     bind: list[str] | None = None,
+    budget_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Create or adjust a policy checker without hand-editing policy.json.
 
@@ -672,8 +687,8 @@ def update_checker(
     checker_id = checker_id.strip()
     if not actor or not reason or not checker_id:
         raise AG2CError("governance checker requires --actor, --reason, and --id")
-    if always is None and parse is None and timeout is None and command is None and stage is None and not bind:
-        raise AG2CError("nothing to change; pass --always, --parse, --timeout, --command, --stage, or --bind")
+    if always is None and parse is None and timeout is None and command is None and stage is None and not bind and budget_seconds is None:
+        raise AG2CError("nothing to change; pass --always, --parse, --timeout, --command, --stage, --bind, or --budget-seconds")
     if parse is not None and parse not in {"unittest", "none", ""}:
         raise AG2CError(f"unsupported parse mode: {parse}")
     if command is not None and (not command or any(not isinstance(item, str) or not item for item in command)):
@@ -728,6 +743,14 @@ def update_checker(
             raise AG2CError("timeout must be positive")
         target["timeout"] = timeout
         changes["timeout"] = timeout
+    if budget_seconds is not None:
+        if budget_seconds < 0:
+            raise AG2CError("budget_seconds must be non-negative")
+        if budget_seconds > 0:
+            target["budget_seconds"] = budget_seconds
+        else:
+            target.pop("budget_seconds", None)  # 0 = 清除显式预算，回到动态仓
+        changes["budget_seconds"] = budget_seconds
     if bind:
         cards = [item for item in raw.get("cards", []) if isinstance(item, dict)]
         known = {str(item.get("id")) for item in cards}

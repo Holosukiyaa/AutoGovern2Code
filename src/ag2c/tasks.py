@@ -852,6 +852,29 @@ def declare_front_back(start: Path, *, reason: str) -> dict[str, Any]:
     return {"task": task["id"], "touches_verification": declaration}
 
 
+def declare_full_scan(start: Path, *, reason: str) -> dict[str, Any]:
+    """全量验收申报（t50 验证成本治理的"申请预算"语义）。
+
+    全量验收是最贵的验证通道（所有 checker 不论切片全跑）。task start --all
+    在开工时已显式声明；而 governance 变化（policy/manifest 在任务期间被改）
+    原本会静默升级为全量——现在必须先申报才跑。申报写入任务记录并记
+    intervention full-scan-declared（落账本），verify 见到申报后放行全量。
+    """
+    reason = reason.strip()
+    if not reason:
+        raise AG2CError("full-scan declaration requires --reason")
+    canonical, task = _task_from_worktree(start)
+    _require_open_task(task)
+    entry = task.setdefault("entry", {})
+    declaration = {"declared": True, "reason": reason, "at": _now(), "via": "declare"}
+    existing = entry.get("full_scan")
+    if isinstance(existing, dict) and existing.get("declared"):
+        declaration["via"] = str(existing.get("via") or "declare")
+    entry["full_scan"] = declaration
+    _record_intervention(canonical, _canonical_manifest(canonical)[0], task, "full-scan-declared", {"reason": reason, "via": "declare"})
+    return {"task": task["id"], "full_scan": declaration}
+
+
 def _committed_delta(canonical: Path, base: str, manifest) -> list[str]:
     """canonical 在 base 之后已提交的增量文件。不含未跟踪文件——rebase 不碰它们；
     账本/状态目录即使被误跟踪也视为噪声（否则并行泳道永远假相交）。"""
@@ -950,6 +973,19 @@ def verify_task(start: Path, *, _auto_refreshed: bool = False) -> dict[str, Any]
             "governance-changed",
             {"policy_digest": policy_digest, "manifest_digest": manifest_digest},
         )
+    # t50 验证成本治理：全量验收是最贵的验证通道，必须任务级显式声明
+    # （"申请预算"语义）。task start --all 在开工时已声明；governance 变化
+    # 触发的全量升级不再静默放行——先 declare --full-scan 再 verify。
+    if verify_all_mode and not bool(task["entry"]["all"]):
+        full_scan = task.get("entry", {}).get("full_scan")
+        declared = isinstance(full_scan, dict) and full_scan.get("declared")
+        if not declared:
+            raise AG2CError(
+                "全量验收需要任务级显式声明（验证成本治理：申请预算语义）——governance 在任务期间发生变化，"
+                "本次 verify 将运行全部 checker（不论切片）。确认成本后运行：\n"
+                "  ag2c task declare --full-scan --reason <为什么本次必须全量>\n"
+                "申报会记 intervention 落账本，之后 verify 放行。"
+            )
     last_pass = next((item for item in reversed(task.get("verifications", [])) if item.get("passed")), None)
     current_digest = change_digest(worktree, task["source"]["head"])
     if task["state"] == "verified" and last_pass and current_digest != last_pass.get("change_digest"):

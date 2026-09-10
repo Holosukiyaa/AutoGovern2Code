@@ -1002,6 +1002,11 @@ def run_checks(
 
     slice_card_ids = {str(card.get("id")) for card in entry_slice.get("cards", []) if isinstance(card, dict)}
     warnings.extend(provides_anchor_warnings(manifest, policy, card_ids=slice_card_ids))
+    # t50 验证成本治理：checker 耗时超动态/显式秒预算时报警（over-budget 种类，
+    # 自动获得 9.7 升级与危房名单通道）。无预算仓或无显式预算时不报警。
+    from .verify_costs import verify_budget_warnings
+
+    warnings.extend(verify_budget_warnings(manifest, policy, results))
     if warnings:
         report["warnings"] = warnings
     # 9.7: count appearances; defect-class warnings harden into gate blocks.

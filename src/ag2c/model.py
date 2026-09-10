@@ -88,6 +88,8 @@ class Checker:
     implementation: str = ""
     always: bool = False
     parse: str = ""
+    #: 人工显式验证预算（秒）：>0 时优先于动态预算仓（t50 验证成本治理）。
+    budget_seconds: float = 0.0
 
 
 @dataclass(frozen=True)

@@ -370,8 +370,14 @@ def project_details(path: Path, *, refresh: bool = False) -> dict[str, Any]:
     return result
 
 
-def _overlay_patrol_status(root: Path, result: dict[str, Any]) -> None:
-    """巡逻叙事（演习/拦截）：与 audit 同模式——每次调用现算，不随 details 缓存。"""
+def _overlay_status(root: Path, result: dict[str, Any], *, key: str, produce, fallback_factory) -> None:
+    """状态叠加通用控制流：现算不缓存；异常降级为 fallback_factory()。
+
+    四兄弟（patrol/hazard/token/audit）曾各自复制这套控制流——危房名单
+    校准后它们占了查重区一半。produce 接收 manifest 返回报告；降级载荷
+    用工厂每次现造（原实现每次异常都生成全新字面量，浅拷贝会共享嵌套
+    可变值——监管 reject 的教训）。
+    """
     if not result.get("available"):
         return
     try:
@@ -379,60 +385,58 @@ def _overlay_patrol_status(root: Path, result: dict[str, Any]) -> None:
         if manifest_path is None:
             return
         manifest = load_manifest(manifest_path, project_root=root)
-        from .patrol import patrol_report
-
-        result["patrol"] = patrol_report(manifest)
+        result[key] = produce(manifest)
     except (AG2CError, OSError, ValueError):
-        result["patrol"] = {"drills": {}, "interceptions": {"total": 0, "in_window": 0, "recent": []}}
+        result[key] = fallback_factory()
+
+
+def _patrol_overlay(manifest) -> dict[str, Any]:
+    from .patrol import patrol_report
+
+    return patrol_report(manifest)
+
+
+def _hazard_overlay(manifest) -> dict[str, Any]:
+    from .hazard import hazard_report
+
+    return hazard_report(manifest, load_policy(manifest))
+
+
+def _token_overlay(manifest) -> dict[str, Any]:
+    from .token import token_report
+
+    return token_report(manifest)
+
+
+def _audit_overlay(manifest) -> dict[str, Any]:
+    from .audit import audit_status
+
+    return audit_status(manifest, load_policy(manifest))
+
+
+def _overlay_patrol_status(root: Path, result: dict[str, Any]) -> None:
+    """巡逻叙事（演习/拦截）：现算不缓存。"""
+    _overlay_status(root, result, key="patrol", produce=_patrol_overlay,
+                    fallback_factory=lambda: {"drills": {}, "interceptions": {"total": 0, "in_window": 0, "recent": []}})
 
 
 def _overlay_hazard_status(root: Path, result: dict[str, Any]) -> None:
-    """危房名单（变异存活/查重/预算/陈旧）：与 patrol 同模式——每次调用现算，不随 details 缓存。"""
-    if not result.get("available"):
-        return
-    try:
-        manifest_path = discover_manifest(root)
-        if manifest_path is None:
-            return
-        manifest = load_manifest(manifest_path, project_root=root)
-        from .hazard import hazard_report
-
-        result["hazards"] = hazard_report(manifest, load_policy(manifest))
-    except (AG2CError, OSError, ValueError):
-        result["hazards"] = {"schema": "ag2c.hazard.v1", "hazards": [], "counts": {}}
+    """危房名单（变异存活/查重/预算/陈旧）：现算不缓存。"""
+    _overlay_status(root, result, key="hazards", produce=_hazard_overlay,
+                    fallback_factory=lambda: {"schema": "ag2c.hazard.v1", "hazards": [], "counts": {}})
 
 
 def _overlay_token_status(root: Path, result: dict[str, Any]) -> None:
-    """治理 token 成本（会话税/引导注入/verify 返工折算成钱）：与 patrol 同模式——现算不缓存。"""
-    if not result.get("available"):
-        return
-    try:
-        manifest_path = discover_manifest(root)
-        if manifest_path is None:
-            return
-        manifest = load_manifest(manifest_path, project_root=root)
-        from .token import token_report
-
-        result["token"] = token_report(manifest)
-    except (AG2CError, OSError, ValueError):
-        result["token"] = {"schema": "ag2c.token.v1", "cost_usd": 0.0, "month_cost_usd": 0.0, "month_tokens": 0, "top_rework": []}
+    """治理 token 成本（会话税/引导注入/verify 返工折算成钱）：现算不缓存。"""
+    _overlay_status(root, result, key="token", produce=_token_overlay,
+                    fallback_factory=lambda: {"schema": "ag2c.token.v1", "cost_usd": 0.0, "month_cost_usd": 0.0, "month_tokens": 0, "top_rework": []})
 
 
 def _overlay_audit_status(root: Path, result: dict[str, Any]) -> None:
-    """随机抽查状态：每次调用现算（不随 details 缓存），且只有这条用户侧
+    """随机抽查状态：现算（不随 details 缓存），且只有这条用户侧
     路径会触发生成——verify / run_checks 不读取、不展示抽查计划。"""
-    if not result.get("available"):
-        return
-    try:
-        manifest_path = discover_manifest(root)
-        if manifest_path is None:
-            return
-        manifest = load_manifest(manifest_path, project_root=root)
-        from .audit import audit_status
-
-        result["audit"] = audit_status(manifest, load_policy(manifest))
-    except (AG2CError, OSError, ValueError):
-        result["audit"] = {"pending": [], "due": False, "days_since": None}
+    _overlay_status(root, result, key="audit", produce=_audit_overlay,
+                    fallback_factory=lambda: {"pending": [], "due": False, "days_since": None})
 
 
 def _compute_project_details(root: Path) -> dict[str, Any]:

@@ -26,6 +26,7 @@ MAX_LISTED_HAZARDS = 5
 
 #: 风险种类标签：大白话+专业，单独拎出来无需懂城市隐喻即可理解。
 HAZARD_LABELS = {
+    "regulator-absent": "监管缺席",
     "hollow": "测试无效风险",
     "duplicate": "重复代码",
     "budget": "超出预算",

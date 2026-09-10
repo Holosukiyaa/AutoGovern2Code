@@ -102,6 +102,98 @@ class ClassificationTests(unittest.TestCase):
             self.assertEqual([], report["hazards"])
 
 
+def _verification(manifest, *, outcome: str, reason: str = "") -> None:
+    regulator: dict = {"outcome": outcome}
+    if reason:
+        regulator["reason"] = reason
+    append_event(manifest.ledger_path, "task-verification", {"task_id": "t", "regulator": regulator})
+
+
+class RegulatorAbsentTests(unittest.TestCase):
+    def test_three_consecutive_unavailable_becomes_hazard(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = bare_manifest(Path(directory))
+            for _ in range(3):
+                _verification(manifest, outcome="unavailable", reason="regulator call failed: 401")
+            report = hazard_report(manifest)
+            self.assertEqual(1, len(report["hazards"]))
+            hazard = report["hazards"][0]
+            self.assertEqual("regulator-absent", hazard["kind"])
+            self.assertEqual("regulator", hazard["target"])
+            self.assertEqual(3, hazard["count"])
+            self.assertIn("401", hazard["detail"])
+            self.assertEqual(SUGGESTIONS["regulator-absent"], hazard["suggestion"])
+            self.assertEqual({"regulator-absent": 1}, report["counts"])
+
+    def test_below_threshold_stays_silent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = bare_manifest(Path(directory))
+            for _ in range(2):
+                _verification(manifest, outcome="unavailable", reason="regulator call failed: 401")
+            self.assertEqual([], hazard_report(manifest)["hazards"])
+
+    def test_passed_verification_breaks_the_streak(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = bare_manifest(Path(directory))
+            for _ in range(3):
+                _verification(manifest, outcome="unavailable", reason="regulator call failed: 401")
+            _verification(manifest, outcome="passed")
+            self.assertEqual([], hazard_report(manifest)["hazards"])
+
+    def test_rejected_verification_also_proves_regulator_online(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = bare_manifest(Path(directory))
+            for _ in range(3):
+                _verification(manifest, outcome="unavailable", reason="invalid-verdict: junk")
+            _verification(manifest, outcome="rejected")
+            self.assertEqual([], hazard_report(manifest)["hazards"])
+
+    def test_not_configured_is_not_absence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = bare_manifest(Path(directory))
+            for _ in range(5):
+                _verification(manifest, outcome="unavailable", reason="not-configured")
+            self.assertEqual([], hazard_report(manifest)["hazards"])
+
+    def test_streak_counts_only_from_the_latest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = bare_manifest(Path(directory))
+            for _ in range(3):
+                _verification(manifest, outcome="unavailable", reason="regulator call failed: 401")
+            _verification(manifest, outcome="passed")
+            for _ in range(2):
+                _verification(manifest, outcome="unavailable", reason="regulator call failed: 401")
+            self.assertEqual([], hazard_report(manifest)["hazards"])
+
+    def test_detail_reports_the_latest_reason(self) -> None:
+        """连续样本 reason 互不相同：detail 必须反映最新一次，而非最旧。"""
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = bare_manifest(Path(directory))
+            _verification(manifest, outcome="unavailable", reason="old-500")
+            _verification(manifest, outcome="unavailable", reason="mid-502")
+            _verification(manifest, outcome="unavailable", reason="new-401")
+            hazard = hazard_report(manifest)["hazards"][0]
+            self.assertIn("new-401", hazard["detail"])
+            self.assertNotIn("old-500", hazard["detail"])
+
+    def test_latest_reason_wins_even_without_timestamps(self) -> None:
+        """occurred_at 缺失时也不许被更旧样本覆盖（直接喂纯函数）。"""
+        from ag2c.hazard import _regulator_absent_hazards
+
+        events = [
+            {"event_type": "task-verification", "occurred_at": "",
+             "payload": {"regulator": {"outcome": "unavailable", "reason": "old-500"}}},
+            {"event_type": "task-verification", "occurred_at": "",
+             "payload": {"regulator": {"outcome": "unavailable", "reason": "mid-502"}}},
+            {"event_type": "task-verification", "occurred_at": "",
+             "payload": {"regulator": {"outcome": "unavailable", "reason": "new-401"}}},
+        ]
+        hazards = _regulator_absent_hazards(events)
+        self.assertEqual(1, len(hazards))
+        self.assertIn("new-401", hazards[0]["detail"])
+        self.assertNotIn("old-500", hazards[0]["detail"])
+
+
 class SeverityOrderingTests(unittest.TestCase):
     def test_hollow_outranks_duplicate_outranks_budget_outranks_stale(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -362,7 +362,10 @@ def _regulator_config(value: Any) -> RegulatorConfig | None:
 
     Absent key means no regulator configured (verify degrades with a recorded
     gap). An present object is validated strictly: enabled requires endpoint
-    and model; strict=true turns regulator-unavailable into a merge block.
+    and model; strict (default true) turns regulator-unavailable into a merge
+    block — the regulator is the only semantic check layer, so a configured
+    but absent regulator fails closed unless the user explicitly opts out
+    with ``govern regulator --strict off``.
     """
     if value is None:
         return None
@@ -371,7 +374,7 @@ def _regulator_config(value: Any) -> RegulatorConfig | None:
     enabled = value.get("enabled", False)
     if not isinstance(enabled, bool):
         raise ConfigurationError("policy.regulator.enabled must be a boolean")
-    strict = value.get("strict", False)
+    strict = value.get("strict", True)
     if not isinstance(strict, bool):
         raise ConfigurationError("policy.regulator.strict must be a boolean")
     endpoint = str(value.get("endpoint", "") or "").strip()

@@ -112,7 +112,7 @@ class RegulatorConfig:
     endpoint: str = ""
     model: str = ""
     api_key_env: str = "AG2C_REGULATOR_API_KEY"
-    strict: bool = False
+    strict: bool = True
     timeout: int = 180
     worker_model: str = ""
     allow_same_family: bool = False

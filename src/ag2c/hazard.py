@@ -6,6 +6,8 @@
 - 查重警告：warning-history 的 possible-duplicate → 合并同类的机会
 - 预算超标：warning-history 的 over-budget → 楼体肥胖
 - 普查陈旧 / 过期卡片：census freshness=="stale" 的房间与 status=="stale" 的知识卡
+- 监管缺席（最重）：账本 task-verification 事件里连续 N 次 regulator unavailable
+  （已配置却拿不到裁决）→ 最像"验证"的验证在静默缺席（4.3：沉默不是警情）
 
 与 patrol 同一条军规：任何输入异常都降级为空报告，绝不抛异常——看板必须在
 项目出问题时也能渲染，因为那正是用户看它的时刻。
@@ -24,12 +26,16 @@ from .util import hidden_process_kwargs
 
 HAZARD_SCHEMA = "ag2c.hazard.v1"
 
-#: 严重度基线：hollow（安全网缺失，最危险）> duplicate（复用债）> budget（肥胖）> stale（档案旧）。
-_KIND_WEIGHT = {"hollow": 40, "duplicate": 30, "budget": 20, "stale": 10}
+#: 严重度基线：regulator-absent（监管静默缺席，验证形同虚设）> hollow（安全网缺失）
+#: > duplicate（复用债）> budget（肥胖）> stale（档案旧）。
+_KIND_WEIGHT = {"regulator-absent": 50, "hollow": 40, "duplicate": 30, "budget": 20, "stale": 10}
 
 #: 固定建议模板——制度在说话，不是 AI 自由文本。措辞规则：大白话+专业，
 #: 单独拎出来无需懂城市隐喻即可理解。
-SUGGESTIONS = {"hollow": "补充能捕获该类缺陷的测试", "duplicate": "合并重复实现", "budget": "精简或拆分", "stale": "重新普查确认"}
+SUGGESTIONS = {"regulator-absent": "检查监管端点与密钥；或显式 govern regulator --strict off 承认降级", "hollow": "补充能捕获该类缺陷的测试", "duplicate": "合并重复实现", "budget": "精简或拆分", "stale": "重新普查确认"}
+
+#: 监管缺席升级阈值：连续这么多次 verify 没拿到裁决才进名单（偶发网络抖动不报）。
+_REGULATOR_ABSENT_THRESHOLD = 3
 
 #: 变异描述里的文件定位，形如 "比较符 >→>=（src/ag2c_gui/graph.py:248）"。
 _MUTATION_PATH = re.compile(r"（([^（）]+?):(\d+)）")
@@ -146,6 +152,46 @@ def _hollow_hazards(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             entry["detail"] += "（后续同文件演习已通过，疑似已修复）"
         hazards.append(entry)
     return hazards
+
+
+def _regulator_absent_hazards(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """监管静默缺席：从最新 verify 往回数，连续 unavailable（已配置却拿不到裁决）达到阈值才报警。
+
+    not-configured（用户从未配置监管）不算缺席——未配置是配置状态，配置了却
+    拿不到才是警情；passed/rejected 都证明监管在线，打断计数。
+    """
+    consecutive = 0
+    captured = False
+    last_reason = ""
+    last_at = ""
+    for event in reversed(events):
+        if event.get("event_type") != "task-verification":
+            continue
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        regulator = payload.get("regulator") if isinstance(payload.get("regulator"), dict) else {}
+        outcome = str(regulator.get("outcome") or "")
+        reason = str(regulator.get("reason") or "")
+        if outcome == "unavailable" and reason != "not-configured":
+            consecutive += 1
+            if not captured:
+                # 独立哨兵：最新样本的 occurred_at 可能为空，不能用 last_at
+                # 的真值当“已捕获”标志，否则更旧事件的 reason 会覆盖进来。
+                captured = True
+                last_reason = reason
+                last_at = str(event.get("occurred_at") or "")
+            continue
+        break
+    if consecutive < _REGULATOR_ABSENT_THRESHOLD:
+        return []
+    return [
+        {
+            "target": "regulator",
+            "kind": "regulator-absent",
+            "count": consecutive,
+            "detail": f"连续 {consecutive} 次 verify 缺 AI 监管（最近原因：{last_reason}）",
+            "evidence": {"store": "ledger", "event": "task-verification", "at": last_at},
+        }
+    ]
 
 
 def _load_warning_history(manifest) -> dict[str, Any]:
@@ -345,6 +391,10 @@ def hazard_report(manifest, policy=None, *, now: datetime | None = None) -> dict
         events = []
     try:
         hazards.extend(_hollow_hazards(events))
+    except Exception:
+        pass
+    try:
+        hazards.extend(_regulator_absent_hazards(events))
     except Exception:
         pass
     try:

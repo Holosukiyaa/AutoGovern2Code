@@ -278,7 +278,9 @@ class PolicyParsingTests(unittest.TestCase):
             _, policy = _governed_repo(root, regulator={"enabled": False})
             config = policy.regulator
             self.assertIsNotNone(config)
-            self.assertFalse(config.strict)
+            # strict 默认 true（fail-closed）：监管是唯一的语义检查层，缺席即拦截；
+            # 显式 --strict off 才降级。
+            self.assertTrue(config.strict)
             self.assertEqual("AG2C_REGULATOR_API_KEY", config.api_key_env)
             self.assertEqual(180, config.timeout)
             self.assertEqual("", config.worker_model)

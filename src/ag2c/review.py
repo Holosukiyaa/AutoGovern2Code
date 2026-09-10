@@ -3,11 +3,12 @@
 三条铁律（见《AG2C-监管者设计》）：
 1. 信息隔离——监管只看画像 + diff + 机器检查原始输出，永远看不到 worker 自述。
 2. 对抗性框架——任务是"找出这次交付失败的方式"，不是"检查是否合格"。
-3. 评语必须带证据——fail 项缺 file:line 引用的裁决被机器判作废。
+3. 评语必须带证据——fail 项缺物证引用（path:line / machine:<checker> / portrait:<定位>）的裁决被机器判作废。
 
-监管不可用（未配置 / 调用失败 / 裁决作废）时默认降级为仅机器检查并在证据里
-记录缺口"本次缺 AI 监管"；政策 regulator.strict=true 时不许合并（fail-closed），
-由 tasks.verify_task 负责拦截。
+监管不可用（未配置 / 调用失败 / 裁决作废）时降级为仅机器检查并在证据里
+记录缺口"本次缺 AI 监管"；政策 regulator.strict（默认 true，fail-closed）下
+不许合并，由 tasks.verify_task 负责拦截。连续缺席进危房名单（hazard.py
+regulator-absent）——沉默本身即警情。
 
 V1 = 一次 LLM 调用：无工具循环、无联网、无多轮。prompt 是系统资产，随版本演进。
 """

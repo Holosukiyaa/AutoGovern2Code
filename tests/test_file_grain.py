@@ -3,7 +3,7 @@
 删除门（tasks._assert_retirement_diff）此前只认目录户口：根文件拿不到
 jurisdiction（directory_scope 只要 dir/**），活跃房间内的单文件删除被
 cannot-delete-active-household / retirement-diff-touches-active 挡死——
-t54 的两个 imgui.ini 因此只能冻结。文件粒度户口是最小补救：精确文件路径
+t54 的两个布局缓存 ini 因此只能冻结。文件粒度户口是最小补救：精确文件路径
 登记、可退役、可确认，已退役文件户口遮蔽房间户口（具体者优先）。
 
 夹具预算：setUpClass 共享一个 git 仓库，每个测试用独立文件名/卡 id，
@@ -29,8 +29,8 @@ class FileScopeTests(unittest.TestCase):
     """纯函数校验：文件户口的 scope 必须是精确文件路径。"""
 
     def test_exact_file_path_accepted(self):
-        self.assertEqual(file_scope("imgui.ini"), "imgui.ini")
-        self.assertEqual(file_scope("tests/imgui.ini"), "tests/imgui.ini")
+        self.assertEqual(file_scope("layout.ini"), "layout.ini")
+        self.assertEqual(file_scope("tests/layout.ini"), "tests/layout.ini")
 
     def test_glob_rejected(self):
         for pattern in ("*.ini", "tests/?.ini", "tests/[ab].ini"):

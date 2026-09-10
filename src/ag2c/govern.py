@@ -365,7 +365,7 @@ def pending_updates(start: Path, changed_paths: list[str] | None = None) -> dict
         for scope in card.scopes:
             for pattern in scope.includes:
                 owned.add(pattern.replace("/**", "").rstrip("*").rstrip("/"))
-    # 根文件认领口径（t58，t56 imgui.ini 的教训）：根条目是文件时，任意卡的
+    # 根文件认领口径（t58，t56 布局缓存 ini 的教训）：根条目是文件时，任意卡的
     # 精确 include（无 glob）或 references 收录即算有主——知识卡认领根文件是
     # 合法登记，不是"没登记"。根目录口径不变：只有 floor 能认领目录。
     claimed_files: set[str] = set()

@@ -1,7 +1,7 @@
 """pending_updates 的 unowned-area 归属口径（t58）。
 
 根文件：任意卡的精确 include（无 glob）或 references 收录即算有主——知识卡
-认领根文件是合法登记（t56 imgui.ini 的教训：认领了却消不掉待办）。
+认领根文件是合法登记（t56 布局缓存 ini 的教训：认领了却消不掉待办）。
 根目录：口径不变，只有 floor 卡能认领。
 
 冒烟集预算是硬约束（单模块 <=2.5s）：全类共享一个 git 夹具、一次 git add、
@@ -62,7 +62,7 @@ class UnownedAreaSemanticsTests(unittest.TestCase):
         raw = copy.deepcopy(json.loads(base_text))
         raw["cards"].extend(
             [
-                # 主路：include + references 双收录（t56 imgui.ini 的实际形态）
+                # 主路：include + references 双收录（t56 布局缓存 ini 的实际形态）
                 _knowledge_card("knowledge.t58a", includes=["t58a.ini"], references=["t58a.ini"]),
                 # include-only：精确 include 单独成立
                 _knowledge_card("knowledge.t58c-inc", includes=["t58c-inc.ini"]),

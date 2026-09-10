@@ -438,7 +438,7 @@ class DrawSmokeTests(unittest.TestCase):
             io.delta_time = 1.0 / 60.0
             io.display_size = imgui.ImVec2(1280, 720)
             io.fonts.add_font_default()
-            io.set_ini_filename("")  # 禁用 ini 落盘：测试不得在 cwd 产生 imgui.ini 碎屑
+            io.set_ini_filename("")  # 禁用 ini 落盘：测试不得在 cwd 产生布局缓存碎屑
             # 无渲染后端时绕过"字体图集未构建"断言（声明后端自管理纹理）。
             io.backend_flags |= imgui.BackendFlags_.renderer_has_textures
             for _ in range(frames):
@@ -520,7 +520,11 @@ class DrawSmokeTests(unittest.TestCase):
             imgui.destroy_context(ctx)
 
     def test_render_leaves_no_ini_debris(self):
-        """无头渲染不得在 cwd 落 imgui.ini（t54 的碎屑曾被误提交进仓）。"""
+        """无头渲染不得在 cwd 落任何 ini 碎屑（t54 的布局缓存碎屑曾被误提交进仓）。
+
+        口径是 *.ini 全匹配而非特定文件名：imgui 默认 ini 名只是碎屑的一种，
+        任何 ini 落盘都是事故。该口径也不引用仓库里已退役的具体文件路径。
+        """
         import os
         import tempfile
         from pathlib import Path
@@ -532,7 +536,8 @@ class DrawSmokeTests(unittest.TestCase):
                 self._render(dashboard_model(None, None))
             finally:
                 os.chdir(previous)
-            self.assertFalse((Path(directory) / "imgui.ini").exists())
+            debris = sorted(p.name for p in Path(directory).glob("*.ini"))
+            self.assertEqual(debris, [], f"无头渲染在 cwd 落了 ini 碎屑: {debris}")
 
 
 if __name__ == "__main__":

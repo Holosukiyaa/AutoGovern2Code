@@ -421,12 +421,15 @@ def draw_dashboard(model: dict[str, Any]) -> None:
         imgui.text_disabled(model["project"])
 
     # 视觉主体（摄影的主体）：注意力闸门放大独占顶部，是页面唯一焦点。
+    # 大字用 push_font/pop_font 成对实现（本版 imgui_bundle 无 set_window_font_scale）。
     hero = hero_block(model)
     if hero["text"]:
         imgui.spacing()
-        imgui.set_window_font_scale(HERO_FONT_SCALE)
-        imgui.text_colored(DECISION if hero["count"] else OK_DIM, hero["text"])
-        imgui.set_window_font_scale(1.0)
+        imgui.push_font(None, imgui.get_font_size() * HERO_FONT_SCALE)
+        try:
+            imgui.text_colored(DECISION if hero["count"] else OK_DIM, hero["text"])
+        finally:
+            imgui.pop_font()
         imgui.spacing()
         imgui.separator()
 

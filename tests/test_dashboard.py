@@ -12,6 +12,7 @@ from ag2c_gui.dashboard import (
     NOTICE,
     OK_DIM,
     dashboard_model,
+    draw_dashboard,
     hero_block,
     open_tasks,
     pending_items,
@@ -375,6 +376,92 @@ class HeroBlockTests(unittest.TestCase):
 
     def test_hero_font_scale_is_significantly_larger(self):
         self.assertGreaterEqual(HERO_FONT_SCALE, 1.5)
+
+
+class DrawSmokeTests(unittest.TestCase):
+    """无头渲染冒烟：draw_dashboard 在真实 imgui 上下文里完整跑帧、不抛异常。
+
+    t53 的教训：引用了本版 imgui_bundle 不存在的 set_window_font_scale，单测全绿
+    但真实 GUI 每帧抛 AttributeError（被 _guarded 吞成空白看板）。纯函数测试覆盖
+    不了绘制 API 的存在性——这个冒烟测试就是为此而设。
+    """
+
+    def _render(self, model, frames: int = 2, open_records: bool = False) -> None:
+        from imgui_bundle import imgui
+
+        ctx = imgui.create_context()
+        try:
+            io = imgui.get_io()
+            io.delta_time = 1.0 / 60.0
+            io.display_size = imgui.ImVec2(1280, 720)
+            io.fonts.add_font_default()
+            # 无渲染后端时绕过"字体图集未构建"断言（声明后端自管理纹理）。
+            io.backend_flags |= imgui.BackendFlags_.renderer_has_textures
+            for _ in range(frames):
+                imgui.new_frame()
+                imgui.begin("smoke")
+                if open_records:
+                    imgui.get_state_storage().set_int(imgui.get_id("记录 · 仅供查阅"), 1)
+                draw_dashboard(model)
+                imgui.end()
+                imgui.render()
+        finally:
+            imgui.destroy_context(ctx)
+
+    @staticmethod
+    def _full_model():
+        """覆盖三区与全部分支：决策项、系统警情、记录（健康/任务/巡逻/改造/成本）。"""
+        details = {
+            "project": {"name": "demo"},
+            "worktrees": [
+                {
+                    "id": "t1",
+                    "goal": "g",
+                    "state": "open",
+                    "worktree": {"lifecycle": "diverged", "diverged": True},
+                    "verifications": [
+                        {
+                            "acceptance": {"complete": "not-run", "floor": "passed", "scenario": "not-run"},
+                            "checker_results": [{"id": "check.x", "status": "skipped"}],
+                            "regulator": {"outcome": "rejected"},
+                        }
+                    ],
+                }
+            ],
+            "pending": {"items": [{"title": "Knowledge 已过期", "hint": "同步 Knowledge"}]},
+            "knowledge": [{"id": "k1", "status": "stale"}],
+            "census": {"error": "boom", "households": [{"id": "h1", "freshness": "stale"}]},
+            "index": {"errors": ["e1"]},
+            "baseline_debt": {"total": 5, "target": 3, "over": True},
+            "audit": {"pending": [{"kind": "room-card", "id": "knowledge.x", "question": "q"}], "due": True, "days_since": 9},
+            "patrol": {
+                "drills": {
+                    "gate": {"runs": 1, "days_since": 2, "last_result": "passed"},
+                    "mutation": {"runs": 0},
+                },
+                "interceptions": {"window_days": 30, "in_window": 2},
+            },
+            "hazards": {
+                "hazards": [{"kind": "hollow", "target": "x.py", "suggestion": "补测试", "resolved": False}],
+                "dismissed": 1,
+            },
+            "token": {
+                "month_cost_usd": 1.2,
+                "cost_usd": 3.4,
+                "month_tokens": 1000,
+                "top_rework": [{"task": "t1", "verify_runs": 3}],
+            },
+        }
+        return dashboard_model(details, {"canonicalDirty": True, "openTasks": 1})
+
+    def test_draw_empty_model_does_not_raise(self):
+        self._render(dashboard_model(None, None))
+
+    def test_draw_full_model_records_collapsed(self):
+        self._render(self._full_model())
+
+    def test_draw_full_model_records_expanded(self):
+        self._render(self._full_model(), open_records=True)
 
 
 if __name__ == "__main__":

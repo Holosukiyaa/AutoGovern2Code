@@ -901,6 +901,11 @@ def run_checks(
                 }
             )
             try:
+                # 硬杀线单源派生（P0 2026-09-10）：动态秒预算×3×并行度，无锚定回退
+                # 静态 timeout×并行度。parallelism 在下方赋值、调用时闭包读取。
+                from .verify_costs import effective_timeout_seconds
+
+                timeout_seconds = effective_timeout_seconds(manifest, checker, parallelism=parallelism)
                 completed = subprocess.run(
                     list(checker.command),
                     cwd=cwd,
@@ -909,7 +914,7 @@ def run_checks(
                     text=True,
                     encoding="utf-8",
                     errors="replace",
-                    timeout=checker.timeout,
+                    timeout=timeout_seconds,
                     check=False,
                     shell=False,
                     **hidden_process_kwargs(),
@@ -930,7 +935,7 @@ def run_checks(
                     status = "failed"
             except subprocess.TimeoutExpired as exc:
                 stdout = str(exc.stdout or "")
-                stderr = f"checker timed out after {checker.timeout} seconds"
+                stderr = f"checker timed out after {timeout_seconds:.0f} seconds"
             except OSError as exc:
                 stderr = f"cannot execute checker: {exc}"
             except Exception as exc:  # 并行模式下单个 checker 异常不能拖垮整轮

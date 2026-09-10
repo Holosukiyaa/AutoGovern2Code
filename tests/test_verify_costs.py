@@ -19,10 +19,12 @@ from ag2c.ledger import append_event, read_events
 from ag2c.model import Checker, Manifest, Target
 from ag2c.verify_costs import (
     MIN_BUDGET_SECONDS,
+    TIMEOUT_KILL_FACTOR,
     VERIFY_BUDGETS_SCHEMA,
     VERIFY_HEADROOM,
     checker_duration_history,
     effective_budget_seconds,
+    effective_timeout_seconds,
     load_verify_budgets,
     measured_seconds,
     recalibrate_verify_budgets,
@@ -88,6 +90,54 @@ class DurationHistoryTests(unittest.TestCase):
         self.assertEqual(20.0, measured_seconds([20.0, 10.0, 5.0]))
         self.assertEqual(0.0, measured_seconds([]))
         self.assertEqual(6.0, measured_seconds([1.0, 8.0, 2.0, 3.0, 4.0, 5.0, 6.0]))  # 窗口只看近 5 次：8.0 在窗外
+
+
+class EffectiveTimeoutTests(unittest.TestCase):
+    """硬杀线单源派生（P0 2026-09-10）：预算×KILL_FACTOR×并行度；无锚定回退静态×并行度。
+
+    病灶：静态 timeout 按单跑拍值，checker_parallelism=4 时九套件互拖全部
+    假性撞墙（exit_code=null、耗时恰等于上限），同代码串行全绿。
+    """
+
+    def _anchor(self, manifest: Manifest, checker_id: str, budget_seconds: float) -> None:
+        store = {checker_id: {"budget_seconds": budget_seconds, "measured_seconds": budget_seconds, "updated_at": "2026-09-10T00:00:00+00:00", "actor": "t", "reason": "r"}}
+        (manifest.state_dir / "verify-budgets.json").write_text(
+            json.dumps({"schema": VERIFY_BUDGETS_SCHEMA, "checkers": store}), encoding="utf-8"
+        )
+
+    def test_anchored_budget_derives_kill_line(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = _manifest(Path(tmp))
+            self._anchor(manifest, "check.a", 100.0)
+            checker = _checker("check.a")  # 静态 300
+            self.assertEqual(100.0 * TIMEOUT_KILL_FACTOR, effective_timeout_seconds(manifest, checker, parallelism=1))
+
+    def test_parallelism_scales_kill_line(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = _manifest(Path(tmp))
+            self._anchor(manifest, "check.a", 100.0)
+            checker = _checker("check.a")
+            self.assertEqual(100.0 * TIMEOUT_KILL_FACTOR * 4, effective_timeout_seconds(manifest, checker, parallelism=4))
+
+    def test_unanchored_falls_back_to_static_times_parallelism(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = _manifest(Path(tmp))  # 空仓
+            checker = _checker("check.a")  # 静态 300
+            self.assertEqual(300.0, effective_timeout_seconds(manifest, checker, parallelism=1))
+            self.assertEqual(1200.0, effective_timeout_seconds(manifest, checker, parallelism=4))
+
+    def test_explicit_budget_seconds_wins_over_store(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = _manifest(Path(tmp))
+            self._anchor(manifest, "check.a", 100.0)
+            checker = _checker("check.a", budget_seconds=50.0)
+            self.assertEqual(50.0 * TIMEOUT_KILL_FACTOR, effective_timeout_seconds(manifest, checker, parallelism=1))
+
+    def test_corrupt_store_falls_back_to_static(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = _manifest(Path(tmp))
+            (manifest.state_dir / "verify-budgets.json").write_text("{broken", encoding="utf-8")
+            self.assertEqual(300.0, effective_timeout_seconds(manifest, _checker("check.a"), parallelism=1))
 
 
 class RecalibrateTests(unittest.TestCase):

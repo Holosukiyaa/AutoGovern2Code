@@ -112,6 +112,25 @@ def effective_budget_seconds(manifest: Manifest, checker) -> float:
     return 0.0
 
 
+#: 硬杀倍率：动态预算是淤积警告线（实测×1.5），硬杀线再放宽一倍量级。
+#: timeout 的职责是抓挂死，不是执法性能——性能归 over-budget 警告管。
+TIMEOUT_KILL_FACTOR = 3.0
+
+
+def effective_timeout_seconds(manifest: Manifest, checker, *, parallelism: int = 1) -> float:
+    """有效硬杀超时：动态秒预算 × KILL_FACTOR × 并行度；无锚定回退 静态 timeout × 并行度。
+
+    单源原则（2026-09-10 P0）：静态 checker.timeout 是拍值，动态预算仓是实测。
+    过去两个旋钮互不相识——并行度调到 4 后全量 verify 九套件互拖，全部撞静态
+    上限假性失败（exit_code=null、耗时恰等于上限），同代码串行全绿。硬杀线
+    改从实测派生并与警告线同源同漂移；并行时按 workers 线性放大——它抓的是
+    挂死，宁可宽松不可误杀，性能劣化由预算警告线提前报警。
+    """
+    budget = effective_budget_seconds(manifest, checker)
+    base = budget * TIMEOUT_KILL_FACTOR if budget > 0 else _seconds_or_zero(getattr(checker, "timeout", 0))
+    return base * max(1, int(parallelism))
+
+
 def verify_budget_warnings(manifest: Manifest, policy: Policy, results: list[dict[str, Any]]) -> list[dict[str, str]]:
     """verify 超支警告：checker 实测耗时超过有效预算时产出 over-budget 警告。
 

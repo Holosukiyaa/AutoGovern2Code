@@ -92,6 +92,40 @@ def zone_header_color(zone: str) -> tuple[float, float, float, float]:
 #: 视觉主体的字号倍数：主体（注意力闸门）以大字独占顶部，其余皆为陪体/背景。
 HERO_FONT_SCALE = 1.6
 
+#: 复制按钮的提示词模板：板块 →（板块名, 给 AI 的指令）。固定模板——制度在
+#: 说话，不是 AI 在说话。看板是用户干预的通道：每个板块都能一键复制成一段
+#: 可直接粘贴给 AI 的提示词。
+PROMPT_TEMPLATES = {
+    "actions": ("需要你处理", "以下事项需要决策或动手处理，请逐条解决"),
+    "alerts": ("系统警情", "以下系统警情需要排查原因并修复"),
+    "tasks": ("当前任务", "以下是进行中的治理任务，请汇报状态或继续推进"),
+    "patrol": ("巡逻记录", "以下是巡逻记录，请分析并给出建议"),
+    "hazards": ("旧城改造", "以下风险项需要评估与处理"),
+    "token": ("治理成本", "以下是治理成本记录，请分析并给出降本建议"),
+}
+
+
+def section_prompt(kind: str, project: str, items: list[Any] | None) -> str:
+    """复制按钮的提示词：固定模板 + 项目名 + 逐条文本。纯函数，垃圾输入降级。
+
+    条目文本取 text / goal / id 中第一个非空字段（决策项与警情是 text，
+    当前任务是 goal/id）。空板块返回空态提示词——复制空板块也有话可说。
+    """
+    label, instruction = PROMPT_TEMPLATES.get(kind, ("记录", "请查看以下内容"))
+    project = str(project or "").strip()
+    header = f"项目「{project}」看板 · {label}：{instruction}。" if project else f"看板 · {label}：{instruction}。"
+    lines: list[str] = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        text = _text(item, "text") or _text(item, "goal") or _text(item, "id")
+        if text:
+            lines.append(text)
+    if not lines:
+        return header + "当前没有条目。"
+    body = "\n".join(f"{i}. {line}" for i, line in enumerate(lines, 1))
+    return f"{header}\n{body}"
+
 
 def hero_block(model: dict[str, Any] | None) -> dict[str, Any]:
     """视觉主体：注意力闸门即页面主体。纯函数，垃圾输入降级为空主体。"""
@@ -440,6 +474,9 @@ def draw_dashboard(model: dict[str, Any]) -> None:
             imgui.text_colored(severity_color("action", item["severity"]), "!" if item["severity"] == "error" else "△")
             imgui.same_line(0.0, 8.0)
             imgui.text_wrapped(item["text"])
+        # 干预通道：一键把全部待办合成一段提示词，粘贴给 AI 即可开工。
+        if imgui.small_button("一键复制待办提示词##actions"):
+            imgui.set_clipboard_text(section_prompt("actions", model["project"], actions))
         imgui.separator()
     elif hero["count"]:
         imgui.text_disabled("没有需要你处理的事")
@@ -448,7 +485,11 @@ def draw_dashboard(model: dict[str, Any]) -> None:
     # 区② 系统警情：陪体，正文字号、暗琥珀标题，退居次要。
     alerts = model.get("alerts") or []
     imgui.text_colored(zone_header_color("alert"), "系统警情")
-    if not alerts:
+    if alerts:
+        imgui.same_line(0.0, 12.0)
+        if imgui.small_button("复制警情提示词##alerts"):
+            imgui.set_clipboard_text(section_prompt("alerts", model["project"], alerts))
+    else:
         imgui.text_disabled("没有系统警情")
     for item in alerts:
         imgui.text_colored(severity_color("alert", item["severity"]), "!" if item["severity"] == "error" else "△")
@@ -483,7 +524,11 @@ def draw_dashboard(model: dict[str, Any]) -> None:
     imgui.separator()
 
     imgui.text("当前任务")
-    if not rec_tasks:
+    if rec_tasks:
+        imgui.same_line(0.0, 12.0)
+        if imgui.small_button("复制提示词##tasks"):
+            imgui.set_clipboard_text(section_prompt("tasks", model["project"], rec_tasks))
+    else:
         imgui.text_disabled("当前没有进行中的任务")
     for task in rec_tasks:
         imgui.text_colored(DANGER if task["diverged"] else MUTED, f"● {task['lifecycle_label']}")
@@ -504,7 +549,11 @@ def draw_dashboard(model: dict[str, Any]) -> None:
     imgui.separator()
 
     imgui.text("巡逻记录")
-    if not rec_patrol:
+    if rec_patrol:
+        imgui.same_line(0.0, 12.0)
+        if imgui.small_button("复制提示词##patrol"):
+            imgui.set_clipboard_text(section_prompt("patrol", model["project"], rec_patrol))
+    else:
         imgui.text_disabled("还没有巡逻记录")
     for line in rec_patrol:
         imgui.text_colored(severity_color("record", line["severity"]), "●")
@@ -513,7 +562,11 @@ def draw_dashboard(model: dict[str, Any]) -> None:
     imgui.separator()
 
     imgui.text("旧城改造")
-    if not rec_hazards:
+    if rec_hazards:
+        imgui.same_line(0.0, 12.0)
+        if imgui.small_button("复制提示词##hazards"):
+            imgui.set_clipboard_text(section_prompt("hazards", model["project"], rec_hazards))
+    else:
         imgui.text_disabled("没有检测到风险项")
     for line in rec_hazards:
         imgui.text_colored(severity_color("record", line["severity"]), "▲")
@@ -523,6 +576,9 @@ def draw_dashboard(model: dict[str, Any]) -> None:
     if rec_token:
         imgui.separator()
         imgui.text("治理成本")
+        imgui.same_line(0.0, 12.0)
+        if imgui.small_button("复制提示词##token"):
+            imgui.set_clipboard_text(section_prompt("token", model["project"], rec_token))
         for line in rec_token:
             imgui.text_colored(severity_color("record", line["severity"]), "◆")
             imgui.same_line(0.0, 8.0)

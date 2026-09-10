@@ -16,6 +16,7 @@ from ag2c_gui.dashboard import (
     hero_block,
     open_tasks,
     pending_items,
+    section_prompt,
     severity_color,
     stale_knowledge,
     zone_header_color,
@@ -378,6 +379,48 @@ class HeroBlockTests(unittest.TestCase):
         self.assertGreaterEqual(HERO_FONT_SCALE, 1.5)
 
 
+class SectionPromptTests(unittest.TestCase):
+    """复制按钮的提示词：固定模板 + 项目名 + 逐条文本（制度在说话）。"""
+
+    def test_actions_prompt_numbers_every_item_with_project(self):
+        items = [
+            {"severity": "warn", "text": "待结算：Knowledge 已过期 → 运行 ag2c govern settle 结算"},
+            {"severity": "error", "text": "任务 t1 的 worktree 已分叉 → ag2c task refresh 同步"},
+        ]
+        prompt = section_prompt("actions", "demo", items)
+        self.assertIn("demo", prompt)
+        self.assertIn("需要你处理", prompt)
+        self.assertIn("1. 待结算：Knowledge 已过期", prompt)
+        self.assertIn("2. 任务 t1 的 worktree 已分叉", prompt)
+
+    def test_empty_items_yield_empty_state_prompt(self):
+        prompt = section_prompt("alerts", "demo", [])
+        self.assertIn("系统警情", prompt)
+        self.assertIn("没有条目", prompt)
+
+    def test_task_items_fall_back_to_goal_then_id(self):
+        items = [{"id": "t1", "goal": "修看板"}, {"id": "t2"}, {"goal": "   "}]
+        prompt = section_prompt("tasks", "", items)
+        self.assertIn("1. 修看板", prompt)
+        self.assertIn("2. t2", prompt)
+        self.assertNotIn("3.", prompt)
+
+    def test_garbage_items_are_skipped_without_raising(self):
+        prompt = section_prompt("patrol", "demo", [None, "x", {"text": ""}, {"text": "演习已通过"}])
+        self.assertIn("1. 演习已通过", prompt)
+        self.assertNotIn("2.", prompt)
+
+    def test_unknown_kind_degrades_to_generic_template(self):
+        prompt = section_prompt("nope", "demo", [{"text": "x"}])
+        self.assertIn("记录", prompt)
+        self.assertIn("1. x", prompt)
+
+    def test_missing_project_name_is_omitted(self):
+        prompt = section_prompt("token", None, [{"text": "本月 $1.00"}])
+        self.assertNotIn("「", prompt)
+        self.assertIn("治理成本", prompt)
+
+
 class DrawSmokeTests(unittest.TestCase):
     """无头渲染冒烟：draw_dashboard 在真实 imgui 上下文里完整跑帧、不抛异常。
 
@@ -463,6 +506,18 @@ class DrawSmokeTests(unittest.TestCase):
 
     def test_draw_full_model_records_expanded(self):
         self._render(self._full_model(), open_records=True)
+
+    def test_clipboard_roundtrip_headless(self):
+        """复制按钮依赖的剪贴板 API 在无头上下文里可用（t54 教训：绘制 API 存在性要冒烟）。"""
+        from imgui_bundle import imgui
+
+        ctx = imgui.create_context()
+        try:
+            prompt = section_prompt("actions", "demo", [{"text": "待结算：x"}])
+            imgui.set_clipboard_text(prompt)
+            self.assertEqual(imgui.get_clipboard_text(), prompt)
+        finally:
+            imgui.destroy_context(ctx)
 
     def test_render_leaves_no_ini_debris(self):
         """无头渲染不得在 cwd 落 imgui.ini（t54 的碎屑曾被误提交进仓）。"""

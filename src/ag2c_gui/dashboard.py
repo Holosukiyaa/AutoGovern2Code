@@ -52,6 +52,42 @@ ATTENTION_LABELS = {
     "stale": "过期卡片",
 }
 
+#: 调色板：颜色是注意力语言，全看板的颜色只能来自 severity_color /
+#: zone_header_color，绘制代码里不出现硬编码 RGB。跳出度阶梯——
+#: 红（高危，立即行动，靠色相与饱和度跳出，只给 error）> 决策琥珀（需要你
+#: 拍板）> 暗琥珀（知情即可）> 暗绿（正常指示）> 灰（记录/无数据）。
+DANGER = (0.95, 0.30, 0.25, 1.0)
+DECISION = (0.95, 0.70, 0.25, 1.0)
+NOTICE = (0.70, 0.53, 0.22, 1.0)
+OK_DIM = (0.40, 0.58, 0.42, 1.0)
+MUTED = (0.48, 0.48, 0.50, 1.0)
+
+_ZONE_SEVERITY_COLORS = {
+    ("action", "error"): DANGER,
+    ("action", "warn"): DECISION,
+    ("alert", "error"): DANGER,
+    ("alert", "warn"): NOTICE,
+    ("record", "error"): DANGER,
+    ("record", "warn"): NOTICE,
+    ("record", "ok"): OK_DIM,
+}
+
+_ZONE_HEADER_COLORS = {
+    "action": DECISION,
+    "alert": NOTICE,
+    "record": MUTED,
+}
+
+
+def severity_color(zone: str, severity: str) -> tuple[float, float, float, float]:
+    """唯一的颜色来源：区 × 严重度 → 色值。未知组合静默降级为灰。"""
+    return _ZONE_SEVERITY_COLORS.get((zone, severity), MUTED)
+
+
+def zone_header_color(zone: str) -> tuple[float, float, float, float]:
+    """分区标题色：与区内最高语义同色，让标题本身预示内容等级。"""
+    return _ZONE_HEADER_COLORS.get(zone, MUTED)
+
 
 def _text(row: dict[str, Any] | None, key: str) -> str:
     if not isinstance(row, dict):
@@ -372,31 +408,29 @@ def draw_dashboard(model: dict[str, Any]) -> None:
     attention_text = str(attention.get("text") or "")
     if attention_text:
         if attention.get("count"):
-            imgui.text_colored((0.95, 0.70, 0.30, 1.0), attention_text)
+            imgui.text_colored(DECISION, attention_text)
         else:
             imgui.text_disabled(attention_text)
         imgui.separator()
 
     # 区① 需要你处理：需要人拍板/动手的决策项，与注意力闸门同口径。
     actions = model.get("actions") or []
-    imgui.text_colored((0.95, 0.70, 0.30, 1.0), "【需要你处理】")
+    imgui.text_colored(zone_header_color("action"), "【需要你处理】")
     if not actions:
         imgui.text_disabled("没有需要你处理的事")
     for item in actions:
-        color = (0.95, 0.35, 0.30, 1.0) if item["severity"] == "error" else (0.95, 0.70, 0.30, 1.0)
-        imgui.text_colored(color, "!" if item["severity"] == "error" else "△")
+        imgui.text_colored(severity_color("action", item["severity"]), "!" if item["severity"] == "error" else "△")
         imgui.same_line(0.0, 8.0)
         imgui.text_wrapped(item["text"])
     imgui.separator()
 
     # 区② 系统警情：系统级异常，人只需知情，处理责任在系统/AI。
     alerts = model.get("alerts") or []
-    imgui.text_colored((0.95, 0.55, 0.45, 1.0), "【系统警情】")
+    imgui.text_colored(zone_header_color("alert"), "【系统警情】")
     if not alerts:
         imgui.text_disabled("没有系统警情")
     for item in alerts:
-        color = (0.95, 0.35, 0.30, 1.0) if item["severity"] == "error" else (0.95, 0.70, 0.30, 1.0)
-        imgui.text_colored(color, "!" if item["severity"] == "error" else "△")
+        imgui.text_colored(severity_color("alert", item["severity"]), "!" if item["severity"] == "error" else "△")
         imgui.same_line(0.0, 8.0)
         imgui.text_wrapped(item["text"])
     imgui.separator()
@@ -408,13 +442,13 @@ def draw_dashboard(model: dict[str, Any]) -> None:
     rec_patrol = records.get("patrol") or []
     rec_hazards = records.get("hazards") or []
     rec_token = records.get("token") or []
-    imgui.text_disabled("【记录 · 仅供查阅】")
+    imgui.text_colored(zone_header_color("record"), "【记录 · 仅供查阅】")
     if not (rec_tasks or rec_patrol or rec_hazards or rec_token):
         imgui.text_disabled("暂无记录")
         imgui.separator()
         return
 
-    # 健康度：几个数，零是绿色，非零吸注意力；"—"（无数据）灰色静默。
+    # 健康度：几个数，零是暗绿（正常指示），非零暗琥珀（记录区提示）；"—"灰色静默。
     for i, item in enumerate(rec_health):
         if i:
             imgui.same_line(0.0, 28.0)
@@ -424,25 +458,23 @@ def draw_dashboard(model: dict[str, Any]) -> None:
         except (TypeError, ValueError):
             imgui.text_disabled(f"{item['label']} —")
             continue
-        color = (0.45, 0.80, 0.50, 1.0) if value == 0 else (0.95, 0.70, 0.30, 1.0)
-        imgui.text_colored(color, f"{item['label']} {value}")
+        imgui.text_colored(OK_DIM if value == 0 else NOTICE, f"{item['label']} {value}")
     imgui.separator()
 
     imgui.text("当前任务")
     if not rec_tasks:
         imgui.text_disabled("当前没有进行中的任务")
     for task in rec_tasks:
-        color = (0.55, 0.75, 0.95, 1.0) if not task["diverged"] else (0.95, 0.35, 0.30, 1.0)
-        imgui.text_colored(color, f"● {task['lifecycle_label']}")
+        imgui.text_colored(DANGER if task["diverged"] else MUTED, f"● {task['lifecycle_label']}")
         imgui.same_line(0.0, 10.0)
         imgui.text_wrapped(task["goal"] or task["id"])
         regulator = task.get("regulator") or ""
         if regulator:
             label, reg_color = {
-                "passed": ("监管：通过", (0.45, 0.80, 0.50, 1.0)),
-                "rejected": ("监管：打回", (0.95, 0.35, 0.30, 1.0)),
-                "unavailable": ("监管：本次缺 AI 监管", (0.95, 0.70, 0.30, 1.0)),
-            }.get(regulator, (f"监管：{regulator}", (0.95, 0.70, 0.30, 1.0)))
+                "passed": ("监管：通过", OK_DIM),
+                "rejected": ("监管：打回", DANGER),
+                "unavailable": ("监管：本次缺 AI 监管", NOTICE),
+            }.get(regulator, (f"监管：{regulator}", NOTICE))
             imgui.text_colored(reg_color, label)
         # 绿灯带阴影：每个"通过"旁标注本次未检查什么，让绿灯自带存疑。
         shadow = task.get("shadow") or []
@@ -454,12 +486,7 @@ def draw_dashboard(model: dict[str, Any]) -> None:
     if not rec_patrol:
         imgui.text_disabled("还没有巡逻记录")
     for line in rec_patrol:
-        color = {
-            "ok": (0.45, 0.80, 0.50, 1.0),
-            "warn": (0.95, 0.70, 0.30, 1.0),
-            "error": (0.95, 0.35, 0.30, 1.0),
-        }.get(line["severity"], (0.95, 0.70, 0.30, 1.0))
-        imgui.text_colored(color, "●")
+        imgui.text_colored(severity_color("record", line["severity"]), "●")
         imgui.same_line(0.0, 8.0)
         imgui.text_wrapped(line["text"])
     imgui.separator()
@@ -468,8 +495,7 @@ def draw_dashboard(model: dict[str, Any]) -> None:
     if not rec_hazards:
         imgui.text_disabled("没有检测到风险项")
     for line in rec_hazards:
-        color = (0.95, 0.35, 0.30, 1.0) if line["severity"] == "error" else (0.95, 0.70, 0.30, 1.0)
-        imgui.text_colored(color, "▲")
+        imgui.text_colored(severity_color("record", line["severity"]), "▲")
         imgui.same_line(0.0, 8.0)
         imgui.text_wrapped(line["text"])
 
@@ -477,7 +503,6 @@ def draw_dashboard(model: dict[str, Any]) -> None:
         imgui.separator()
         imgui.text("治理成本")
         for line in rec_token:
-            color = (0.95, 0.70, 0.30, 1.0) if line["severity"] == "warn" else (0.55, 0.75, 0.95, 1.0)
-            imgui.text_colored(color, "◆")
+            imgui.text_colored(severity_color("record", line["severity"]), "◆")
             imgui.same_line(0.0, 8.0)
             imgui.text_wrapped(line["text"])

@@ -4,7 +4,19 @@ from __future__ import annotations
 
 import unittest
 
-from ag2c_gui.dashboard import dashboard_model, open_tasks, pending_items, stale_knowledge
+from ag2c_gui.dashboard import (
+    DANGER,
+    DECISION,
+    MUTED,
+    NOTICE,
+    OK_DIM,
+    dashboard_model,
+    open_tasks,
+    pending_items,
+    severity_color,
+    stale_knowledge,
+    zone_header_color,
+)
 
 
 def _task(task_id: str, state: str = "open", **worktree):
@@ -298,6 +310,45 @@ class DashboardZoneTests(unittest.TestCase):
         self.assertEqual([], model["actions"])
         self.assertEqual([], model["alerts"])
         self.assertEqual(0, model["attention"]["count"])
+
+
+class PaletteTests(unittest.TestCase):
+    """调色板：颜色是注意力语言——红只给高危，记录区默认灰。"""
+
+    def test_red_is_reserved_for_error_in_every_zone(self):
+        for zone in ("action", "alert", "record"):
+            self.assertEqual(DANGER, severity_color(zone, "error"))
+            for severity in ("warn", "ok", "info"):
+                self.assertNotEqual(DANGER, severity_color(zone, severity))
+
+    def test_decision_amber_only_marks_actionable_warns(self):
+        self.assertEqual(DECISION, severity_color("action", "warn"))
+        self.assertEqual(NOTICE, severity_color("alert", "warn"))
+        self.assertEqual(NOTICE, severity_color("record", "warn"))
+
+    def test_record_zone_is_muted_by_default(self):
+        self.assertEqual(MUTED, severity_color("record", "info"))
+        self.assertEqual(MUTED, severity_color("record", "anything-unknown"))
+        self.assertEqual(OK_DIM, severity_color("record", "ok"))
+
+    def test_unknown_combinations_degrade_to_muted(self):
+        self.assertEqual(MUTED, severity_color("nowhere", "error"))
+        self.assertEqual(MUTED, zone_header_color("nowhere"))
+
+    def test_attention_ladder_dims_monotonically(self):
+        """跳出度阶梯：决策琥珀 > 暗琥珀 > 暗绿 > 灰（按感知亮度）。"""
+
+        def lum(color):
+            return 0.299 * color[0] + 0.587 * color[1] + 0.114 * color[2]
+
+        self.assertGreater(lum(DECISION), lum(NOTICE))
+        self.assertGreater(lum(NOTICE), lum(OK_DIM))
+        self.assertGreater(lum(OK_DIM), lum(MUTED))
+
+    def test_zone_headers_prefigure_content_level(self):
+        self.assertEqual(DECISION, zone_header_color("action"))
+        self.assertEqual(NOTICE, zone_header_color("alert"))
+        self.assertEqual(MUTED, zone_header_color("record"))
 
 
 if __name__ == "__main__":

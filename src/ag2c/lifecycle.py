@@ -9,6 +9,7 @@ from typing import Any, Iterable
 
 from .errors import AG2CError
 from .gitops import git, head
+from .util import atomic_json_write
 
 TRANSACTION_SCHEMA = "ag2c.lifecycle-transaction.v1"
 
@@ -18,11 +19,7 @@ def _storage(root: Path) -> Path:
     return common / "ag2c-lifecycle"
 
 
-def _atomic_json(path: Path, value: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
+_atomic_json = atomic_json_write
 
 
 def _remove_path(path: Path) -> None:

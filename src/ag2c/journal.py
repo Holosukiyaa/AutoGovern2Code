@@ -11,6 +11,7 @@ from .errors import AG2CError
 from .gitops import repository_root
 from .ledger import read_events, verify_ledger
 from .storage import registered_manifest
+from .util import atomic_json_write
 
 JOURNAL_SCHEMA = "ag2c.journal.v1"
 JOURNAL_FILENAME = "journals.json"
@@ -29,11 +30,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _atomic_json(path: Path, value: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
+_atomic_json = atomic_json_write
 
 
 def journal_path(manifest) -> Path:

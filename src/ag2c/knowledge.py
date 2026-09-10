@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -9,7 +8,7 @@ from typing import Any
 from .errors import AG2CError, ConfigurationError
 from .ledger import append_event
 from .model import Card, Manifest, Policy
-from .util import digest_file, digest_json, normalize_artifact_path
+from .util import atomic_json_write, digest_file, digest_json, normalize_artifact_path
 
 
 KNOWLEDGE_SCHEMA = "ag2c.knowledge.v1"
@@ -24,11 +23,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _atomic_json(path: Path, value: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
+_atomic_json = atomic_json_write
 
 
 def _read_state(path: Path) -> dict[str, Any]:

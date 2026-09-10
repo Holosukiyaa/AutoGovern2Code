@@ -5,7 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/Holosukiyaa/AutoGovern2Code)](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[中文](README.zh-CN.md) · [Adoption](docs/ADOPTION.md) · [Architecture](docs/ARCHITECTURE.md) · [Releases](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)
+[中文](README.zh-CN.md) · [Adoption](docs/ADOPTION.md) · [Architecture](docs/dev/ARCHITECTURE.md) · [Releases](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)
 
 Current release: **v0.9.0** (2026-09-07). Alpha. Windows only. Single-user and local.
 
@@ -91,17 +91,17 @@ ag2c evidence --task <task-id>
 ag2c evidence --format json
 ```
 
-Full receipts stay in the external store. Commits carry only `AG2C-Task` and `AG2C-Evidence` trailers. Another machine cannot rebuild the Ledger from those digests. Remote CI should run the project's own tests and use branch protection. See [local evidence and CI](docs/CI_VERIFICATION.md).
+Full receipts stay in the external store. Commits carry only `AG2C-Task` and `AG2C-Evidence` trailers. Another machine cannot rebuild the Ledger from those digests. Remote CI should run the project's own tests and use branch protection. See [local evidence and CI](docs/dev/CI_VERIFICATION.md).
 
-Knowledge, floors, and public-interface cards are maintainer tools (`ag2c knowledge`, `ag2c govern`). They are not required to start using AG2C. See [automatic governance](docs/AUTOMATIC_GOVERNANCE.md).
+Knowledge, floors, and public-interface cards are maintainer tools (`ag2c knowledge`, `ag2c govern`). They are not required to start using AG2C. See [automatic governance](docs/dev/AUTOMATIC_GOVERNANCE.md).
 
 ## Documentation
 
 - [Adoption, machines, and legacy migration](docs/ADOPTION.md)
-- [Automatic governance contract](docs/AUTOMATIC_GOVERNANCE.md)
-- [Architecture and evidence model](docs/ARCHITECTURE.md)
-- [Directory households](docs/DIRECTORY-CENSUS.md)
-- [Local evidence and CI](docs/CI_VERIFICATION.md)
+- [Automatic governance contract](docs/dev/AUTOMATIC_GOVERNANCE.md)
+- [Architecture and evidence model](docs/dev/ARCHITECTURE.md)
+- [Directory households](docs/dev/DIRECTORY-CENSUS.md)
+- [Local evidence and CI](docs/dev/CI_VERIFICATION.md)
 - Agent skills ship inside the package (`src/ag2c/skills/`); MCP clients receive them as instructions and `ag2c://skill/<name>` resources, other agents install them with `ag2c skill install`
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)

@@ -10,4 +10,4 @@ ag2c --manifest ../minimal-governance/manifest.json slice --path app:src/client.
 ag2c --manifest ../minimal-governance/manifest.json check --path app:src/client.py --contract app:example.hello@1.0.0
 ```
 
-Read `../../docs/AUTOMATIC_GOVERNANCE.md` before changing scopes or adding a checker. Use `ag2c govern`, not hand-edited Policy.
+Read `../../docs/dev/AUTOMATIC_GOVERNANCE.md` before changing scopes or adding a checker. Use `ag2c govern`, not hand-edited Policy.

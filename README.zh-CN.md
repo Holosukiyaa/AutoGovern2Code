@@ -5,7 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/Holosukiyaa/AutoGovern2Code)](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[English](README.md) · [接入说明](docs/ADOPTION.md) · [架构](docs/ARCHITECTURE.md) · [Releases](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)
+[English](README.md) · [接入说明](docs/ADOPTION.md) · [架构](docs/dev/ARCHITECTURE.md) · [Releases](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)
 
 当前版本：**v0.9.0**（2026-09-07）。Alpha。仅 Windows。单人、本机。
 
@@ -91,17 +91,17 @@ ag2c evidence --task <task-id>
 ag2c evidence --format json
 ```
 
-完整凭证只保存在本机外部目录。提交消息只带 `AG2C-Task` 和 `AG2C-Evidence` 摘要。另一台机器不能只靠摘要还原 Ledger。远端 CI 应独立运行项目测试并配合分支保护。详见[本机证据与 CI](docs/CI_VERIFICATION.md)。
+完整凭证只保存在本机外部目录。提交消息只带 `AG2C-Task` 和 `AG2C-Evidence` 摘要。另一台机器不能只靠摘要还原 Ledger。远端 CI 应独立运行项目测试并配合分支保护。详见[本机证据与 CI](docs/dev/CI_VERIFICATION.md)。
 
-Knowledge、Floor 和公开界面卡片是维护者工具（`ag2c knowledge`、`ag2c govern`），不是开始使用 AG2C 的前提。见[自动治理](docs/AUTOMATIC_GOVERNANCE.md)。
+Knowledge、Floor 和公开界面卡片是维护者工具（`ag2c knowledge`、`ag2c govern`），不是开始使用 AG2C 的前提。见[自动治理](docs/dev/AUTOMATIC_GOVERNANCE.md)。
 
 ## 文档
 
 - [接入、换机与旧版迁移](docs/ADOPTION.md)
-- [自动治理合同](docs/AUTOMATIC_GOVERNANCE.md)
-- [架构与证据模型](docs/ARCHITECTURE.md)
-- [目录户口](docs/DIRECTORY-CENSUS.md)
-- [本机证据与 CI](docs/CI_VERIFICATION.md)
+- [自动治理合同](docs/dev/AUTOMATIC_GOVERNANCE.md)
+- [架构与证据模型](docs/dev/ARCHITECTURE.md)
+- [目录户口](docs/dev/DIRECTORY-CENSUS.md)
+- [本机证据与 CI](docs/dev/CI_VERIFICATION.md)
 - Agent Skills 随包发布（`src/ag2c/skills/`）：MCP 客户端经 instructions 与 `ag2c://skill/<name>` 资源获取，其他 Agent 用 `ag2c skill install` 安装
 - [参与贡献](CONTRIBUTING.md)
 - [安全策略](SECURITY.md)

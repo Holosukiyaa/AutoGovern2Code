@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -100,6 +101,24 @@ def atomic_json_write(path: Path, value: dict[str, Any]) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     os.replace(temporary, path)
+
+
+def parse_iso8601(value: Any) -> datetime | None:
+    """解析 ISO 时间串：非串/空白/非法 → None；裸时间按 UTC。
+
+    合并自 audit._parse 与 token._parse_time 的双份拷贝（危房名单拆迁，
+    2026-09-10）。取 token 版超集行为：解析前 strip——带首尾空白的输入
+    从"返回 None"变为"解析成功"（更宽容，audit 侧无反向依赖）。
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip())
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def read_json(path: Path, *, what: str) -> dict[str, Any]:

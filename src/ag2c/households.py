@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import AG2CError, ConfigurationError, WidenError
-from .index import _discover_files, _git, _scope_matches, primary_owners
+from .index import _discover_files, _git, primary_owners, scope_matches
 from .model import Card, Manifest, Policy, Scope
 
 
@@ -476,7 +476,7 @@ def _version(root: Path) -> str:
 
 
 def _matches(card: Card, target: str, path: str) -> bool:
-    return any(_scope_matches(scope, target, path) for scope in card.scopes)
+    return any(scope_matches(scope, target, path) for scope in card.scopes)
 
 
 def _matches_include(card: Card, target: str, path: str) -> bool:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -8,7 +7,7 @@ from typing import Any
 from .errors import AG2CError, ConfigurationError
 from .ledger import append_event
 from .model import Card, Manifest, Policy
-from .util import atomic_json_write, digest_file, digest_json, normalize_artifact_path
+from .util import atomic_json_write, digest_file, digest_json, normalize_artifact_path, read_json
 
 
 KNOWLEDGE_SCHEMA = "ag2c.knowledge.v1"
@@ -29,11 +28,8 @@ _atomic_json = atomic_json_write
 def _read_state(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {"schema": KNOWLEDGE_SCHEMA, "cards": {}}
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise AG2CError(f"cannot read Knowledge state {path}: {exc}") from exc
-    if not isinstance(value, dict) or value.get("schema") != KNOWLEDGE_SCHEMA:
+    value = read_json(path, what="Knowledge state")
+    if value.get("schema") != KNOWLEDGE_SCHEMA:
         raise AG2CError(f"Knowledge state schema must be {KNOWLEDGE_SCHEMA}: {path}")
     cards = value.get("cards", {})
     if not isinstance(cards, dict):

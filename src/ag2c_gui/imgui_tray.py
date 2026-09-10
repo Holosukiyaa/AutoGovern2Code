@@ -1227,15 +1227,33 @@ def _cached_tree(state: AppState, files: list[tuple[str, dict[str, Any]]]):
     return state.file_tree
 
 
-def _focus_path(state: AppState, rel: str, *, where: str = "文件树") -> None:
-    audit(state, "点击文件", where, rel)
+def _focus_action(state: AppState, target: str, *, where: str, verb: str, miss: str, locate) -> None:
+    """点击聚焦共用控制流：audit → lock → locate → apply_focus / 未命中 audit。
+
+    合并自 _focus_path 与 _activate_owner 的双份拷贝（危房名单拆迁，
+    2026-09-10）；locate 接收 (files, cards) 返回焦点或 None。
+    """
+    audit(state, verb, where, target)
     with state.lock:
         files, cards = _all_rows(state.details)
-        focused = focus_file(files, cards, rel)
+        focused = locate(files, cards)
         if focused is not None:
             state.apply_focus(focused)
         else:
-            audit(state, "未命中文件", where, rel)
+            audit(state, miss, where, target)
+
+
+def _focus_path(state: AppState, rel: str, *, where: str = "文件树") -> None:
+    _focus_action(state, rel, where=where, verb="点击文件", miss="未命中文件",
+                  locate=lambda files, cards: focus_file(files, cards, rel))
+
+
+def _activate_owner(state: AppState, owner: str, *, where: str = "详情") -> None:
+    def _locate(files, cards):
+        card = card_for_owner(cards, owner)
+        return focus_card(files, card) if card is not None else None
+
+    _focus_action(state, owner, where=where, verb="点击知识卡", miss="未命中知识卡", locate=_locate)
 
 
 def _focus_card(state: AppState, card: dict[str, Any], *, where: str = "知识卡片") -> None:
@@ -1249,17 +1267,6 @@ def _focus_card(state: AppState, card: dict[str, Any], *, where: str = "知识�
         # same card does not reopen it after the user closed it.
         if state.selected_card_key and state.selected_card_key != previous_key:
             state.set_dock_visible("检查器", True)
-
-
-def _activate_owner(state: AppState, owner: str, *, where: str = "详情") -> None:
-    audit(state, "点击知识卡", where, owner)
-    with state.lock:
-        files, cards = _all_rows(state.details)
-        card = card_for_owner(cards, owner)
-        if card is not None:
-            state.apply_focus(focus_card(files, card))
-        else:
-            audit(state, "未命中知识卡", where, owner)
 
 
 def _gui_tree(state: AppState) -> None:

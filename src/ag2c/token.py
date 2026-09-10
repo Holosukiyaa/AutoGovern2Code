@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .ledger import read_events
+from .util import parse_iso8601
 
 TOKEN_SCHEMA = "ag2c.token.v1"
 
@@ -58,16 +59,7 @@ def _config(manifest) -> dict[str, float]:
     return config
 
 
-def _parse_time(value: object) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.strip())
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed
+_parse_time = parse_iso8601
 
 
 def token_report(manifest, *, now: datetime | None = None) -> dict[str, Any]:

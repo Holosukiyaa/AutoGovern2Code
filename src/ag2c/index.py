@@ -135,7 +135,11 @@ def _discover_files(root: Path, target: Target) -> tuple[list[str], dict[str, st
     return sorted(paths), states, git_head, len(states)
 
 
-def _scope_matches(scope: Scope, target_id: str, artifact_path: str) -> bool:
+def scope_matches(scope: Scope, target_id: str, artifact_path: str) -> bool:
+    """范围匹配：目标一致 + 命中 include + 未命中 exclude。
+
+    公开函数：slicer 与 index 共用（原是逐字节相同的双份私有拷贝，
+    危房名单拆迁 2026-09-10）。"""
     return (
         scope.target_id == target_id
         and any(path_matches(artifact_path, pattern) for pattern in scope.includes)
@@ -149,7 +153,7 @@ def primary_owners(policy: Policy, target_id: str, artifact_path: str) -> list[C
             card for card in policy.cards
             if card.card_type == "floor"
             and any(
-                scope.ownership == "primary" and _scope_matches(scope, target_id, artifact_path)
+                scope.ownership == "primary" and scope_matches(scope, target_id, artifact_path)
                 for scope in card.scopes
             )
         ),

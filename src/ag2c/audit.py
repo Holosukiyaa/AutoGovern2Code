@@ -22,6 +22,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .util import parse_iso8601
+
 AUDIT_STATE_SCHEMA = "ag2c.audit-state.v1"
 MIN_INTERVAL_DAYS = 2
 MAX_INTERVAL_DAYS = 5
@@ -58,16 +60,7 @@ def _save_state(manifest, state: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
-def _parse(value: Any) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed
+_parse = parse_iso8601
 
 
 def _iso(moment: datetime) -> str:

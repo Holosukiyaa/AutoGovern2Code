@@ -7,7 +7,7 @@ from typing import Any
 
 from .config import load_policy
 from .errors import ConfigurationError, SliceError
-from .index import index_path, primary_owners, summary as index_summary, verify_freshness
+from .index import index_path, primary_owners, scope_matches, summary as index_summary, verify_freshness
 from .knowledge import knowledge_status
 from .model import Card, Manifest, Policy, Scope
 from .util import digest_file, digest_json, normalize_artifact_path, path_matches
@@ -35,14 +35,6 @@ def parse_contract_spec(value: str, manifest: Manifest) -> tuple[str, str, str]:
     ):
         raise SliceError(f"contract must use target-id:contract-id@version: {value}")
     return target_id, contract_id, version
-
-
-def _scope_matches(scope: Scope, target_id: str, artifact_path: str) -> bool:
-    return (
-        scope.target_id == target_id
-        and any(path_matches(artifact_path, pattern) for pattern in scope.includes)
-        and not any(path_matches(artifact_path, pattern) for pattern in scope.excludes)
-    )
 
 
 def _card_payload(card: Card, reasons: set[str], freshness: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -132,7 +124,7 @@ def compile_slice(
                 expand_target(target_id, f"{status}-entry:{artifact_id}")
             for card in policy.cards:
                 if card.card_type == "knowledge" and any(
-                    _scope_matches(scope, target_id, artifact_path) for scope in card.scopes
+                    scope_matches(scope, target_id, artifact_path) for scope in card.scopes
                 ):
                     select(card.card_id, f"scoped-knowledge:{artifact_id}")
     finally:

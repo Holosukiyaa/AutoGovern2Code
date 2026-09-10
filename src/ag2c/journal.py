@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -11,7 +9,7 @@ from .errors import AG2CError
 from .gitops import repository_root
 from .ledger import read_events, verify_ledger
 from .storage import registered_manifest
-from .util import atomic_json_write
+from .util import atomic_json_write, read_json
 
 JOURNAL_SCHEMA = "ag2c.journal.v1"
 JOURNAL_FILENAME = "journals.json"
@@ -85,11 +83,8 @@ def _event_summary(event: dict[str, Any]) -> str:
 def _load_journal(path: Path) -> dict[str, Any]:
     if not path.is_file():
         return {"schema": JOURNAL_SCHEMA, "versions": []}
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise AG2CError(f"cannot read governance journal {path}: {exc}") from exc
-    if not isinstance(value, dict) or value.get("schema") != JOURNAL_SCHEMA:
+    value = read_json(path, what="governance journal")
+    if value.get("schema") != JOURNAL_SCHEMA:
         raise AG2CError(f"unsupported governance journal: {path}")
     versions = value.get("versions")
     if not isinstance(versions, list):

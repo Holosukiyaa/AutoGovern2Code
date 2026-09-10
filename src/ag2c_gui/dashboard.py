@@ -1,4 +1,4 @@
-"""首页仪表盘：当前任务 + 异常清单 + 健康度。
+"""首页仪表盘：三区结构——需要你处理 / 系统警情 / 记录（仅供查阅）。
 
 房间宪法（knowledge.ag2c-gui）：数据装配与绘制分离。dashboard_model 是纯函数
 （不 import imgui，可单测）；draw_dashboard 只渲染装配结果。全绿时首页近乎
@@ -63,6 +63,15 @@ def _text(row: dict[str, Any] | None, key: str) -> str:
 def _clip(value: str, limit: int = MAX_GOAL_CHARS) -> str:
     value = " ".join(str(value).split())
     return value if len(value) <= limit else value[: limit - 1].rstrip() + "…"
+
+
+def _cap_listed(lines: list[dict[str, str]], limit: int = MAX_LISTED_ANOMALIES) -> list[dict[str, str]]:
+    """Cap a zone list, folding the overflow into a fixed summary line."""
+    overflow = max(0, len(lines) - limit)
+    listed = lines[:limit]
+    if overflow:
+        listed.append({"severity": "warn", "text": f"……另有 {overflow} 条未列出"})
+    return listed
 
 
 def verification_shadow(verification: dict[str, Any]) -> list[str]:
@@ -160,31 +169,39 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
     pending = pending_items(details)
     stale = stale_knowledge(details)
 
-    anomalies: list[dict[str, str]] = []
+    # 分区装配：actions = 需要人拍板/动手的决策项（与注意力闸门同口径），每条
+    # 带动作提示；alerts = 系统级异常，人只需知情、处理责任在系统/AI。原
+    # "异常清单"按此拆成两区；anomalies 键保留为两区合并（兼容旧消费方）。
+    actions: list[dict[str, str]] = []
+    alerts: list[dict[str, str]] = []
     if guard.get("canonicalDirty") and not guard.get("error") and not tasks:
-        anomalies.append(
+        alerts.append(
             {"severity": "error", "text": "canonical 检出在非任务窗口被修改——可能有改动绕开了治理流程"}
         )
     for task in tasks:
         if task["diverged"]:
-            anomalies.append({"severity": "error", "text": f"任务 {task['id']} 的 worktree 已分叉，需要处理"})
+            actions.append(
+                {"severity": "error", "text": f"任务 {task['id']} 的 worktree 已分叉 → ag2c task refresh 同步，或 task abandon 放弃"}
+            )
     for item in pending:
         title = _text(item, "title") or _text(item, "kind") or "未命名事项"
-        hint = _text(item, "hint")
-        anomalies.append({"severity": "warn", "text": f"待结算：{title}" + (f"（{hint}）" if hint else "")})
+        hint = _text(item, "hint") or "运行 ag2c govern settle 结算"
+        actions.append({"severity": "warn", "text": f"待结算：{title} → {hint}"})
     for card in stale:
-        anomalies.append({"severity": "warn", "text": f"知识卡过期：{_text(card, 'id')}"})
+        actions.append(
+            {"severity": "warn", "text": f"知识卡过期：{_text(card, 'id')} → 复核后用 ag2c govern apply 更新该卡"}
+        )
     census = details.get("census") if isinstance(details.get("census"), dict) else {}
     if _text(census, "error"):
-        anomalies.append({"severity": "error", "text": f"普查失败：{_text(census, 'error')}"})
+        alerts.append({"severity": "error", "text": f"普查失败：{_text(census, 'error')}"})
     index = details.get("index") if isinstance(details.get("index"), dict) else {}
     for error in index.get("errors") or []:
-        anomalies.append({"severity": "error", "text": f"索引错误：{error}"})
+        alerts.append({"severity": "error", "text": f"索引错误：{error}"})
     debt = details.get("baseline_debt") if isinstance(details.get("baseline_debt"), dict) else {}
     debt_total = int(debt.get("total") or 0)
     debt_target = int(debt.get("target") or 0)
     if debt.get("over"):
-        anomalies.append(
+        alerts.append(
             {"severity": "error", "text": f"基线债务超目标：当前 {debt_total}，上限 {debt_target}（只减不增，新增失败需先还债）"}
         )
     audit = details.get("audit") if isinstance(details.get("audit"), dict) else {}
@@ -193,7 +210,7 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
         first = _text(audit_pending[0], "id")
         severity = "error" if audit.get("due") else "warn"
         label = "抽查到期" if audit.get("due") else "抽查待办"
-        anomalies.append(
+        actions.append(
             {"severity": severity, "text": f"{label}：{len(audit_pending)} 项待人工核对（如 {first}），确认点下方「已抽查」"}
         )
 
@@ -214,18 +231,18 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
             result = _text(drill, "last_result")
             command = "ag2c canary" + (" --mode mutation" if mode == "mutation" else "")
             if not drill.get("runs"):
-                anomalies.append({"severity": "warn", "text": f"{label}从未举行：还没有验证过拦截能力 → 建议运行 {command}"})
+                alerts.append({"severity": "warn", "text": f"{label}从未举行：还没有验证过拦截能力 → 建议运行 {command}"})
                 patrol_lines.append({"severity": "warn", "text": f"{label}：从未举行"})
                 continue
             if isinstance(days, int):
                 drill_days.append(days)
             if result == "failed":
                 detail = _text(drill, "last_detail")
-                anomalies.append(
+                alerts.append(
                     {"severity": "error", "text": f"{label}失败：{detail or '植入的缺陷未被拦截'}——测试可能无效，建议检查该区域并补测试"}
                 )
             elif drill.get("overdue"):
-                anomalies.append({"severity": "warn", "text": f"{label}超期：已 {days} 天未演习（间隔 {interval} 天）→ 建议运行 {command}"})
+                alerts.append({"severity": "warn", "text": f"{label}超期：已 {days} 天未演习（间隔 {interval} 天）→ 建议运行 {command}"})
             verb = {"passed": "已通过（缺陷被拦截）", "failed": "失败：缺陷未被拦截", "error": "未能执行"}.get(result, result or "未知")
             when = "从未" if not isinstance(days, int) else ("今天" if days == 0 else f"{days} 天前")
             patrol_lines.append({"severity": "error" if result == "failed" else "ok", "text": f"{label}：{when}{verb}"})
@@ -243,7 +260,7 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
         items = [item for item in hazards.get("hazards") or [] if isinstance(item, dict)]
         for item in items:
             if item.get("kind") == "hollow" and not item.get("resolved"):
-                anomalies.append(
+                alerts.append(
                     {"severity": "warn", "text": f"测试无效风险：{_text(item, 'target')}——{_text(item, 'suggestion') or '补充能捕获该类缺陷的测试'}"}
                 )
         for item in items[:MAX_LISTED_HAZARDS]:
@@ -277,10 +294,9 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
                 {"severity": "warn", "text": f"返工最重：{_text(worst, 'task')}（verify {int(worst.get('verify_runs') or 0)} 次）——返工是治理成本的乘数"}
             )
 
-    overflow = max(0, len(anomalies) - MAX_LISTED_ANOMALIES)
-    listed = anomalies[:MAX_LISTED_ANOMALIES]
-    if overflow:
-        listed.append({"severity": "warn", "text": f"……另有 {overflow} 条未列出"})
+    # 区①逐条列出、不截断——与注意力闸门数字一一对应是产品承诺，折叠决策项
+    # 等于隐瞒。只有区②系统警情截断（溢出折叠为固定汇总行）。
+    alerts_listed = _cap_listed(alerts)
 
     # 注意力总闸门：每天向人类索要的决策次数有硬上限。这一行是全页第一行，
     # 其余一切排队、不许插队——这行字本身是产品承诺：我尊重你的注意力预算。
@@ -320,12 +336,22 @@ def dashboard_model(details: dict[str, Any] | None, guard: dict[str, Any] | None
         dismissed = hazards.get("dismissed")
         health.append({"label": "已豁免项", "value": dismissed if isinstance(dismissed, int) else 0})
     project = details.get("project") if isinstance(details.get("project"), dict) else {}
+    records = {
+        "health": health,
+        "tasks": tasks,
+        "patrol": patrol_lines,
+        "hazards": hazard_lines,
+        "token": token_lines,
+    }
     return {
         "project": _text(project, "name"),
         "attention": attention,
         "tasks": tasks,
-        "anomalies": listed,
-        "anomaly_count": len(anomalies),
+        "actions": actions,
+        "alerts": alerts_listed,
+        "records": records,
+        "anomalies": actions + alerts_listed,
+        "anomaly_count": len(actions) + len(alerts),
         "health": health,
         "audit": {"pending": audit_pending, "due": bool(audit.get("due"))},
         "patrol": patrol_lines,
@@ -351,8 +377,45 @@ def draw_dashboard(model: dict[str, Any]) -> None:
             imgui.text_disabled(attention_text)
         imgui.separator()
 
+    # 区① 需要你处理：需要人拍板/动手的决策项，与注意力闸门同口径。
+    actions = model.get("actions") or []
+    imgui.text_colored((0.95, 0.70, 0.30, 1.0), "【需要你处理】")
+    if not actions:
+        imgui.text_disabled("没有需要你处理的事")
+    for item in actions:
+        color = (0.95, 0.35, 0.30, 1.0) if item["severity"] == "error" else (0.95, 0.70, 0.30, 1.0)
+        imgui.text_colored(color, "!" if item["severity"] == "error" else "△")
+        imgui.same_line(0.0, 8.0)
+        imgui.text_wrapped(item["text"])
+    imgui.separator()
+
+    # 区② 系统警情：系统级异常，人只需知情，处理责任在系统/AI。
+    alerts = model.get("alerts") or []
+    imgui.text_colored((0.95, 0.55, 0.45, 1.0), "【系统警情】")
+    if not alerts:
+        imgui.text_disabled("没有系统警情")
+    for item in alerts:
+        color = (0.95, 0.35, 0.30, 1.0) if item["severity"] == "error" else (0.95, 0.70, 0.30, 1.0)
+        imgui.text_colored(color, "!" if item["severity"] == "error" else "△")
+        imgui.same_line(0.0, 8.0)
+        imgui.text_wrapped(item["text"])
+    imgui.separator()
+
+    # 区③ 记录（仅供查阅）：健康度、任务状态、巡逻/改造/成本——都是记录，不需要动作。
+    records = model.get("records") if isinstance(model.get("records"), dict) else {}
+    rec_health = records.get("health") or []
+    rec_tasks = records.get("tasks") or []
+    rec_patrol = records.get("patrol") or []
+    rec_hazards = records.get("hazards") or []
+    rec_token = records.get("token") or []
+    imgui.text_disabled("【记录 · 仅供查阅】")
+    if not (rec_tasks or rec_patrol or rec_hazards or rec_token):
+        imgui.text_disabled("暂无记录")
+        imgui.separator()
+        return
+
     # 健康度：几个数，零是绿色，非零吸注意力；"—"（无数据）灰色静默。
-    for i, item in enumerate(model["health"]):
+    for i, item in enumerate(rec_health):
         if i:
             imgui.same_line(0.0, 28.0)
         raw_value = item["value"]
@@ -366,9 +429,9 @@ def draw_dashboard(model: dict[str, Any]) -> None:
     imgui.separator()
 
     imgui.text("当前任务")
-    if not model["tasks"]:
+    if not rec_tasks:
         imgui.text_disabled("当前没有进行中的任务")
-    for task in model["tasks"]:
+    for task in rec_tasks:
         color = (0.55, 0.75, 0.95, 1.0) if not task["diverged"] else (0.95, 0.35, 0.30, 1.0)
         imgui.text_colored(color, f"● {task['lifecycle_label']}")
         imgui.same_line(0.0, 10.0)
@@ -388,9 +451,9 @@ def draw_dashboard(model: dict[str, Any]) -> None:
     imgui.separator()
 
     imgui.text("巡逻记录")
-    if not model["patrol"]:
+    if not rec_patrol:
         imgui.text_disabled("还没有巡逻记录")
-    for line in model["patrol"]:
+    for line in rec_patrol:
         color = {
             "ok": (0.45, 0.80, 0.50, 1.0),
             "warn": (0.95, 0.70, 0.30, 1.0),
@@ -402,29 +465,19 @@ def draw_dashboard(model: dict[str, Any]) -> None:
     imgui.separator()
 
     imgui.text("旧城改造")
-    if not model["hazards"]:
+    if not rec_hazards:
         imgui.text_disabled("没有检测到风险项")
-    for line in model["hazards"]:
+    for line in rec_hazards:
         color = (0.95, 0.35, 0.30, 1.0) if line["severity"] == "error" else (0.95, 0.70, 0.30, 1.0)
         imgui.text_colored(color, "▲")
         imgui.same_line(0.0, 8.0)
         imgui.text_wrapped(line["text"])
 
-    if model["token"]:
+    if rec_token:
         imgui.separator()
         imgui.text("治理成本")
-        for line in model["token"]:
+        for line in rec_token:
             color = (0.95, 0.70, 0.30, 1.0) if line["severity"] == "warn" else (0.55, 0.75, 0.95, 1.0)
             imgui.text_colored(color, "◆")
             imgui.same_line(0.0, 8.0)
             imgui.text_wrapped(line["text"])
-    imgui.separator()
-
-    imgui.text("异常清单")
-    if not model["anomalies"]:
-        imgui.text_disabled("没有需要注意的事")
-    for anomaly in model["anomalies"]:
-        color = (0.95, 0.35, 0.30, 1.0) if anomaly["severity"] == "error" else (0.95, 0.70, 0.30, 1.0)
-        imgui.text_colored(color, "!" if anomaly["severity"] == "error" else "△")
-        imgui.same_line(0.0, 8.0)
-        imgui.text_wrapped(anomaly["text"])

@@ -7,10 +7,12 @@ import unittest
 from ag2c_gui.dashboard import (
     DANGER,
     DECISION,
+    HERO_FONT_SCALE,
     MUTED,
     NOTICE,
     OK_DIM,
     dashboard_model,
+    hero_block,
     open_tasks,
     pending_items,
     severity_color,
@@ -349,6 +351,30 @@ class PaletteTests(unittest.TestCase):
         self.assertEqual(DECISION, zone_header_color("action"))
         self.assertEqual(NOTICE, zone_header_color("alert"))
         self.assertEqual(MUTED, zone_header_color("record"))
+
+
+class HeroBlockTests(unittest.TestCase):
+    """视觉主体：注意力闸门即页面主体。"""
+
+    def test_hero_mirrors_attention_gate(self):
+        model = dashboard_model({"knowledge": [{"id": "k1", "status": "stale"}]}, {})
+        hero = hero_block(model)
+        self.assertEqual(1, hero["count"])
+        self.assertIn("1 件", hero["text"])
+        self.assertTrue(hero["has_actions"])
+
+    def test_hero_all_clear(self):
+        hero = hero_block(dashboard_model({}, {}))
+        self.assertEqual(0, hero["count"])
+        self.assertIn("没有", hero["text"])
+        self.assertFalse(hero["has_actions"])
+
+    def test_hero_tolerates_garbage(self):
+        self.assertEqual({"text": "", "count": 0, "has_actions": False}, hero_block(None))
+        self.assertEqual({"text": "", "count": 0, "has_actions": False}, hero_block({"attention": "x", "actions": "y"}))
+
+    def test_hero_font_scale_is_significantly_larger(self):
+        self.assertGreaterEqual(HERO_FONT_SCALE, 1.5)
 
 
 if __name__ == "__main__":

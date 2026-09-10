@@ -89,6 +89,23 @@ def zone_header_color(zone: str) -> tuple[float, float, float, float]:
     return _ZONE_HEADER_COLORS.get(zone, MUTED)
 
 
+#: 视觉主体的字号倍数：主体（注意力闸门）以大字独占顶部，其余皆为陪体/背景。
+HERO_FONT_SCALE = 1.6
+
+
+def hero_block(model: dict[str, Any] | None) -> dict[str, Any]:
+    """视觉主体：注意力闸门即页面主体。纯函数，垃圾输入降级为空主体。"""
+    model = model if isinstance(model, dict) else {}
+    attention = model.get("attention") if isinstance(model.get("attention"), dict) else {}
+    count = attention.get("count")
+    actions = model.get("actions")
+    return {
+        "text": str(attention.get("text") or ""),
+        "count": int(count) if isinstance(count, int) else 0,
+        "has_actions": isinstance(actions, list) and bool(actions),
+    }
+
+
 def _text(row: dict[str, Any] | None, key: str) -> str:
     if not isinstance(row, dict):
         return ""
@@ -403,30 +420,31 @@ def draw_dashboard(model: dict[str, Any]) -> None:
     if model["project"]:
         imgui.text_disabled(model["project"])
 
-    # 注意力总闸门：全页第一行，其余一切排队、不许插队。
-    attention = model.get("attention") if isinstance(model.get("attention"), dict) else {}
-    attention_text = str(attention.get("text") or "")
-    if attention_text:
-        if attention.get("count"):
-            imgui.text_colored(DECISION, attention_text)
-        else:
-            imgui.text_disabled(attention_text)
+    # 视觉主体（摄影的主体）：注意力闸门放大独占顶部，是页面唯一焦点。
+    hero = hero_block(model)
+    if hero["text"]:
+        imgui.spacing()
+        imgui.set_window_font_scale(HERO_FONT_SCALE)
+        imgui.text_colored(DECISION if hero["count"] else OK_DIM, hero["text"])
+        imgui.set_window_font_scale(1.0)
+        imgui.spacing()
         imgui.separator()
 
-    # 区① 需要你处理：需要人拍板/动手的决策项，与注意力闸门同口径。
+    # 决策项直接跟随主体（主体即标题，不再有小标题）。主体已说"没有"时不重复空态。
     actions = model.get("actions") or []
-    imgui.text_colored(zone_header_color("action"), "【需要你处理】")
-    if not actions:
+    if actions:
+        for item in actions:
+            imgui.text_colored(severity_color("action", item["severity"]), "!" if item["severity"] == "error" else "△")
+            imgui.same_line(0.0, 8.0)
+            imgui.text_wrapped(item["text"])
+        imgui.separator()
+    elif hero["count"]:
         imgui.text_disabled("没有需要你处理的事")
-    for item in actions:
-        imgui.text_colored(severity_color("action", item["severity"]), "!" if item["severity"] == "error" else "△")
-        imgui.same_line(0.0, 8.0)
-        imgui.text_wrapped(item["text"])
-    imgui.separator()
+        imgui.separator()
 
-    # 区② 系统警情：系统级异常，人只需知情，处理责任在系统/AI。
+    # 区② 系统警情：陪体，正文字号、暗琥珀标题，退居次要。
     alerts = model.get("alerts") or []
-    imgui.text_colored(zone_header_color("alert"), "【系统警情】")
+    imgui.text_colored(zone_header_color("alert"), "系统警情")
     if not alerts:
         imgui.text_disabled("没有系统警情")
     for item in alerts:
@@ -435,17 +453,17 @@ def draw_dashboard(model: dict[str, Any]) -> None:
         imgui.text_wrapped(item["text"])
     imgui.separator()
 
-    # 区③ 记录（仅供查阅）：健康度、任务状态、巡逻/改造/成本——都是记录，不需要动作。
+    # 区③ 记录：背景，默认折叠为单行，点击才展开——收起时不占视觉空间。
     records = model.get("records") if isinstance(model.get("records"), dict) else {}
     rec_health = records.get("health") or []
     rec_tasks = records.get("tasks") or []
     rec_patrol = records.get("patrol") or []
     rec_hazards = records.get("hazards") or []
     rec_token = records.get("token") or []
-    imgui.text_colored(zone_header_color("record"), "【记录 · 仅供查阅】")
+    if not imgui.collapsing_header("记录 · 仅供查阅"):
+        return
     if not (rec_tasks or rec_patrol or rec_hazards or rec_token):
         imgui.text_disabled("暂无记录")
-        imgui.separator()
         return
 
     # 健康度：几个数，零是暗绿（正常指示），非零暗琥珀（记录区提示）；"—"灰色静默。

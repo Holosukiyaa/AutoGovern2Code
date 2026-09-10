@@ -6,5 +6,6 @@ This directory is the maintainer-facing doc set. If you only want to **use** AG2
 - [AUTOMATIC_GOVERNANCE.md](AUTOMATIC_GOVERNANCE.md) — the automatic governance contract: MCP for entry, Git hook for delivery, worktree isolation.
 - [DIRECTORY-CENSUS.md](DIRECTORY-CENSUS.md) — directory households, coverage tags (未打标 / 整夹一张 / 一文件一张), and the census loop.
 - [CI_VERIFICATION.md](CI_VERIFICATION.md) — local evidence, checkers, and how remote CI should relate to the local ledger.
+- [AI-HUMAN-DIFFERENCES.md](AI-HUMAN-DIFFERENCES.md) — AI ≠ 人类：治理设计再审视（找不同阶段的负面研究总榜、已确认决策与 AI 原生机制）。
 
 Reading copies of the packaged agent skills no longer live in the repo; the source of truth is `src/ag2c/skills/`, served to MCP clients as instructions and `ag2c://skill/<name>` resources, and installed for other agents with `ag2c skill install`.

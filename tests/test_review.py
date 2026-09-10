@@ -104,7 +104,10 @@ class PromptTests(unittest.TestCase):
         # 对抗性框架 + 信息隔离写死在系统提示词里
         self.assertIn("找出这次交付失败的方式", system)
         self.assertIn("看不到施工者", system)
-        self.assertIn("file:line", system)
+        # 三形证据语法写死在系统提示词里
+        self.assertIn("path:line", system)
+        self.assertIn("machine:<checker>", system)
+        self.assertIn("portrait:<定位>", system)
         # 三样物证都在；别的东西不在
         self.assertIn("画像内容", user)
         self.assertIn("diff 内容", user)
@@ -157,6 +160,28 @@ class VerdictValidationTests(unittest.TestCase):
             "items": [{"name": "复用", "status": "fail", "evidence": "tasks.py:347", "comment": "重复实现"}],
         }
         self.assertEqual([], verdict_problems(verdict))
+
+    def test_fail_with_machine_evidence_passes(self) -> None:
+        verdict = {
+            "verdict": "reject",
+            "items": [{"name": "机器项", "status": "fail", "evidence": "machine:check.python", "comment": "画像声称 OK 但机器结果是 skipped"}],
+        }
+        self.assertEqual([], verdict_problems(verdict))
+
+    def test_fail_with_portrait_evidence_passes(self) -> None:
+        verdict = {
+            "verdict": "reject",
+            "items": [{"name": "承诺", "status": "fail", "evidence": "portrait:承诺②", "comment": "承诺与 diff 矛盾"}],
+        }
+        self.assertEqual([], verdict_problems(verdict))
+
+    def test_fail_with_prose_evidence_is_voided(self) -> None:
+        verdict = {
+            "verdict": "reject",
+            "items": [{"name": "复用", "status": "fail", "evidence": "见机器输出", "comment": "复用率不高"}],
+        }
+        problems = verdict_problems(verdict)
+        self.assertTrue(any("evidence reference" in problem for problem in problems), problems)
 
     def test_reject_requires_a_fail_item(self) -> None:
         verdict = {"verdict": "reject", "items": [{"name": "x", "status": "pass", "evidence": "", "comment": "好"}]}

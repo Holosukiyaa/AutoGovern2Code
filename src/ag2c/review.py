@@ -23,10 +23,14 @@ from typing import Any
 from .gitops import git
 from .model import Policy, RegulatorConfig
 
-PROMPT_VERSION = "agent-review.v2"
+PROMPT_VERSION = "agent-review.v3"
 
-#: fail 项的证据位置必须形如 path:line（tasks.py:347）。
-_EVIDENCE_REF = re.compile(r"[\w./\\\-一-鿿]+:\d+")
+#: fail 项的证据必须指向三样物证之一中可核的位置（三形其一）：
+#:   path:line        —— diff/代码位置（tasks.py:347）
+#:   machine:<checker> —— 机器结果条目（machine:check.python）
+#:   portrait:<定位>   —— 画像小节（portrait:承诺②）
+#: 空证据与散文证据（"见机器输出"）依旧判作废。
+_EVIDENCE_REF = re.compile(r"[\w./\\\-一-鿿]+:\d+|machine:[\w.\-]+|portrait:\S+")
 
 #: 9.10 安达信条款：模型名 → 厂商家族。监管与 worker 同族 = 假异构。
 _MODEL_FAMILIES: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -81,13 +85,13 @@ _SYSTEM_PROMPT = """你是交付监管，不是验收员。你的唯一任务是
 - 逐条核对画像里的每个承诺：承诺 X，在 diff 或机器证据里真的兑现了吗？指得出位置吗？
 - 前置审加料：画像里标注了哪些是用户没明说、施工者自行添加的内容（加料清单）。逐条问：这条添加服务用户目标吗？还是为施工者自己方便加的（过度设计、顺手重构、夹带私货）？加料失控是 reject 理由。
 - 对抗性读 diff：专挑边界条件、错误处理、空输入、与既有代码的重复逻辑。
-- 每条 fail 必须给出证据位置（file:line）。没有证据的批评是废话，会被机器判作废。
-- 机器已经判过的事项（测试通过、预算达标）不要重复裁决，把注意力留给机器判不了的：承诺兑现、逻辑对错、复用与写法约定。
+- 每条 fail 必须给出证据位置，三形其一：path:line（代码/diff 位置，如 tasks.py:347）、machine:<checker>（机器结果条目，如 machine:check.python）、portrait:<定位>（画像小节，如 portrait:承诺②）。没有证据或证据不是这三形的批评是废话，会被机器判作废。
+- 机器已经判过的事项（测试通过、预算达标、删除门的退役链与 confirm 保险丝）不要重复裁决，把注意力留给机器判不了的：承诺兑现、逻辑对错、复用与写法约定。
 
 只输出一个 JSON 对象，不要输出任何其他文字：
 {
   "verdict": "pass 或 reject",
-  "items": [{"name": "检查项", "status": "pass 或 fail", "evidence": "path:line（fail 必填）", "comment": "评语"}],
+  "items": [{"name": "检查项", "status": "pass 或 fail", "evidence": "path:line 或 machine:<checker> 或 portrait:<定位>（fail 必填）", "comment": "评语"}],
   "summary": "一句话总评；reject 时必须写明修哪、怎么算修好"
 }"""
 
@@ -177,7 +181,7 @@ def verdict_problems(verdict: dict[str, Any]) -> list[str]:
             evidence = str(item.get("evidence", "") or "").strip()
             if not _EVIDENCE_REF.search(evidence):
                 problems.append(
-                    f"items[{index}] ({item.get('name', '?')}) is fail without a file:line evidence reference"
+                    f"items[{index}] ({item.get('name', '?')}) is fail without a file:line / machine:<checker> / portrait:<section> evidence reference"
                 )
     if outcome == "reject" and fails == 0:
         problems.append("verdict is reject but no item is fail")

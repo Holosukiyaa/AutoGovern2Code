@@ -472,6 +472,19 @@ def settle_pending(start: Path, *, actor: str, reason: str) -> dict[str, Any]:
         actions.append("sync")
     # Assertion conflicts and household identity debts stay pending; settle never
     # records a census as named or clears exploring/opaque/fake-child items.
+    # 动态预算：结算时按最新普查自动重标（系统算，用户被告知）。
+    # 重标失败不阻断结算，但必须可观测——写进结果的 budgets_error 字段。
+    budgets_error = ""
+    try:
+        from .budgets import recalibrate_budgets
+
+        root = repository_root(start)
+        manifest = load_manifest(discover_manifest(root), project_root=root)
+        budget_table = recalibrate_budgets(manifest, load_policy(manifest), actor=actor, reason=reason)
+        if any(row.get("action") != "kept" for row in budget_table.get("rooms") or []):
+            actions.append("budgets")
+    except (AG2CError, OSError, ValueError, ConfigurationError) as exc:
+        budgets_error = f"{type(exc).__name__}: {exc}"
     remaining = pending_updates(start)
     event = append_event(
         load_manifest(discover_manifest(repository_root(start))).ledger_path,
@@ -484,6 +497,7 @@ def settle_pending(start: Path, *, actor: str, reason: str) -> dict[str, Any]:
         "actions": actions,
         "settled": items,
         "pending": remaining.get("items") or [],
+        "budgets_error": budgets_error,
         "ledger_event_digest": event["event_digest"],
     }
 

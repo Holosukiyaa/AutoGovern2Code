@@ -350,6 +350,10 @@ def build_parser() -> argparse.ArgumentParser:
     census.add_argument("--actor", default="")
     census.add_argument("--reason", default="")
     census.add_argument("--format", choices=("text", "json"), default="json")
+    budget_recal = govern_commands.add_parser("budget-recalibrate", help="按普查实测重标动态房间预算（系统算，用户被告知）")
+    budget_recal.add_argument("--actor", default="")
+    budget_recal.add_argument("--reason", default="")
+    budget_recal.add_argument("--format", choices=("text", "json"), default="text")
     span = govern_commands.add_parser("span", help="set a directory room's coverage tag: 未打标, 整夹一张, or 一文件一张")
     span.add_argument("--id", required=True)
     span.add_argument("--tag", required=True, help="未打标 / 整夹一张 / 一文件一张")
@@ -943,6 +947,25 @@ def main(argv: list[str] | None = None) -> int:
                 result = pending_updates(Path.cwd())
             elif args.govern_command == "settle":
                 result = settle_pending(Path.cwd(), actor=args.actor, reason=args.reason)
+            elif args.govern_command == "budget-recalibrate":
+                from .budgets import recalibrate_budgets
+                from .config import discover_manifest, load_manifest, load_policy
+
+                root = Path.cwd()
+                manifest = load_manifest(discover_manifest(root), project_root=root)
+                # 裸命令（无 --actor/--reason）= 预览：只算表不落盘不写账本；
+                # 真正重标带 --actor/--reason（治理写入纪律）。
+                dry_run = not (args.actor.strip() and args.reason.strip())
+                result = recalibrate_budgets(manifest, load_policy(manifest), actor=args.actor, reason=args.reason, dry_run=dry_run)
+                if args.format == "text":
+                    rows = result.get("rooms") or []
+                    if not rows:
+                        print("没有需要动态预算的房间（空房间或全部人工显式预算）。")
+                    for row in rows:
+                        print(f"{row['room']}: 实测 {row['measured_lines']} 行，预算 {row['budget_lines']} 行（{row['action']}）")
+                    if dry_run and rows:
+                        print("（预览：未落盘。带 --actor/--reason 重标才写入预算仓与账本）")
+                    return 0
             elif args.govern_command == "checker":
                 from .govern import update_checker
 

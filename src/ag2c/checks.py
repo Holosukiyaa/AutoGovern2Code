@@ -154,8 +154,12 @@ def _budget_warnings(manifest: Manifest, policy: Policy, entry_slice: dict[str, 
     Anti-gaming (钉子厂): a room that only declares budget_lines still gets
     chars/AST ceilings derived from it, so packing code dense to stay under the
     line budget trips the other two dimensions.
+
+    动态预算（2026-09-10）：行预算读有效值——policy 显式优先，否则动态仓
+    （budgets.py 按普查实测自动锚定、只紧不松）。房间不用人算预算也有护栏。
     """
     warnings: list[dict[str, str]] = []
+    from .budgets import effective_budget_lines
     from .households import census_report
     try:
         report = census_report(manifest, policy)
@@ -170,7 +174,7 @@ def _budget_warnings(manifest: Manifest, policy: Policy, entry_slice: dict[str, 
             continue
         if card is None:
             continue
-        budget_lines = card.budget_lines
+        budget_lines = effective_budget_lines(manifest, card)
         budget_chars = card.budget_chars or (budget_lines * DERIVED_CHARS_PER_LINE if budget_lines else 0)
         budget_ast = card.budget_ast_nodes or (budget_lines * DERIVED_AST_NODES_PER_LINE if budget_lines else 0)
         if budget_lines <= 0 and budget_chars <= 0 and budget_ast <= 0:

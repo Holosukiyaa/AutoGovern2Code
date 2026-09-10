@@ -28,6 +28,7 @@ FAST = [
     "test_util",
     "test_audit",
     "test_budget_dupe",
+    "test_budgets",
     "test_cli",
     "test_config",
     "test_dep_hint",

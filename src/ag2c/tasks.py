@@ -320,6 +320,11 @@ def _refuse_household_debt(canonical: Path, path_specs: list[str], all_mode: boo
 
 
 def _assert_retirement_diff(canonical: Path, worktree: Path, task: dict[str, Any], changed_paths: list[str]) -> None:
+    # 删除的口径 = 内容真正从仓库消失。保留 git 改名判定（不加 --no-renames）：
+    # git mv / rehome 的"删源+加目"是移动而非删除，内容仍在树内，由 rehome 自己的
+    # 治理环路（scope 更新→import 改写→census→verify）负责，本门不拦。代价是
+    # 字节级相同的 删A+加B 会被判成改名而绕过 touches-active——git 层面这与移动
+    # 不可区分，接受 git 的判定并在此明记。
     deleted = [
         line.strip().replace("\\", "/")
         for line in str(git(worktree, "diff", "--name-only", "--diff-filter=D", task["source"]["head"])).splitlines()
@@ -343,25 +348,51 @@ def _assert_retirement_diff(canonical: Path, worktree: Path, task: dict[str, Any
         for item in report.get("households") or []
         if item.get("identity") == "leftover" or str((item.get("jurisdiction") or {}).get("status") or "") in {"legacy", "retired"}
     }
+
+    def _is_leftover(household: dict[str, Any]) -> bool:
+        return str(household["id"]) in leftover_ids
+
+    def _is_file_grain(household: dict[str, Any]) -> bool:
+        return str((household.get("jurisdiction") or {}).get("grain") or "") == "file"
+
+    def _check_retired_household(household: dict[str, Any], path: str) -> None:
+        declaration = household.get("jurisdiction") or {}
+        status = str(declaration.get("status") or "")
+        if status == "legacy" and not household.get("replaced_by"):
+            raise AG2CError(f"cannot-delete-without-replacement:{household['id']}")
+        if declaration.get("decider") == "confirm" and household["id"] not in confirms:
+            raise AG2CError(f"retirement-confirm-required:{household['id']}")
+
     for path in deleted:
         owners = households_covering_path(report, "app", path)
         if not owners:
             raise AG2CError(f"cannot-delete-unowned:{path}")
+        # 文件粒度户口（t59）比房间户口更具体，具体者优先：文件户口精确覆盖
+        # 该路径时以它为准，所在房间仍 active 不阻挡——删单个文件不再要求先拆掉
+        # 整个房间。叠加口径：同一路径上只要有一张 current 文件户口就仍挡（活着
+        # 的具体声明优先于退役的）；全部退役才按退役链约束放行。
+        file_owners = [item for item in owners if _is_file_grain(item)]
+        if file_owners:
+            active_file = [item for item in file_owners if not _is_leftover(item)]
+            if active_file:
+                raise AG2CError(f"cannot-delete-active-household:{active_file[0]['id']}:{path}")
+            for household in file_owners:
+                _check_retired_household(household, path)
+            if open_ids:
+                raise AG2CError("cannot-delete-while-tasks-open:" + ",".join(open_ids))
+            continue
         for household in owners:
             declaration = household.get("jurisdiction") or {}
             identity = str(household.get("identity") or "")
             status = str(declaration.get("status") or "")
             if status == "current" and identity not in {"leftover"}:
                 raise AG2CError(f"cannot-delete-active-household:{household['id']}:{path}")
-            if status == "legacy" and not household.get("replaced_by"):
-                raise AG2CError(f"cannot-delete-without-replacement:{household['id']}")
-            if declaration.get("decider") == "confirm" and household["id"] not in confirms:
-                raise AG2CError(f"retirement-confirm-required:{household['id']}")
-            if open_ids:
-                raise AG2CError("cannot-delete-while-tasks-open:" + ",".join(open_ids))
+            _check_retired_household(household, path)
+        if open_ids:
+            raise AG2CError("cannot-delete-while-tasks-open:" + ",".join(open_ids))
     for path in changed_paths:
         owners = households_covering_path(report, "app", path)
-        if owners and not any(str(item["id"]) in leftover_ids for item in owners):
+        if owners and not any(_is_leftover(item) for item in owners):
             raise AG2CError(f"retirement-diff-touches-active:{path}")
     hits = scan_references(worktree, deleted, set(deleted))
     if hits:

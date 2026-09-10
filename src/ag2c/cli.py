@@ -309,7 +309,7 @@ def build_parser() -> argparse.ArgumentParser:
     household.add_argument("--entrypoint", action="append", default=None)
     household.add_argument("--checker", action="append", default=None)
     household.add_argument("--status", choices=("current", "legacy", "retired"), default="current")
-    household.add_argument("--grain", choices=("subtree", "directory", "module"), default="")
+    household.add_argument("--grain", choices=("subtree", "directory", "module", "file"), default="", help="file=文件粒度户口：include 须为精确文件路径（t59 删除门）")
     household.add_argument("--meaning", choices=("none", "named"), default="")
     household.add_argument("--contract", choices=("none", "partial", "machine"), default="")
     household.add_argument("--decider", choices=("none", "machine", "confirm"), default="")

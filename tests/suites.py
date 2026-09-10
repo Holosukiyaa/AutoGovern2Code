@@ -71,6 +71,8 @@ GOVERNANCE_SUITE = [
     "test_knowledge",
     "test_budgets",
     "test_verify_costs",
+    # t59：文件粒度户口 + 删除门，实测 10.8s（git 夹具 + 普查），超冒烟集门槛下沉。
+    "test_file_grain",
 ]
 
 SUITES = {

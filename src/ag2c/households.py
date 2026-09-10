@@ -28,7 +28,7 @@ from .util import digest_file, digest_json, path_matches
 CODE_SUFFIXES = frozenset({".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".css", ".scss", ".sass", ".less", ".html", ".vue", ".svelte", ".rs", ".go", ".c", ".h", ".cpp", ".cs", ".java", ".kt", ".sh", ".ps1", ".bat", ".cmd", ".sql"})
 CENSUS_SCHEMA = "ag2c.census.v1"
 LIFECYCLES = frozenset({"current", "legacy", "retired"})
-GRAINS = frozenset({"subtree", "directory", "module"})
+GRAINS = frozenset({"subtree", "directory", "module", "file"})
 MEANINGS = frozenset({"none", "named"})
 CONTRACTS = frozenset({"none", "partial", "machine"})
 DECIDERS = frozenset({"none", "machine", "confirm"})
@@ -55,7 +55,7 @@ RECORD_BLOCK_ISSUES = frozenset(
         "exploring-expired",
     }
 )
-GRAIN_RANK = {"subtree": 0, "directory": 1, "module": 2}
+GRAIN_RANK = {"subtree": 0, "directory": 1, "module": 2, "file": 3}
 MEANING_RANK = {"none": 0, "named": 1}
 CONTRACT_RANK = {"none": 0, "partial": 1, "machine": 2}
 DECIDER_RANK = {"none": 0, "machine": 1, "confirm": 2}
@@ -293,6 +293,20 @@ def directory_scope(pattern: str) -> str:
     return directory
 
 
+def file_scope(pattern: str) -> str:
+    """文件粒度户口（grain=file，t59）的 scope：精确文件路径，不是 glob、不是目录。
+
+    存在的理由：删除门只认户口，而目录户口覆盖不了"删单个文件"——根文件与
+    活跃房间内的单文件需要一个能精确命中、能退役、能确认的最小户口。
+    """
+    if pattern == "**" or pattern.endswith("/**") or any(char in pattern for char in "*?["):
+        raise ConfigurationError(f"file-grain jurisdiction scope must be an exact file path, not a glob: {pattern}")
+    normalized = pattern.replace("\\", "/").strip("/")
+    if not normalized or any(part in {"", ".", ".."} for part in normalized.split("/")) or ":" in normalized:
+        raise ConfigurationError(f"invalid file-grain jurisdiction path: {pattern}")
+    return normalized
+
+
 def validate_declarations(cards: list[Card], relations: list) -> None:
     by_id = {card.card_id: card for card in cards}
     for card in cards:
@@ -310,7 +324,7 @@ def validate_declarations(cards: list[Card], relations: list) -> None:
         if declaration.get("status") not in LIFECYCLES or not card.scopes:
             raise ConfigurationError(f"jurisdiction requires lifecycle and directory scopes: {card.card_id}")
         if declaration.get("grain") not in GRAINS:
-            raise ConfigurationError(f"jurisdiction grain must be subtree, directory, or module: {card.card_id}")
+            raise ConfigurationError(f"jurisdiction grain must be subtree, directory, module, or file: {card.card_id}")
         if declaration.get("meaning") not in MEANINGS:
             raise ConfigurationError(f"jurisdiction meaning must be none or named: {card.card_id}")
         if declaration.get("contract") not in CONTRACTS:
@@ -319,9 +333,13 @@ def validate_declarations(cards: list[Card], relations: list) -> None:
             raise ConfigurationError(f"jurisdiction decider must be none, machine, or confirm: {card.card_id}")
         if declaration.get("span") not in SPANS:
             raise ConfigurationError(f"jurisdiction span must be none, folder, or file: {card.card_id}")
+        is_file_grain = declaration.get("grain") == "file"
         for scope in card.scopes:
             for pattern in (*scope.includes, *scope.excludes):
-                directory_scope(pattern)
+                if is_file_grain:
+                    file_scope(pattern)
+                else:
+                    directory_scope(pattern)
         entries = declaration.get("entrypoints", [])
         if not isinstance(entries, list) or any(not isinstance(item, str) or not item or item.startswith("/") or ":" in item or "\\" in item or ".." in item.split("/") for item in entries):
             raise ConfigurationError(f"invalid jurisdiction entrypoints: {card.card_id}")
@@ -351,15 +369,28 @@ def _posix_dir(path: str) -> str:
 
 
 def _include_roots(card: Card) -> list[tuple[str, str]]:
-    return [(scope.target_id, directory_scope(pattern)) for scope in card.scopes for pattern in scope.includes]
+    # 文件粒度户口（grain=file，t59）的 include 是精确文件路径，不是 dir/**：
+    # 此时"根"就是文件本身，重叠检测按精确路径比较即可。
+    roots: list[tuple[str, str]] = []
+    for scope in card.scopes:
+        for pattern in scope.includes:
+            if pattern.endswith("/**") or pattern == "**":
+                roots.append((scope.target_id, directory_scope(pattern)))
+            else:
+                roots.append((scope.target_id, pattern))
+    return roots
 
 
 def _exclude_roots(card: Card) -> set[tuple[str, str]]:
+    # 与 _include_roots 同口径（t59）：文件粒度户口的 exclude 是精确文件
+    # 路径，原样作为根；目录户口的 exclude 仍是 dir/**。
     found: set[tuple[str, str]] = set()
     for scope in card.scopes:
         for pattern in scope.excludes:
             if pattern.endswith("/**") or pattern == "**":
                 found.add((scope.target_id, directory_scope(pattern)))
+            else:
+                found.add((scope.target_id, pattern))
     return found
 
 

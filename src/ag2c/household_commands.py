@@ -21,6 +21,7 @@ from .households import (
     census_report,
     coerce_jurisdiction,
     directory_scope,
+    file_scope,
     load_renewals,
     normalize_span,
     renewal_path,
@@ -151,9 +152,22 @@ def register_household(start: Path, *, card_id: str, title: str, summary: str, i
     raw = _read_json(manifest.policy_path)
     if not includes or not title.strip() or not summary.strip():
         raise AG2CError("directory household requires title, summary and directory scopes")
-    for pattern in (*includes, *excludes):
-        directory_scope(pattern)
     known = {card.card_id: card for card in policy.cards}
+    # 文件粒度户口（t59）：include 是精确文件路径，不走目录校验，也不参与
+    # 目录占位房的挖除（文件户口不抢目录的地）。grain 缺省时沿用旧卡口径，
+    # 与下方 card 字典的 grain 回退链保持一致。
+    previous_card = known.get(card_id)
+    previous_grain = ""
+    if previous_card is not None and previous_card.jurisdiction is not None:
+        previous_grain = str((coerce_jurisdiction(previous_card.jurisdiction) or {}).get("grain") or "")
+    file_grain = (grain.strip() or previous_grain) == "file"
+    if file_grain:
+        # 归一化返回值落库（去反斜杠/首尾斜杠），避免能过校验却永远命不中。
+        includes = [file_scope(pattern) for pattern in includes]
+        excludes = [file_scope(pattern) for pattern in excludes]
+    else:
+        for pattern in (*includes, *excludes):
+            directory_scope(pattern)
     if card_id in known and (known[card_id].card_type != "knowledge" or known[card_id].jurisdiction is None):
         raise AG2CError("cannot silently convert a document or floor into a directory household")
     if not floors or any(floor not in known or known[floor].card_type != "floor" for floor in floors):
@@ -182,8 +196,9 @@ def register_household(start: Path, *, card_id: str, title: str, summary: str, i
         checker = {"id": checker_id, "stage": "scenario", "target": "app", "cwd": ".", "command": command, "timeout": 600, "implementation": implementation}
         raw["checkers"] = [item for item in raw.get("checkers", []) if item["id"] != checker_id] + [checker]
         selected_checkers.append(checker_id)
-    _carve_exploring_placeholders(raw, card_id, includes)
-    card = {"id": card_id, "type": "knowledge", "title": title.strip(), "summary": summary.strip(), "scopes": [{"target": "app", "include": includes, "exclude": excludes, "ownership": "reference"}], "references": [], "checkers": list(dict.fromkeys(selected_checkers)), "jurisdiction": {"capability": capability, "implementation": implementation, "status": status, "entrypoints": list(entrypoints if entrypoints is not None else previous_entrypoints), "grain": grain or str(previous_jurisdiction.get("grain") or "") or "subtree", "meaning": meaning or str(previous_jurisdiction.get("meaning") or "") or "none", "contract": contract or str(previous_jurisdiction.get("contract") or "") or "none", "decider": decider or str(previous_jurisdiction.get("decider") or "") or "none", "span": normalize_span(span or previous_span or "none")}}
+    if not file_grain:
+        _carve_exploring_placeholders(raw, card_id, includes)
+    card = {"id": card_id, "type": "knowledge", "title": title.strip(), "summary": summary.strip(), "scopes": [{"target": "app", "include": includes, "exclude": excludes, "ownership": "reference"}], "references": [], "checkers": list(dict.fromkeys(selected_checkers)), "jurisdiction": {"capability": capability, "implementation": implementation, "status": status, "entrypoints": list(entrypoints if entrypoints is not None else previous_entrypoints), "grain": grain or str(previous_jurisdiction.get("grain") or "") or "subtree", "meaning": meaning or str(previous_jurisdiction.get("meaning") or "") or "none", "contract": contract or str(previous_jurisdiction.get("contract") or "") or "none", "decider": decider or str(previous_jurisdiction.get("decider") or "") or "none", "span": normalize_span(span or previous_span or ("file" if file_grain else "none"))}}
     merged_provides = [item.strip() for item in provides] if provides is not None else list(previous.provides if previous is not None else ())
     if merged_provides:
         card["provides"] = merged_provides

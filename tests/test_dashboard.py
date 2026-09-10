@@ -395,6 +395,7 @@ class DrawSmokeTests(unittest.TestCase):
             io.delta_time = 1.0 / 60.0
             io.display_size = imgui.ImVec2(1280, 720)
             io.fonts.add_font_default()
+            io.set_ini_filename("")  # 禁用 ini 落盘：测试不得在 cwd 产生 imgui.ini 碎屑
             # 无渲染后端时绕过"字体图集未构建"断言（声明后端自管理纹理）。
             io.backend_flags |= imgui.BackendFlags_.renderer_has_textures
             for _ in range(frames):
@@ -462,6 +463,21 @@ class DrawSmokeTests(unittest.TestCase):
 
     def test_draw_full_model_records_expanded(self):
         self._render(self._full_model(), open_records=True)
+
+    def test_render_leaves_no_ini_debris(self):
+        """无头渲染不得在 cwd 落 imgui.ini（t54 的碎屑曾被误提交进仓）。"""
+        import os
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as directory:
+            previous = os.getcwd()
+            try:
+                os.chdir(directory)
+                self._render(dashboard_model(None, None))
+            finally:
+                os.chdir(previous)
+            self.assertFalse((Path(directory) / "imgui.ini").exists())
 
 
 if __name__ == "__main__":

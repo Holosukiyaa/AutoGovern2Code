@@ -16,3 +16,6 @@ dist/
 /portable.ini
 .grok/
 *.egg-info/
+
+# imgui 窗口布局缓存（运行碎屑，真身由托盘写入用户配置目录）
+imgui.ini

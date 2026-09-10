@@ -365,9 +365,22 @@ def pending_updates(start: Path, changed_paths: list[str] | None = None) -> dict
         for scope in card.scopes:
             for pattern in scope.includes:
                 owned.add(pattern.replace("/**", "").rstrip("*").rstrip("/"))
+    # 根文件认领口径（t58，t56 imgui.ini 的教训）：根条目是文件时，任意卡的
+    # 精确 include（无 glob）或 references 收录即算有主——知识卡认领根文件是
+    # 合法登记，不是"没登记"。根目录口径不变：只有 floor 能认领目录。
+    claimed_files: set[str] = set()
+    for card in policy.cards:
+        for scope in card.scopes:
+            for pattern in scope.includes:
+                if not any(mark in pattern for mark in "*?["):
+                    claimed_files.add(pattern)
+        claimed_files.update(card.references)
     for name in _tracked_roots(root):
-        if name not in owned and not any(name.startswith(prefix + "/") or prefix == name for prefix in owned if prefix):
-            items.append({"kind": "unowned-area", "path": name, "action": "add-or-expand-floor"})
+        if name in owned or any(name.startswith(prefix + "/") or prefix == name for prefix in owned if prefix):
+            continue
+        if not (root / name).is_dir() and name in claimed_files:
+            continue
+        items.append({"kind": "unowned-area", "path": name, "action": "add-or-expand-floor"})
     referenced = {ref.replace("\\", "/") for card in policy.cards for ref in card.references}
     for relative in _document_paths(root):
         if relative not in referenced:

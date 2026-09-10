@@ -38,6 +38,7 @@ FAST = [
     "test_dep_hint",
     "test_fixture_fidelity",
     "test_floor_ladder",
+    "test_govern_pending",
     "test_graph",
     "test_green_shadow",
     "test_harnesses",

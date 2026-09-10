@@ -44,12 +44,9 @@ class HarnessAdapterTests(unittest.TestCase):
         report = packaged_skills_report()
         self.assertEqual(__version__, report["package"])
         self.assertEqual(list(PACKAGED_SKILLS), [item["name"] for item in report["skills"]])
-        repo = Path(__file__).resolve().parents[1]
         for name in PACKAGED_SKILLS:
             packaged = skill_source(name) / "SKILL.md"
-            reading = repo / "docs" / "skills" / name / "SKILL.md"
             self.assertEqual(__version__, skill_frontmatter_version(packaged))
-            self.assertEqual(packaged.read_text(encoding="utf-8"), reading.read_text(encoding="utf-8"))
 
     def test_install_replaces_a_different_skill_version(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

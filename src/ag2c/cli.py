@@ -234,6 +234,12 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="自证: for each side-effecting claim, quote this-session tool output that proves it; read-only observations need no proof",
     )
+    task_finish.add_argument("--sessions", type=int, default=None, help="optional INFERRED session count for cost-report")
+    task_finish.add_argument(
+        "--estimated-tokens",
+        default="",
+        help='optional INFERRED JSON {model,input,output} for cost-report',
+    )
     task_show = task_commands.add_parser("show")
     task_show.add_argument("--task", required=True)
 
@@ -371,6 +377,8 @@ def build_parser() -> argparse.ArgumentParser:
     budget_recal.add_argument("--actor", default="")
     budget_recal.add_argument("--reason", default="")
     budget_recal.add_argument("--format", choices=("text", "json"), default="text")
+    cost_report_cmd = govern_commands.add_parser("cost-report", help="开发成本三腿仪表（高效/经济 MTok/有效），纯读账本，不折钱不拦截")
+    cost_report_cmd.add_argument("--format", choices=("text", "json"), default="text")
     verify_budget = govern_commands.add_parser("verify-budget", help="按账本耗时历史重标验证成本预算（裸命令=预览表；带 --actor/--reason 才落盘）")
     verify_budget.add_argument("--actor", default="")
     verify_budget.add_argument("--reason", default="")
@@ -872,7 +880,21 @@ def main(argv: list[str] | None = None) -> int:
                 print(_json(abandon_task(Path.cwd(), args.task, reason=args.reason)))
                 return 0
             if args.task_command == "finish":
-                finished = finish_task(Path.cwd(), args.task, message=args.message, proof=args.proof)
+                estimated = None
+                raw_tokens = str(getattr(args, "estimated_tokens", "") or "").strip()
+                if raw_tokens:
+                    try:
+                        estimated = json.loads(raw_tokens)
+                    except json.JSONDecodeError as exc:
+                        raise AG2CError(f"--estimated-tokens must be JSON: {exc}") from exc
+                finished = finish_task(
+                    Path.cwd(),
+                    args.task,
+                    message=args.message,
+                    proof=args.proof,
+                    sessions=getattr(args, "sessions", None),
+                    estimated_tokens=estimated,
+                )
                 print(_json(finished))
                 for hint in finished.get("hints") or []:
                     print(f"收尾提示: {hint}", file=sys.stderr)
@@ -1017,6 +1039,40 @@ def main(argv: list[str] | None = None) -> int:
                     if dry_run and rows:
                         print("（预览：未落盘。带 --actor/--reason 重标才写入预算仓与账本）")
                     return 0
+            elif args.govern_command == "cost-report":
+                from .config import discover_manifest, load_manifest
+                from .token import cost_report
+
+                root = Path.cwd()
+                manifest = load_manifest(discover_manifest(root), project_root=root)
+                result = cost_report(manifest)
+                if args.format == "json":
+                    print(_json(result))
+                    return 0
+                eff = result["efficiency"]
+                eco_r = result["economy"]["regulator"]
+                eco_s = result["economy"]["self_report"]
+                fx = result["effectiveness"]
+
+                def _pct(value):
+                    return "n/a" if value is None else f"{value * 100:.1f}%"
+
+                print(
+                    f"高效  任务 {eff['tasks']}  verify {eff['verify_runs']}  "
+                    f"轮次/任务 {eff['rounds_per_task'] if eff['rounds_per_task'] is not None else 'n/a'}  "
+                    f"均时长 {eff['mean_task_seconds'] if eff['mean_task_seconds'] is not None else 'n/a'}s  "
+                    f"失败率 {_pct(eff['verify_failure_rate'])}"
+                )
+                print(
+                    f"经济  监管 {eco_r['mtok']} MTok（input {eco_r['input']} / output {eco_r['output']}）  "
+                    f"自报 {eco_s['mtok']} MTok（INFERRED）"
+                )
+                print(
+                    f"有效  一次通过率 {_pct(fx['first_pass_rate'])}  "
+                    f"监管驳回率 {_pct(fx['regulator_reject_rate'])}  "
+                    f"交付后修复 {fx['post_delivery_fixes']}"
+                )
+                return 0
             elif args.govern_command == "verify-budget":
                 from .config import discover_manifest, load_manifest, load_policy
                 from .verify_costs import recalibrate_verify_budgets

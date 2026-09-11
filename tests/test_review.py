@@ -16,6 +16,7 @@ from ag2c.model import RegulatorConfig
 from ag2c.review import (
     RegulatorError,
     build_messages,
+    extract_usage,
     parse_verdict,
     run_agent_review,
     verdict_problems,
@@ -487,6 +488,27 @@ class SameFamilyTests(unittest.TestCase):
                 worker_model="kimi-k3",
             )
             self.assertNotIn("warning", result)
+
+
+class UsageExtractTests(unittest.TestCase):
+    def test_extract_and_wire_usage(self) -> None:
+        self.assertEqual(
+            {"model": "m", "input": 10, "output": 4, "source": "regulator-api"},
+            extract_usage({"usage": {"prompt_tokens": 10, "completion_tokens": 4}}, "m"),
+        )
+        self.assertEqual(3, extract_usage({"usage": {"input_tokens": 3, "output_tokens": 5}}, "m")["input"])
+        self.assertIsNone(extract_usage({"usage": {"prompt_tokens": 1}}, "m"))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, policy = _governed_repo(root, regulator={"enabled": True, "endpoint": "http://127.0.0.1:9/v1", "model": "mock"})
+            good = _verdict("pass", [{"name": "承诺兑现", "status": "pass", "evidence": "", "comment": "ok"}])
+            usage = {"model": "mock", "input": 11, "output": 7, "source": "regulator-api"}
+            with patch("ag2c.review.call_chat", return_value=(good, usage)):
+                landed = run_agent_review(root, _task(root), policy, _report())
+            with patch("ag2c.review.call_chat", return_value=good):
+                plain = run_agent_review(root, _task(root), policy, _report())
+        self.assertEqual(usage, landed["usage"])
+        self.assertNotIn("usage", plain)
 
 
 def _reload_policy(root: Path):

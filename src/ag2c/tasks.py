@@ -107,6 +107,31 @@ def classify_delivery(text: str) -> str:
     return "change"
 
 
+def cost_self_report(
+    *,
+    sessions: int | None = None,
+    estimated_tokens: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """finish 可选自报。标 INFERRED；非法值拒绝。不传则不落字段。"""
+    if sessions is None and not estimated_tokens:
+        return None
+    report: dict[str, Any] = {"source": "INFERRED"}
+    if sessions is not None:
+        if type(sessions) is not int or sessions < 0:
+            raise AG2CError("sessions must be a non-negative integer")
+        report["sessions"] = sessions
+    if estimated_tokens:
+        if not isinstance(estimated_tokens, dict):
+            raise AG2CError("estimated_tokens must be an object {model, input, output}")
+        model = str(estimated_tokens.get("model") or "").strip()
+        raw_in = estimated_tokens.get("input")
+        raw_out = estimated_tokens.get("output")
+        if not model or type(raw_in) is not int or type(raw_out) is not int or raw_in < 0 or raw_out < 0:
+            raise AG2CError("estimated_tokens must be {model, input, output} with non-negative ints")
+        report["estimated_tokens"] = {"model": model, "input": raw_in, "output": raw_out}
+    return report
+
+
 def describe_delivery(*, goal: str, outcome: str) -> dict[str, str]:
     request = str(goal or "").strip()
     delivered = _commit_subject(outcome) or request
@@ -1533,7 +1558,16 @@ def _auto_drill(canonical: Path) -> list[str]:
     return notes
 
 
-def finish_task(start: Path, task_id: str, *, message: str, proof: str = "", _auto_recovered: bool = False) -> dict[str, Any]:
+def finish_task(
+    start: Path,
+    task_id: str,
+    *,
+    message: str,
+    proof: str = "",
+    sessions: int | None = None,
+    estimated_tokens: dict[str, Any] | None = None,
+    _auto_recovered: bool = False,
+) -> dict[str, Any]:
     root = repository_root(start)
     status = activation_status(root)
     canonical = Path(status["canonical_root"])
@@ -1577,7 +1611,15 @@ def finish_task(start: Path, task_id: str, *, message: str, proof: str = "", _au
             if delta and not (delta & verified_paths):
                 refresh_task(canonical, task_id)
                 verify_task(worktree)
-                return finish_task(start, task_id, message=message, proof=proof, _auto_recovered=True)
+                return finish_task(
+                    start,
+                    task_id,
+                    message=message,
+                    proof=proof,
+                    sessions=sessions,
+                    estimated_tokens=estimated_tokens,
+                    _auto_recovered=True,
+                )
         raise AG2CError("canonical branch or HEAD changed; run `ag2c task refresh` or start a new task")
     current_digest = change_digest(worktree, task["source"]["head"])
     if current_digest != task["verifications"][-1]["change_digest"]:
@@ -1595,6 +1637,9 @@ def finish_task(start: Path, task_id: str, *, message: str, proof: str = "", _au
         raise AG2CError("AG2C requires a finish message that says what was implemented or fixed")
     task["delivery"] = delivery
     task["proof"] = proof.strip()
+    self_report = cost_self_report(sessions=sessions, estimated_tokens=estimated_tokens)
+    if self_report is not None:
+        task["cost_self_report"] = self_report
     receipt = build_receipt(manifest, policy, task)
     evidence_path = write_receipt(manifest, receipt)
     commit_message = (
@@ -1634,10 +1679,19 @@ def finish_task(start: Path, task_id: str, *, message: str, proof: str = "", _au
         "receipt_path": str(evidence_path),
         "receipt_digest": validated_evidence["receipt_digest"],
     }
+    completed_payload: dict[str, Any] = {
+        "task_id": task_id,
+        **task["result"],
+        "proof": task["proof"],
+        "intervention_count": len(task["interventions"]),
+        "kind": delivery["kind"],
+    }
+    if self_report is not None:
+        completed_payload["cost_self_report"] = self_report
     event = append_event(
         manifest.ledger_path,
         "task-completed",
-        {"task_id": task_id, **task["result"], "proof": task["proof"], "intervention_count": len(task["interventions"])},
+        completed_payload,
     )
     task["result"]["ledger_event_digest"] = event["event_digest"]
     _atomic_json(_task_path(canonical, task_id), task)

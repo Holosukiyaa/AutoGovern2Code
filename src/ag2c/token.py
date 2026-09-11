@@ -149,3 +149,157 @@ def token_report(manifest, *, now: datetime | None = None) -> dict[str, Any]:
         }
     except Exception:
         return empty
+
+
+COST_REPORT_SCHEMA = "ag2c.cost-report.v1"
+
+
+def _rate(numerator: int, denominator: int) -> float | None:
+    if denominator <= 0:
+        return None
+    return round(numerator / denominator, 4)
+
+
+def _mtok(tokens: int) -> float:
+    return round(tokens / 1_000_000, 6)
+
+
+def _empty_cost_report(now: datetime) -> dict[str, Any]:
+    zero_tokens = {"input": 0, "output": 0, "total": 0, "mtok": 0.0}
+    return {
+        "schema": COST_REPORT_SCHEMA,
+        "generated_at": now.isoformat(),
+        "unit": "MTok",
+        "efficiency": {
+            "tasks": 0,
+            "verify_runs": 0,
+            "rounds_per_task": None,
+            "mean_task_seconds": None,
+            "verify_failure_rate": None,
+        },
+        "economy": {
+            "regulator": {**zero_tokens, "by_model": []},
+            "self_report": {**zero_tokens, "inferred": True},
+        },
+        "effectiveness": {
+            "completed": 0,
+            "first_pass_rate": None,
+            "regulator_reject_rate": None,
+            "post_delivery_fixes": 0,
+        },
+    }
+
+
+def cost_report(manifest, *, now: datetime | None = None) -> dict[str, Any]:
+    """开发成本三腿仪表。纯读账本；不折钱、不拦截。任何异常降级为空报告。"""
+    now = now or datetime.now(timezone.utc)
+    empty = _empty_cost_report(now)
+    try:
+        events = read_events(manifest.ledger_path)
+    except Exception:
+        return empty
+    try:
+        started: dict[str, datetime | None] = {}
+        completed_at: dict[str, datetime | None] = {}
+        completed_kind: dict[str, str] = {}
+        verifies: dict[str, list[dict[str, Any]]] = {}
+        reg_in = 0
+        reg_out = 0
+        by_model: dict[str, list[int]] = {}
+        self_in = 0
+        self_out = 0
+        regulator_decided = 0
+        regulator_rejected = 0
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            kind = event.get("event_type")
+            occurred = _parse_time(event.get("occurred_at"))
+            payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+            task_id = str(payload.get("task_id") or "")
+            if kind == "task-started" and task_id:
+                started.setdefault(task_id, occurred)
+            elif kind == "task-verification":
+                verifies.setdefault(task_id or "_", []).append(payload)
+                regulator = payload.get("regulator") if isinstance(payload.get("regulator"), dict) else {}
+                outcome = str(regulator.get("outcome") or "")
+                if outcome in {"passed", "rejected"}:
+                    regulator_decided += 1
+                    if outcome == "rejected":
+                        regulator_rejected += 1
+                usage = regulator.get("usage") if isinstance(regulator.get("usage"), dict) else None
+                if usage and usage.get("source") == "regulator-api":
+                    raw_in = usage.get("input")
+                    raw_out = usage.get("output")
+                    if isinstance(raw_in, int) and isinstance(raw_out, int) and raw_in >= 0 and raw_out >= 0:
+                        reg_in += raw_in
+                        reg_out += raw_out
+                        model = str(usage.get("model") or "unknown")
+                        bucket = by_model.setdefault(model, [0, 0])
+                        bucket[0] += raw_in
+                        bucket[1] += raw_out
+            elif kind == "task-completed" and task_id:
+                completed_at[task_id] = occurred
+                completed_kind[task_id] = str(payload.get("kind") or "")
+                report = payload.get("cost_self_report") if isinstance(payload.get("cost_self_report"), dict) else {}
+                tokens = report.get("estimated_tokens") if isinstance(report.get("estimated_tokens"), dict) else {}
+                raw_in = tokens.get("input")
+                raw_out = tokens.get("output")
+                if isinstance(raw_in, int) and isinstance(raw_out, int) and raw_in >= 0 and raw_out >= 0:
+                    self_in += raw_in
+                    self_out += raw_out
+        verify_runs = sum(len(items) for items in verifies.values())
+        failed = sum(1 for items in verifies.values() for item in items if not item.get("passed", False))
+        durations: list[float] = []
+        for task_id, end in completed_at.items():
+            begin = started.get(task_id)
+            if begin is not None and end is not None:
+                durations.append((end - begin).total_seconds())
+        first_pass = 0
+        for task_id in completed_at:
+            items = verifies.get(task_id) or []
+            if len(items) == 1 and items[0].get("passed"):
+                first_pass += 1
+        post_fixes = sum(1 for item_kind in completed_kind.values() if item_kind == "fix")
+        started_n = len(started)
+        completed_n = len(completed_at)
+        model_rows = [
+            {"model": model, "input": pair[0], "output": pair[1], "mtok": _mtok(pair[0] + pair[1])}
+            for model, pair in sorted(by_model.items())
+        ]
+        return {
+            "schema": COST_REPORT_SCHEMA,
+            "generated_at": now.isoformat(),
+            "unit": "MTok",
+            "efficiency": {
+                "tasks": started_n,
+                "verify_runs": verify_runs,
+                "rounds_per_task": _rate(verify_runs, started_n),
+                "mean_task_seconds": round(sum(durations) / len(durations), 1) if durations else None,
+                "verify_failure_rate": _rate(failed, verify_runs),
+            },
+            "economy": {
+                "regulator": {
+                    "input": reg_in,
+                    "output": reg_out,
+                    "total": reg_in + reg_out,
+                    "mtok": _mtok(reg_in + reg_out),
+                    "by_model": model_rows,
+                },
+                "self_report": {
+                    "input": self_in,
+                    "output": self_out,
+                    "total": self_in + self_out,
+                    "mtok": _mtok(self_in + self_out),
+                    "inferred": True,
+                },
+            },
+            "effectiveness": {
+                "completed": completed_n,
+                "first_pass_rate": _rate(first_pass, completed_n),
+                "regulator_reject_rate": _rate(regulator_rejected, regulator_decided),
+                "post_delivery_fixes": post_fixes,
+            },
+        }
+    except Exception:
+        return empty

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import bootstrap
 
-from ag2c.token import DEFAULTS, TOKEN_SCHEMA, token_report
+from ag2c.token import COST_REPORT_SCHEMA, DEFAULTS, TOKEN_SCHEMA, cost_report, token_report
 from ag2c_gui.dashboard import dashboard_model
 
 from support import bare_manifest
@@ -135,6 +135,49 @@ class TokenReportTests(unittest.TestCase):
             _write_ledger(manifest, [_started("task-a")])
             report = token_report(manifest, now=NOW)
             self.assertEqual(DEFAULTS["session_tax_tokens"], report["config"]["session_tax_tokens"])
+
+
+class CostReportTests(unittest.TestCase):
+    def test_empty_and_three_legs(self) -> None:
+        from ag2c.errors import AG2CError
+        from ag2c.tasks import cost_self_report
+
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = bare_manifest(Path(directory))
+            empty = cost_report(manifest, now=NOW)
+            self.assertEqual(COST_REPORT_SCHEMA, empty["schema"])
+            self.assertEqual("MTok", empty["unit"])
+            self.assertIsNone(empty["efficiency"]["rounds_per_task"])
+            self.assertTrue(empty["economy"]["self_report"]["inferred"])
+            self.assertNotIn("cost_usd", empty)
+            start = datetime(2026, 9, 9, 10, 0, tzinfo=timezone.utc)
+            done = datetime(2026, 9, 9, 11, 0, tzinfo=timezone.utc)
+            usage = {"model": "deepseek-v4-flash", "input": 1_000_000, "output": 500_000, "source": "regulator-api"}
+            inferred = {"source": "INFERRED", "estimated_tokens": {"model": "grok", "input": 100, "output": 50}}
+            _write_ledger(
+                manifest,
+                [
+                    {"event_type": "task-started", "occurred_at": start.isoformat(), "payload": {"task_id": "a"}},
+                    {"event_type": "task-verification", "payload": {"task_id": "a", "passed": True, "regulator": {"outcome": "passed", "usage": usage}}},
+                    {"event_type": "task-completed", "occurred_at": done.isoformat(), "payload": {"task_id": "a", "kind": "fix", "cost_self_report": inferred}},
+                    {"event_type": "task-started", "payload": {"task_id": "b"}},
+                    {"event_type": "task-verification", "payload": {"task_id": "b", "passed": False, "regulator": {"outcome": "rejected"}}},
+                ],
+            )
+            report = cost_report(manifest, now=NOW)
+        self.assertEqual(1.0, report["efficiency"]["rounds_per_task"])
+        self.assertEqual(3600.0, report["efficiency"]["mean_task_seconds"])
+        self.assertEqual(0.5, report["efficiency"]["verify_failure_rate"])
+        self.assertEqual(1.5, report["economy"]["regulator"]["mtok"])
+        self.assertEqual(150, report["economy"]["self_report"]["total"])
+        self.assertEqual(1.0, report["effectiveness"]["first_pass_rate"])
+        self.assertEqual(0.5, report["effectiveness"]["regulator_reject_rate"])
+        self.assertEqual(1, report["effectiveness"]["post_delivery_fixes"])
+        self.assertIsNone(cost_self_report())
+        payload = cost_self_report(sessions=2, estimated_tokens={"model": "grok", "input": 1, "output": 2})
+        self.assertEqual("INFERRED", payload["source"])
+        with self.assertRaises(AG2CError):
+            cost_self_report(sessions=True)  # type: ignore[arg-type]
 
 
 class DashboardTokenTests(unittest.TestCase):

@@ -79,6 +79,30 @@ class GovernCheckerParserTests(unittest.TestCase):
         self.assertEqual("checker-parallelism", args.govern_command)
         self.assertEqual(4, args.workers)
 
+    def test_cost_report_and_finish_self_report_parse(self) -> None:
+        from ag2c.cli import build_parser
+
+        cost = build_parser().parse_args(["govern", "cost-report", "--format", "json"])
+        self.assertEqual("cost-report", cost.govern_command)
+        finish = build_parser().parse_args(
+            [
+                "task",
+                "finish",
+                "--task",
+                "t",
+                "--message",
+                "m",
+                "--proof",
+                "p",
+                "--sessions",
+                "2",
+                "--estimated-tokens",
+                '{"model":"grok","input":1,"output":2}',
+            ]
+        )
+        self.assertEqual(2, finish.sessions)
+        self.assertIn("grok", finish.estimated_tokens)
+
 
 class ResultGateCliTests(unittest.TestCase):
     def test_task_start_requires_the_portrait(self) -> None:

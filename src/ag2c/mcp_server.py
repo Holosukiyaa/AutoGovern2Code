@@ -341,6 +341,14 @@ def tool_defs() -> list[dict[str, Any]]:
                     "type": "string",
                     "description": "自证: for each claim with side effects (files changed, behavior changed), quote the this-session tool output that proves it (command + output fragment). Read-only observations need no proof. 'Tests passed' without the output is not proof.",
                 },
+                "sessions": {
+                    "type": "integer",
+                    "description": "Optional INFERRED session count for cost-report. Omit to skip.",
+                },
+                "estimated_tokens": {
+                    "type": "object",
+                    "description": "Optional INFERRED {model, input, output} for cost-report. Omit to skip.",
+                },
                 "cwd": _cwd_prop(),
             },
             ["task", "message", "proof"],
@@ -470,6 +478,11 @@ def tool_defs() -> list[dict[str, Any]]:
             "Return a packaged Skill markdown by name. Prefer initialize instructions; use this for the full text.",
             {"name": {"type": "string", "description": "One of: " + ", ".join(PACKAGED_SKILLS)}},
             ["name"],
+        ),
+        _tool(
+            "ag2c_cost_report",
+            "Read-only development-cost dashboard: efficiency / economy (MTok) / effectiveness. No prices, no gating.",
+            {"cwd": _cwd_prop()},
         ),
         _tool(
             "ag2c_mcp_health",
@@ -664,7 +677,20 @@ def _call_finish(args: dict[str, Any]) -> Any:
             "ag2c_task_finish requires 自证 proof: for every side-effecting claim, quote the "
             "this-session tool output that proves it. Read-only observations need no proof."
         )
-    return finish_task(_cwd(args), str(args.get("task") or ""), message=str(args.get("message") or ""), proof=proof)
+    estimated = args.get("estimated_tokens")
+    if estimated is not None and not isinstance(estimated, dict):
+        raise AG2CError("estimated_tokens must be an object {model, input, output}")
+    sessions = args.get("sessions")
+    if sessions is not None and type(sessions) is not int:
+        raise AG2CError("sessions must be a non-negative integer")
+    return finish_task(
+        _cwd(args),
+        str(args.get("task") or ""),
+        message=str(args.get("message") or ""),
+        proof=proof,
+        sessions=sessions,
+        estimated_tokens=estimated,
+    )
 
 
 def _call_list(args: dict[str, Any]) -> Any:
@@ -878,6 +904,15 @@ def _call_skill(args: dict[str, Any]) -> Any:
     return {"name": name, "text": _read_skill(f"ag2c://skill/{name}")}
 
 
+def _call_cost_report(args: dict[str, Any]) -> Any:
+    from .config import discover_manifest, load_manifest
+    from .token import cost_report
+
+    root = _cwd(args)
+    manifest = load_manifest(discover_manifest(root), project_root=root)
+    return cost_report(manifest)
+
+
 def _call_health(args: dict[str, Any]) -> Any:
     handshake = args.get("handshake")
     cwd = str(args.get("cwd") or args.get("root") or "").strip()
@@ -909,6 +944,7 @@ HANDLERS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "ag2c_evidence": _call_evidence,
     "ag2c_doctor_repair": _call_doctor,
     "ag2c_skill": _call_skill,
+    "ag2c_cost_report": _call_cost_report,
     "ag2c_mcp_health": _call_health,
 }
 

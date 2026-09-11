@@ -57,7 +57,12 @@ def require_clipboard(
 
 
 class ClipboardLock:
-    """Hold OpenClipboard on a side thread so the test thread sees ACCESS_DENIED."""
+    """Hold OpenClipboard on a side thread so the test thread sees ACCESS_DENIED.
+
+    held is True only if this process then fails OpenClipboard. Some Windows
+    hosts still allow a second OpenClipboard; a lying held flag makes the
+    existing hard SkipTest assertion fail the suite.
+    """
 
     def __init__(self) -> None:
         self.held = False
@@ -84,6 +89,9 @@ class ClipboardLock:
         self._thread = threading.Thread(target=_hold, daemon=True)
         self._thread.start()
         self._started.wait(timeout=5)
+        if self.held and user32.OpenClipboard(None):
+            user32.CloseClipboard()
+            self.held = False
         return self
 
     def release(self) -> None:

@@ -217,8 +217,35 @@ def verdict_problems(verdict: dict[str, Any]) -> list[str]:
     return problems
 
 
-def call_chat(config: RegulatorConfig, messages: list[dict[str, str]]) -> str:
-    """一次 OpenAI 兼容调用。无重试、无流式——V1 故意保持哑。"""
+def extract_usage(body: Any, model: str) -> dict[str, Any] | None:
+    """从 OpenAI 兼容响应抠 {model, input, output}。缺字段不虚构。"""
+    if not isinstance(body, dict):
+        return None
+    usage = body.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    raw_in = usage.get("prompt_tokens", usage.get("input_tokens"))
+    raw_out = usage.get("completion_tokens", usage.get("output_tokens"))
+    if not isinstance(raw_in, (int, float)) or not isinstance(raw_out, (int, float)):
+        return None
+    if raw_in < 0 or raw_out < 0:
+        return None
+    return {
+        "model": model,
+        "input": int(raw_in),
+        "output": int(raw_out),
+        "source": "regulator-api",
+    }
+
+
+def _with_usage(result: dict[str, Any], usage: dict[str, Any] | None) -> dict[str, Any]:
+    if usage:
+        result["usage"] = usage
+    return result
+
+
+def complete_chat(config: RegulatorConfig, messages: list[dict[str, str]]) -> tuple[str, dict[str, Any] | None]:
+    """一次 OpenAI 兼容调用，同时返回 usage（没有则为 None）。"""
     url = config.endpoint.rstrip("/") + "/chat/completions"
     headers = {"Content-Type": "application/json"}
     api_key = os.environ.get(config.api_key_env, "").strip()
@@ -240,7 +267,15 @@ def call_chat(config: RegulatorConfig, messages: list[dict[str, str]]) -> str:
         raise RegulatorError(f"regulator response has no message content: {body!r:.200}") from exc
     if not isinstance(content, str) or not content.strip():
         raise RegulatorError("regulator returned an empty message")
-    return content
+    return content, extract_usage(body, config.model)
+
+
+def call_chat(config: RegulatorConfig, messages: list[dict[str, str]]) -> str | tuple[str, dict[str, Any] | None]:
+    """一次 OpenAI 兼容调用。无重试、无流式——V1 故意保持哑。
+
+    生产返回 (content, usage)；测试 mock 仍可返回纯 str。
+    """
+    return complete_chat(config, messages)
 
 
 def _machine_summary(report: dict[str, Any]) -> str:
@@ -305,6 +340,7 @@ def run_agent_review(
             "reason": f"same-family: regulator {model_family(config.model)} == worker {model_family(config.worker_model)}",
             "gap": "监管与 worker 同族（安达信条款），本次缺独立 AI 监管",
         }
+    usage: dict[str, Any] | None = None
     try:
         diff_text = _collect_diff(worktree, str(task["source"]["head"]))
         portrait = str(task.get("portrait") or "")
@@ -323,22 +359,34 @@ def run_agent_review(
             portrait_amendments=amendments,
         )
         raw = call_chat(config, messages)
+        usage = None
+        if isinstance(raw, tuple):
+            raw, usage = raw[0], raw[1] if len(raw) > 1 else None
         verdict = parse_verdict(raw)
     except RegulatorError as exc:
-        return {**base, "outcome": "unavailable", "reason": str(exc), "gap": "本次缺 AI 监管"}
+        return _with_usage(
+            {**base, "outcome": "unavailable", "reason": str(exc), "gap": "本次缺 AI 监管"},
+            usage,
+        )
     except Exception as exc:  # git 失败等意外同样降级，不炸 verify
         return {**base, "outcome": "unavailable", "reason": f"unexpected: {exc}", "gap": "本次缺 AI 监管"}
     problems = verdict_problems(verdict)
     if problems:
-        return {
+        return _with_usage(
+            {
+                **base,
+                "outcome": "unavailable",
+                "reason": "invalid-verdict: " + "; ".join(problems),
+                "verdict": verdict,
+                "gap": "本次缺 AI 监管（裁决作废）",
+            },
+            usage,
+        )
+    return _with_usage(
+        {
             **base,
-            "outcome": "unavailable",
-            "reason": "invalid-verdict: " + "; ".join(problems),
+            "outcome": "passed" if verdict["verdict"] == "pass" else "rejected",
             "verdict": verdict,
-            "gap": "本次缺 AI 监管（裁决作废）",
-        }
-    return {
-        **base,
-        "outcome": "passed" if verdict["verdict"] == "pass" else "rejected",
-        "verdict": verdict,
-    }
+        },
+        usage,
+    )

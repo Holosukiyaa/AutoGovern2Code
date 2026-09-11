@@ -369,7 +369,10 @@ def run_agent_review(
             usage,
         )
     except Exception as exc:  # git 失败等意外同样降级，不炸 verify
-        return {**base, "outcome": "unavailable", "reason": f"unexpected: {exc}", "gap": "本次缺 AI 监管"}
+        return _with_usage(
+            {**base, "outcome": "unavailable", "reason": f"unexpected: {exc}", "gap": "本次缺 AI 监管"},
+            usage,
+        )
     problems = verdict_problems(verdict)
     if problems:
         return _with_usage(

@@ -505,9 +505,11 @@ class UsageExtractTests(unittest.TestCase):
             usage = {"model": "mock", "input": 11, "output": 7, "source": "regulator-api"}
             with patch("ag2c.review.call_chat", return_value=(good, usage)):
                 landed = run_agent_review(root, _task(root), policy, _report())
+            with patch("ag2c.review.call_chat", return_value=(good, usage)), patch("ag2c.review.parse_verdict", side_effect=ValueError("boom")):
+                crashed = run_agent_review(root, _task(root), policy, _report())
             with patch("ag2c.review.call_chat", return_value=good):
                 plain = run_agent_review(root, _task(root), policy, _report())
-        self.assertEqual(usage, landed["usage"])
+        self.assertEqual(usage, landed["usage"]); self.assertEqual(usage, crashed["usage"]); self.assertIn("unexpected", crashed["reason"])
         self.assertNotIn("usage", plain)
 
 

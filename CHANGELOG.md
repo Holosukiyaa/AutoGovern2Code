@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `run_agent_review` 通用 except 分支经 `_with_usage` 挂 usage：call_chat 已成功返回后 parse_verdict 抛非 RegulatorError 时不再丢 token 账。Covered by `test_review.py` UsageExtractTests。
+
 - 文件软帽警告。`src/ag2c` 下每个 splitlines()>800 的 `.py` 在 check-run 出 `kind=file-soft-cap`（key=`file-soft-cap:<相对路径>`，detail 含实测行数与软帽）；进 warning-history 但不进 `ESCALATABLE_KINDS`，第三次出现也不拦 verify。≤800 与非 py、读失败跳过。Covered by `test_budgets.py` FileSoftCapTests。
 
 - 开发成本治理第一期。① 监管 API usage 抠进 verify：`extract_usage` 读 prompt_tokens/completion_tokens（兼容 input_tokens/output_tokens），`call_chat` 生产返回 (content, usage)，落 `regulator.usage={model,input,output,source:regulator-api}`；缺字段不虚构。② `ag2c govern cost-report` / MCP `ag2c_cost_report` 纯读三腿仪表——高效（轮次/任务、均时长、verify 失败率）、经济（MTok，监管硬数据与 INFERRED 自报分栏）、有效（一次通过率、监管驳回率、delivery.kind=fix 计数）；不折钱、不进 ESCALATABLE_KINDS。③ finish 可选 `--sessions` / `--estimated-tokens`（MCP 同名字段）落任务记录与 task-completed，source=INFERRED。既有 token_report 托盘粗估不动。ClipboardLock.held 仅在本进程随后 OpenClipboard 失败时为真（市长指名：夹具说真话，test_dashboard 硬断言不动）。Covered by `test_review.py` UsageExtract/UsageWiring、`test_token.py` CostReport/CostSelfReport、`test_cli.py` 解析例。

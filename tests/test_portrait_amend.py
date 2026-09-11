@@ -18,8 +18,8 @@ from support import git_project, write_project
 
 from ag2c.config import discover_manifest, load_manifest
 from ag2c.errors import AG2CError
-from ag2c.ledger import read_events
-from ag2c.tasks import TASK_SCHEMA, _task_path, amend_portrait, git_private_path
+from ag2c.ledger import append_event, read_events
+from ag2c.tasks import TASK_SCHEMA, _start_evidence_valid, _task_path, amend_portrait, git_private_path
 
 OLD_PORTRAIT = (
     "Done looks like: 旧承诺——预算口径 60s（机器验证：fast 套件绿）。"
@@ -291,6 +291,129 @@ class EntryPointTests(unittest.TestCase):
             payload = events[0]["payload"]
             self.assertEqual(result["portrait_amended"]["new_digest"], payload["new_digest"])
             self.assertEqual("holo", payload["actor"])
+
+
+EVIL_PORTRAIT = (
+    "Done looks like: 自利漂移——把承诺偷偷换成什么都不用做（机器验证：fast 套件绿）。"
+    "Surfaces: 输出 x。Out of result: 不动 y。Inferences: 无加料。"
+)
+
+
+def _bind_start_event(root: Path, task_id: str = "t-amend", portrait: str = OLD_PORTRAIT) -> dict:
+    """给伪造任务补一条与任务记录逐字段一致的 task-started 账本事件（finish 证据链的起点）。"""
+    manifest = load_manifest(discover_manifest(root))
+    record = _record(root, task_id)
+    payload = {
+        "task_id": task_id,
+        "goal": record.get("goal"),
+        "source_head": record.get("source", {}).get("started_head") or record.get("source", {}).get("head"),
+        "source_branch": record.get("source", {}).get("started_branch") or record.get("source", {}).get("branch"),
+        "worktree": record.get("worktree", {}).get("path"),
+        "worktree_branch": record.get("worktree", {}).get("branch"),
+        "slice_digest": record.get("route", {}).get("slice_digest"),
+        "route_state": record.get("route", {}).get("state"),
+        "portrait": portrait,
+    }
+    event = append_event(manifest.ledger_path, "task-started", payload)
+    record["start_ledger_event_digest"] = event["event_digest"]
+    _task_path(root, task_id).write_text(json.dumps(record), encoding="utf-8")
+    return record
+
+
+class AmendFinishEvidenceTests(unittest.TestCase):
+    """finish 路径回归：修订过画像的任务不能被 start 证据门禁误拦（2026-09-11 死路事故）。
+
+    死路：_start_evidence_valid 拿任务当前画像比对 start 事件里的原画像，任何
+    amend 过的任务必然不一致、finish 硬拦且无合法出口。修法是认可账本锚定的
+    portrait-amended 修订链；锚不住或链断裂的维持拒绝。
+    """
+
+    def test_finish_start_evidence_accepts_ledger_anchored_amendment(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = git_project(Path(tmp) / "proj")
+            write_project(root)
+            _fake_open_task(root)
+            _bind_start_event(root)
+            amend_portrait(root, portrait=NEW_PORTRAIT, actor="holo", reason="预算口径纠偏：60s→90s")
+            manifest = load_manifest(discover_manifest(root))
+            self.assertTrue(_start_evidence_valid(manifest, _record(root)))
+
+    def test_finish_start_evidence_rejects_forged_intervention(self) -> None:
+        """task JSON 里手写一条无账本锚的 intervention（把画像再漂移到 EVIL）骗不过门禁。"""
+        with TemporaryDirectory() as tmp:
+            root = git_project(Path(tmp) / "proj")
+            write_project(root)
+            _fake_open_task(root)
+            _bind_start_event(root)
+            amend_portrait(root, portrait=NEW_PORTRAIT, actor="holo", reason="预算口径纠偏：60s→90s")
+            record = _record(root)
+            record["interventions"].append(
+                {
+                    "occurred_at": "2026-09-11T00:00:00+00:00",
+                    "kind": "portrait-amended",
+                    "actor": "forger",
+                    "reason": "伪造的修订",
+                    "old_digest": hashlib.sha256(NEW_PORTRAIT.encode("utf-8")).hexdigest(),
+                    "new_digest": hashlib.sha256(EVIL_PORTRAIT.encode("utf-8")).hexdigest(),
+                    "ledger_event_digest": "0" * 64,
+                }
+            )
+            record["portrait"] = EVIL_PORTRAIT
+            _task_path(root, "t-amend").write_text(json.dumps(record), encoding="utf-8")
+            manifest = load_manifest(discover_manifest(root))
+            self.assertFalse(_start_evidence_valid(manifest, _record(root)))
+
+    def test_finish_start_evidence_rejects_broken_chain(self) -> None:
+        """链断裂：intervention 的 old_digest 接不上 start 事件画像，锚是真的也救不了。"""
+        with TemporaryDirectory() as tmp:
+            root = git_project(Path(tmp) / "proj")
+            write_project(root)
+            _fake_open_task(root)
+            _bind_start_event(root)
+            manifest = load_manifest(discover_manifest(root))
+            # 账本里真有一条 governance-intervention，但它不接 start 事件的画像。
+            event = append_event(
+                manifest.ledger_path,
+                "governance-intervention",
+                {
+                    "task_id": "t-amend",
+                    "occurred_at": "2026-09-11T00:00:00+00:00",
+                    "kind": "portrait-amended",
+                    "actor": "holo",
+                    "reason": "来路不明的修订",
+                    "old_digest": "deadbeef" * 8,
+                    "new_digest": hashlib.sha256(NEW_PORTRAIT.encode("utf-8")).hexdigest(),
+                },
+            )
+            record = _record(root)
+            record["interventions"].append(
+                {
+                    "occurred_at": "2026-09-11T00:00:00+00:00",
+                    "kind": "portrait-amended",
+                    "actor": "holo",
+                    "reason": "来路不明的修订",
+                    "old_digest": "deadbeef" * 8,
+                    "new_digest": hashlib.sha256(NEW_PORTRAIT.encode("utf-8")).hexdigest(),
+                    "ledger_event_digest": event["event_digest"],
+                }
+            )
+            record["portrait"] = NEW_PORTRAIT
+            _task_path(root, "t-amend").write_text(json.dumps(record), encoding="utf-8")
+            self.assertFalse(_start_evidence_valid(manifest, _record(root)))
+
+    def test_finish_start_evidence_unamended_task_unaffected(self) -> None:
+        """未修订的任务维持原行为：画像一致通过、被手改则拒绝（修订链不背锅）。"""
+        with TemporaryDirectory() as tmp:
+            root = git_project(Path(tmp) / "proj")
+            write_project(root)
+            _fake_open_task(root)
+            _bind_start_event(root)
+            manifest = load_manifest(discover_manifest(root))
+            self.assertTrue(_start_evidence_valid(manifest, _record(root)))
+            record = _record(root)
+            record["portrait"] = NEW_PORTRAIT  # 手改画像，无修订链
+            _task_path(root, "t-amend").write_text(json.dumps(record), encoding="utf-8")
+            self.assertFalse(_start_evidence_valid(manifest, _record(root)))
 
 
 if __name__ == "__main__":

@@ -286,7 +286,68 @@ def _start_evidence_valid(
     # start event; only bind it when the event carries one.
     if "portrait" in event["payload"]:
         expected["portrait"] = task.get("portrait")
-    return event["payload"] == expected
+    if event["payload"] == expected:
+        return True
+    # 画像修订（amend-portrait）是合法的画像迁移通道：start 事件锚定的是修订
+    # 前画像，finish 时当前画像可以经账本锚定的修订链合法迁移。没有这条通道，
+    # 任何修订过画像的任务都死在 finish（2026-09-11 实战：任务 2 verify 通过后
+    # 被 start 证据门禁误拦）。修订的合法性（市长纠偏 vs 自利漂移）由 verify
+    # 时的监管裁决，这里只验链的完整性，不做二次裁决。
+    if "portrait" not in event["payload"]:
+        return False
+    baseline = dict(expected)
+    baseline["portrait"] = event["payload"].get("portrait")
+    if event["payload"] != baseline:
+        # 画像以外的字段不一致，修订链不背锅。
+        return False
+    return _portrait_amendment_chain_valid(
+        manifest, task, event["payload"]["portrait"], events_by_digest=events_by_digest
+    )
+
+
+def _portrait_amendment_chain_valid(
+    manifest,
+    task: dict[str, Any],
+    original_portrait: Any,
+    *,
+    events_by_digest: dict[str, dict[str, Any]] | None = None,
+) -> bool:
+    """start 事件画像 → 当前画像 的修订链校验：环环相扣且每环都有账本锚。
+
+    链规则：sha256(start 事件画像) == 首环 old_digest，每环 new_digest 是下一环
+    的 old_digest，末环 new_digest == sha256(当前画像)；每环 intervention 的
+    ledger_event_digest 必须在账本中找到 kind/old_digest/new_digest 一致的
+    governance-intervention 事件——账本是 append-only，锚住才算数，task JSON
+    里手写一个 intervention 骗不过。
+    """
+    if events_by_digest is None:
+        events_by_digest = {str(item["event_digest"]): item for item in read_events(manifest.ledger_path)}
+    amendments = [item for item in task.get("interventions", []) if isinstance(item, dict) and item.get("kind") == "portrait-amended"]
+    if not amendments:
+        return False
+    expected_old = hashlib.sha256(str(original_portrait).encode("utf-8")).hexdigest()
+    for item in amendments:
+        if str(item.get("old_digest", "")) != expected_old:
+            return False
+        anchor = _matching_event(
+            manifest,
+            str(item.get("ledger_event_digest", "")),
+            "governance-intervention",
+            str(task["id"]),
+            events_by_digest=events_by_digest,
+        )
+        if anchor is None:
+            return False
+        payload = anchor["payload"]
+        if (
+            payload.get("kind") != "portrait-amended"
+            or payload.get("old_digest") != item.get("old_digest")
+            or payload.get("new_digest") != item.get("new_digest")
+        ):
+            return False
+        expected_old = str(item.get("new_digest", ""))
+    current = hashlib.sha256(str(task.get("portrait") or "").encode("utf-8")).hexdigest()
+    return expected_old == current
 
 
 BLOCKING_HOUSEHOLD_PENDING = frozenset({"opaque-household", "tighten-or-renew", "fake-child"})

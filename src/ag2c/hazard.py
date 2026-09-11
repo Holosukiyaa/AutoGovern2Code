@@ -549,3 +549,60 @@ def hazard_report(manifest, policy=None, *, now: datetime | None = None) -> dict
         "counts": counts,
         "dismissed": len(dismissals),
     }
+
+
+#: 推模式严重度门槛：severity≥50（guard-removed 60 / regulator-absent 50）
+#: 的条目首次出现即弹——PROXY-GOVERNANCE §7：P0 中断首次警告即弹，而非锁死后。
+PUSH_SEVERITY_THRESHOLD = 50
+
+#: 推送去重键前缀（notify 去重状态里的命名空间）。
+_PUSH_KEY_PREFIX = "hazard:"
+
+
+def push_critical_hazards(manifest, report: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """危房推模式：severity≥50 的条目首现/升级时发通知，返回本次发出的通知。
+
+    拉模式（看板）不变；本函数把同一份报告的严重条目推进通知队列——
+    挂在托盘轮询的 overlay 上，看板窗口开不开都推。去重经
+    notify.sync_notification：key=hazard:<kind>:<target>、level=severity，
+    同一条目同一 severity 只报一次，升级才再报；条目从名单消失（修复或
+    豁免）时清除去重键，之后重现（如豁免日落到期）重新报。
+    与 hazard_report 同一条军规：任何异常降级为空列表，绝不抛异常。
+    """
+    try:
+        from .notify import KIND_HAZARD, prune_notification_conditions, sync_notification
+
+        if report is None:
+            report = hazard_report(manifest)
+        hazards = report.get("hazards") if isinstance(report, dict) else []
+        pushed: list[dict[str, Any]] = []
+        current_keys: set[str] = set()
+        for entry in hazards or []:
+            if not isinstance(entry, dict):
+                continue
+            severity = int(entry.get("severity") or 0)
+            if severity < PUSH_SEVERITY_THRESHOLD:
+                continue
+            kind = str(entry.get("kind") or "")
+            target = str(entry.get("target") or "")
+            key = f"{_PUSH_KEY_PREFIX}{kind}:{target}"
+            current_keys.add(key)
+            detail = str(entry.get("detail") or "")
+            suggestion = str(entry.get("suggestion") or "")
+            if suggestion:
+                detail = f"{detail}｜建议：{suggestion}" if detail else f"建议：{suggestion}"
+            sent = sync_notification(
+                manifest.project_id,
+                key,
+                active=True,
+                kind=KIND_HAZARD,
+                title=f"危房警情（severity {severity}）：{kind}",
+                detail=detail,
+                level=severity,
+            )
+            if sent is not None:
+                pushed.append(sent)
+        prune_notification_conditions(manifest.project_id, _PUSH_KEY_PREFIX, current_keys)
+        return pushed
+    except Exception:
+        return []

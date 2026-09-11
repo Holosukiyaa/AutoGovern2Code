@@ -769,6 +769,7 @@ def _gui_toasts(state: AppState) -> None:
             "verify-fail": (0.95, 0.35, 0.30, 1.0),
             "canonical-dirty": (0.95, 0.70, 0.30, 1.0),
             "census-stale": (0.95, 0.70, 0.30, 1.0),
+            "hazard": (0.95, 0.25, 0.25, 1.0),
         }
         color = kind_colors.get(toast["kind"], (0.55, 0.75, 0.95, 1.0))
         imgui.begin(f"##toast-{toast['id']}", None, flags)

@@ -424,6 +424,20 @@ def _overlay_hazard_status(root: Path, result: dict[str, Any]) -> None:
     """危房名单（变异存活/查重/预算/陈旧）：现算不缓存。"""
     _overlay_status(root, result, key="hazards", produce=_hazard_overlay,
                     fallback_factory=lambda: {"schema": "ag2c.hazard.v1", "hazards": [], "counts": {}})
+    # 推模式（PROXY-GOVERNANCE §7：P0 中断首次警告即弹）：severity≥50 的危房
+    # 首现/升级即进通知队列。托盘常驻轮询本函数即 watchdog——看板窗口开不开
+    # 都推。只在 overlay 现算成功时推：fallback 空报告没有 generated_at，拿它
+    # 推会把瞬时故障误判成"警情全消失"而清掉去重键。Best-effort，绝不抛异常。
+    hazards = result.get("hazards")
+    if not result.get("available") or not isinstance(hazards, dict) or not hazards.get("generated_at"):
+        return
+    try:
+        manifest = load_manifest(discover_manifest(root), project_root=root)
+        from .hazard import push_critical_hazards
+
+        push_critical_hazards(manifest, report=hazards)
+    except Exception:
+        pass
 
 
 def _overlay_token_status(root: Path, result: dict[str, Any]) -> None:

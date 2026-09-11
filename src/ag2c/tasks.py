@@ -33,6 +33,31 @@ def _project_id_for(root: Path) -> str:
         return manifest.project_id
     except Exception:
         return root.name
+
+
+def _sync_canonical_dirty_notification(canonical: Path, dirty: list[str], task_id: str = "") -> None:
+    """canonical 在任务通道外被修改的警情通知（KIND_CANONICAL_DIRTY 的生产端）。
+
+    条件型通知：dirty 路径集为指纹——同一批路径持续脏只报一次，路径集变化
+    再报；干净（空列表）时清除去重键，之后重新变脏重新报。Best-effort：
+    通知是观察通道，绝不阻塞门禁本身。
+    """
+    try:
+        from .notify import KIND_CANONICAL_DIRTY, sync_notification
+
+        paths = sorted(str(p) for p in dirty)
+        sync_notification(
+            _project_id_for(canonical),
+            "canonical-dirty",
+            active=bool(paths),
+            kind=KIND_CANONICAL_DIRTY,
+            title="canonical 检出在任务通道外被修改",
+            detail=", ".join(paths[:5]),
+            fingerprint=hashlib.sha256("\n".join(paths).encode("utf-8")).hexdigest() if paths else "",
+            task_id=task_id,
+        )
+    except Exception:
+        pass
 from .storage import registered_manifest
 from .gitops import (
     change_digest,
@@ -1131,7 +1156,9 @@ def verify_task(start: Path, *, _auto_refreshed: bool = False) -> dict[str, Any]
     formal_dirty = status_entries(canonical)
     if formal_dirty:
         _record_intervention(canonical, canonical_manifest, task, "canonical-write-blocked", {"paths": formal_dirty})
+        _sync_canonical_dirty_notification(canonical, formal_dirty, task_id=str(task["id"]))
         raise AG2CError("canonical worktree changed during the task; refusing verification")
+    _sync_canonical_dirty_notification(canonical, [])
     # 治理代码对账必须先于 HEAD 分叉自愈：auto-refresh 在同一进程内重基，
     # 磁盘字节是新的、内存里跑的仍是旧治理代码——这个洞只能靠拒绝+手动
     # refresh+新进程重验来堵。
@@ -1497,7 +1524,9 @@ def finish_task(start: Path, task_id: str, *, message: str, proof: str = "", _au
     if dirty:
         manifest, _ = _canonical_manifest(canonical)
         _record_intervention(canonical, manifest, task, "merge-blocked-canonical-dirty", {"paths": dirty})
+        _sync_canonical_dirty_notification(canonical, dirty, task_id=str(task["id"]))
         raise AG2CError("canonical worktree is dirty; refusing merge")
+    _sync_canonical_dirty_notification(canonical, [])
     if head(canonical) != task["source"]["head"] or current_branch(canonical) != task["source"]["branch"]:
         # 并行税自愈：canonical 增量与已验证的任务路径不相交时，自动 refresh +
         # 内联重验 + 重入 finish（全部门禁重跑，证据重新绑定到新 HEAD）。
@@ -1818,7 +1847,9 @@ def refresh_task(start: Path, task_id: str) -> dict[str, Any]:
     _require_open_task(task)
     dirty = status_entries(canonical)
     if dirty:
+        _sync_canonical_dirty_notification(canonical, dirty, task_id=str(task["id"]))
         raise AG2CError("canonical worktree is dirty; refusing refresh: " + ", ".join(dirty))
+    _sync_canonical_dirty_notification(canonical, [])
     worktree = Path(task["worktree"]["path"]).resolve()
     if not worktree.is_dir():
         raise AG2CError(f"task worktree is missing: {worktree}")

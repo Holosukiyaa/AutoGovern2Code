@@ -22,6 +22,30 @@ def _notify_gate(manifest: Manifest, problems: list[str]) -> None:
         notify(manifest.project_id, KIND_GATE_BLOCK, "户籍门禁拦截", "\n".join(problems[:5]))
     except Exception:
         pass
+
+
+def _sync_census_stale_notification(manifest: Manifest, freshness_problems: list[str]) -> None:
+    """普查新鲜度降级的警情通知（KIND_CENSUS_STALE 的生产端）。
+
+    条件型通知：陈旧房间集为指纹——同一批房间持续陈旧只报一次，集合变化
+    再报；门禁无新鲜度问题时清除去重键，之后重新降级重新报。Best-effort：
+    通知是观察通道，绝不阻塞门禁本身。
+    """
+    try:
+        from .notify import KIND_CENSUS_STALE, sync_notification
+
+        rooms = sorted(str(p) for p in freshness_problems)
+        sync_notification(
+            manifest.project_id,
+            "census-stale",
+            active=bool(rooms),
+            kind=KIND_CENSUS_STALE,
+            title="普查新鲜度降级",
+            detail=", ".join(rooms[:5]),
+            fingerprint=digest_json(rooms) if rooms else "",
+        )
+    except Exception:
+        pass
 from .util import digest_file, digest_json, path_matches
 
 
@@ -879,6 +903,7 @@ def enforce_households(manifest: Manifest, policy: Policy, entry_slice: dict, ch
             owners = [card for card in policy.cards if card.jurisdiction and _matches(card, target, path)]
             if len(owners) != 1:
                 problems.append(f"changed-code-without-unique-household:{target}:{path}")
+    freshness_problems: list[str] = []
     for item in required_households(report, entry_slice):
         # Optional floor cards are advisory: they don't block verify.
         try:
@@ -890,9 +915,12 @@ def enforce_households(manifest: Manifest, policy: Policy, entry_slice: dict, ch
         problems.extend(f'{issue["code"]}:{item["id"]}' for issue in item["issues"])
         if item["freshness"] != "current":
             problems.append(f'census-{item["freshness"]}:{item["id"]}')
+            freshness_problems.append(f'census-{item["freshness"]}:{item["id"]}')
         missing = set(item["checkers"]) - checker_ids
         if missing:
             problems.append(f'implementation-check-not-selected:{item["id"]}:{",".join(sorted(missing))}')
     if problems:
         _notify_gate(manifest, problems)
+        _sync_census_stale_notification(manifest, freshness_problems)
         raise AG2CError("household gate blocked:\n- " + "\n- ".join(problems[:40]))
+    _sync_census_stale_notification(manifest, [])

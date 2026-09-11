@@ -63,6 +63,45 @@ class CensusCodeVersionTests(unittest.TestCase):
             for record in state["records"]:
                 self.assertEqual(ag2c.__version__, record["code_version"])
 
+    def test_matching_version_stays_current(self) -> None:
+        from ag2c.household_commands import review_census
+        from ag2c.households import _CENSUS_CACHE, census_report
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, policy = write_project(root)
+            _git_fixture(root)
+            review_census(root, card_ids=[], all_cards=True, actor="test", reason="match")
+            _CENSUS_CACHE.clear()
+            report = census_report(manifest, policy)
+            stamped = [item for item in report["households"] if item.get("last_census")]
+            self.assertTrue(stamped)
+            self.assertTrue(all(item["freshness"] == "current" for item in stamped))
+
+    def test_mismatched_code_version_is_not_current(self) -> None:
+        from ag2c.household_commands import review_census
+        from ag2c.households import _CENSUS_CACHE, census_report
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, policy = write_project(root)
+            _git_fixture(root)
+            review_census(root, card_ids=[], all_cards=True, actor="test", reason="mismatch")
+            _CENSUS_CACHE.clear()
+            with patch("ag2c.__version__", "9.9.9-old-mcp"):
+                report = census_report(manifest, policy)
+            stamped = [item for item in report["households"] if item.get("last_census")]
+            self.assertTrue(stamped)
+            self.assertTrue(all(item["freshness"] == "version-mismatch" for item in stamped))
+
+    def test_digest_mismatch_stays_stale_not_version_mismatch(self) -> None:
+        from ag2c.households import _census_freshness
+
+        previous = {"code_version": "0.10.0", "scope_digest": "a", "declaration_digest": "b"}
+        self.assertEqual("stale", _census_freshness(previous, "other", "b", "0.10.0"))
+        self.assertEqual("never", _census_freshness(None, "a", "b", "0.10.0"))
+        self.assertEqual("version-mismatch", _census_freshness({"scope_digest": "a", "declaration_digest": "b"}, "a", "b", "0.10.0"))
+
 
 class McpCanonicalCensusWarningTests(unittest.TestCase):
     """cwd 脚枪提示：在 canonical 检出上录普查且有开放任务时，结果带 warning。 finish 的新鲜度门禁读的是 worktree 的普查记录；在 canonical 上录的记录 对进行中的任务不算数。警告不阻塞——canonical 普查本身合法（如发版后全量）。"""

@@ -711,6 +711,8 @@ def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
             group[kind] += 1
             gaps.append({"code": f"code-{kind}", "target": artifact["target"], "path": artifact["path"], "cards": owners})
     reports = []
+    from . import __version__ as running_code_version
+
     for card in [item for item in policy.cards if item.card_type == "floor" or item.jurisdiction is not None]:
         matched = [item for item in artifacts if _matches(card, item["target"], item["path"])]
         floors = [relation.target for relation in policy.relations if relation.source == card.card_id and relation.relation_type == "explains"]
@@ -725,7 +727,7 @@ def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
         declaration_digest = digest_json({"card": card_dict, "floors": floors, "replacements": replacements, "checkers": checker_dicts})
         scope_digest = digest_json([{key: item[key] for key in ("target", "path", "digest")} for item in matched])
         previous = latest.get(card.card_id)
-        freshness = "never" if previous is None else "current" if previous.get("scope_digest") == scope_digest and previous.get("declaration_digest") == declaration_digest else "stale"
+        freshness = _census_freshness(previous, scope_digest, declaration_digest, running_code_version)
         issues: list[dict] = []
         declaration = coerce_jurisdiction(card.jurisdiction) or {}
         included = [item for item in artifacts if declaration and _matches_include(card, item["target"], item["path"])]
@@ -877,6 +879,21 @@ def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
     if cache_key is not None:
         _CENSUS_CACHE[cache_key] = report
     return report
+
+
+def _census_freshness(previous: dict | None, scope_digest: str, declaration_digest: str, running_version: str) -> str:
+    """A record is current only when digests match AND it was stamped by this code version.
+
+    跨版本拒收：长驻 MCP/托盘可能用旧代码录普查；缺版本戳（戳落地前的记录）
+    同样不当 current——不知道是哪个年代的工具录的。
+    """
+    if previous is None:
+        return "never"
+    if str(previous.get("code_version") or "") != str(running_version):
+        return "version-mismatch"
+    if previous.get("scope_digest") == scope_digest and previous.get("declaration_digest") == declaration_digest:
+        return "current"
+    return "stale"
 
 
 def required_households(report: dict, entry_slice: dict) -> list[dict]:

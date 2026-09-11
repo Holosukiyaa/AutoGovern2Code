@@ -129,6 +129,34 @@ class PromptTests(unittest.TestCase):
         self.assertNotIn("AI 加料清单", messages[1]["content"])
 
 
+class AmendmentPromptTests(unittest.TestCase):
+    """画像修订史必须浮到监管眼前：市长指名纠偏 vs 自利漂移，由监管裁决。"""
+
+    def test_amendments_render_as_history_block(self) -> None:
+        amendments = [
+            {
+                "occurred_at": "2026-09-11T00:00:00+00:00",
+                "actor": "holo",
+                "reason": "预算口径纠偏：60s→90s",
+                "old_digest": "a" * 64,
+                "new_digest": "b" * 64,
+            }
+        ]
+        messages = build_messages("新画像", "diff", "机器报告", portrait_amendments=amendments)
+        user = messages[1]["content"]
+        self.assertIn("画像修订史", user)
+        self.assertIn("holo", user)
+        self.assertIn("预算口径纠偏：60s→90s", user)
+        self.assertIn("aaaaaaaaaaaa", user)  # old digest 截断前 12 位
+        self.assertIn("自利漂移", user)  # 裁决指令
+
+    def test_no_amendments_means_byte_identical_prompt(self) -> None:
+        baseline = build_messages("画像", "diff", "机器报告")
+        explicit_empty = build_messages("画像", "diff", "机器报告", portrait_amendments=[])
+        self.assertEqual(baseline, explicit_empty)
+        self.assertNotIn("画像修订史", baseline[1]["content"])
+
+
 class ParseTests(unittest.TestCase):
     def test_plain_json(self) -> None:
         self.assertEqual({"verdict": "pass"}, parse_verdict('{"verdict": "pass"}'))
@@ -230,6 +258,33 @@ class RunAgentReviewTests(unittest.TestCase):
             messages = mocked.call_args[0][1]
             self.assertIn("RETRY = 3", messages[1]["content"])
             self.assertIn("RETRY 常量", messages[1]["content"])
+
+    def test_amendment_history_reaches_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, policy = _governed_repo(root, regulator={"enabled": True, "endpoint": "http://127.0.0.1:9/v1", "model": "mock"})
+            (root / "src" / "value.py").write_text("VALUE = 1\nRETRY = 3\n", encoding="utf-8")
+            task = _task(root)
+            task["interventions"] = [
+                {"kind": "full-scan-declared", "reason": "无关干预", "occurred_at": "t0"},
+                {
+                    "kind": "portrait-amended",
+                    "occurred_at": "2026-09-11T00:00:00+00:00",
+                    "actor": "holo",
+                    "reason": "市长纠偏：验收口径改 90s",
+                    "old_digest": "c" * 64,
+                    "new_digest": "d" * 64,
+                },
+            ]
+            good = _verdict("pass", [{"name": "承诺兑现", "status": "pass", "evidence": "", "comment": "兑现"}])
+            with patch("ag2c.review.call_chat", return_value=good) as mocked:
+                result = run_agent_review(root, task, policy, _report())
+            self.assertEqual("passed", result["outcome"])
+            user = mocked.call_args[0][1][1]["content"]
+            # 修订史进提示词；无关干预不进
+            self.assertIn("画像修订史", user)
+            self.assertIn("市长纠偏：验收口径改 90s", user)
+            self.assertNotIn("无关干预", user)
 
     def test_reject_verdict(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

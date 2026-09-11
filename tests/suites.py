@@ -66,6 +66,7 @@ TASKS_SUITE = [
     "test_tasks",
     "test_trunk_guard",
     "test_front_back",
+    "test_portrait_amend",
 ]
 
 #: 治理机制：从 fast 下沉的重模块（变异/监管/MCP/证据锚/日落/知识/预算），

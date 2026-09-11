@@ -101,7 +101,14 @@ class RegulatorError(Exception):
     """监管调用或裁决解析失败——由 run_agent_review 降级吸收。"""
 
 
-def build_messages(portrait: str, diff_text: str, machine_summary: str, *, self_grading_declared: bool = False) -> list[dict[str, str]]:
+def build_messages(
+    portrait: str,
+    diff_text: str,
+    machine_summary: str,
+    *,
+    self_grading_declared: bool = False,
+    portrait_amendments: list[dict[str, Any]] | None = None,
+) -> list[dict[str, str]]:
     """拼监管提示词。输入只有画像 + diff + 机器报告，物理上不含 worker 自述。"""
     banner = ""
     if self_grading_declared:
@@ -110,6 +117,25 @@ def build_messages(portrait: str, diff_text: str, machine_summary: str, *, self_
             "本任务已申报同时修改产品代码与验证它的测试（自我阅卷）。"
             "请重点核对：测试改动是否削弱断言、删除用例、放宽门槛以迁就产品改动。\n\n"
         )
+    if portrait_amendments:
+        lines = ["## 画像修订史（开工后画像被更换过）", ""]
+        for item in portrait_amendments:
+            lines.append(
+                "- {} actor={} reason={} old={} new={}".format(
+                    item.get("occurred_at", "?"),
+                    item.get("actor", "?"),
+                    item.get("reason", "?"),
+                    str(item.get("old_digest", ""))[:12],
+                    str(item.get("new_digest", ""))[:12],
+                )
+            )
+        lines.append("")
+        lines.append(
+            "下方画像是最新版，旧画像只剩 digest 存证。请裁决：每次修订是市长指名的纠偏"
+            "（理由具体、指向用户目标），还是施工者为方便自己的自利漂移（放宽承诺、删难点）？"
+            "后者是 reject 理由。"
+        )
+        banner += "\n".join(lines) + "\n\n"
     from .tasks import portrait_inference_section
 
     additions = portrait_inference_section(portrait)
@@ -284,7 +310,18 @@ def run_agent_review(
         portrait = str(task.get("portrait") or "")
         declaration = task.get("entry", {}).get("touches_verification")
         self_grading = isinstance(declaration, dict) and bool(declaration.get("declared"))
-        messages = build_messages(portrait, diff_text, _machine_summary(machine_report), self_grading_declared=self_grading)
+        amendments = [
+            {key: item.get(key) for key in ("occurred_at", "actor", "reason", "old_digest", "new_digest")}
+            for item in task.get("interventions", [])
+            if isinstance(item, dict) and item.get("kind") == "portrait-amended"
+        ]
+        messages = build_messages(
+            portrait,
+            diff_text,
+            _machine_summary(machine_report),
+            self_grading_declared=self_grading,
+            portrait_amendments=amendments,
+        )
         raw = call_chat(config, messages)
         verdict = parse_verdict(raw)
     except RegulatorError as exc:

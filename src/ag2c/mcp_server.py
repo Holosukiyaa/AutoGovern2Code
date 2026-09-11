@@ -302,6 +302,17 @@ def tool_defs() -> list[dict[str, Any]]:
             ["reason"],
         ),
         _tool(
+            "ag2c_task_amend_portrait",
+            "画像修订：任务中途按市长指名的纠偏更换已锁画像。lint 后替换并记 intervention portrait-amended（actor/reason/新旧 digest 落账本）；verify 时监管看到修订史，裁决市长纠偏 vs 自利漂移。",
+            {
+                "portrait": {"type": "string", "description": "新画像全文（结果门格式，会被 lint）"},
+                "actor": {"type": "string", "description": "谁批准这次修订（必填，进证据链）"},
+                "reason": {"type": "string", "description": "市长指名的纠偏内容（必填，进证据链）"},
+                "cwd": _cwd_prop(),
+            },
+            ["portrait", "actor", "reason"],
+        ),
+        _tool(
             "ag2c_rehome",
             "Move a file card into another room (or a subdirectory of it) through the governed loop: the card scope updates, a task worktree does git mv + repo-wide Python import rewrite, census + verify gate the merge, and any failure rolls everything back. Python files only; never __init__.py. Runs in the background like ag2c_task_verify: answers within 45s or returns a job id — call again with that job id to poll.",
             {
@@ -494,6 +505,17 @@ def _call_task_declare(args: dict[str, Any]) -> Any:
     from .tasks import declare_front_back
 
     return declare_front_back(_cwd(args), reason=str(args.get("reason") or ""))
+
+
+def _call_task_amend_portrait(args: dict[str, Any]) -> Any:
+    from .tasks import amend_portrait
+
+    return amend_portrait(
+        _cwd(args),
+        portrait=str(args.get("portrait") or ""),
+        actor=str(args.get("actor") or ""),
+        reason=str(args.get("reason") or ""),
+    )
 
 
 _VERIFY_JOBS: dict[str, dict[str, Any]] = {}
@@ -807,6 +829,7 @@ HANDLERS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "ag2c_guard_status": _call_guard,
     "ag2c_task_start": _call_start,
     "ag2c_task_declare": _call_task_declare,
+    "ag2c_task_amend_portrait": _call_task_amend_portrait,
     "ag2c_task_verify": _call_verify,
     "ag2c_rehome": _call_rehome,
     "ag2c_task_finish": _call_finish,

@@ -198,6 +198,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     task_declare.add_argument("--reason", required=True)
     task_declare.add_argument("--full-scan", action="store_true", help="申报全量验收：governance 变化触发全量时需先申报（申请预算语义），申报落账本")
+    task_amend = task_commands.add_parser(
+        "amend-portrait",
+        help="画像修订：市长指名纠偏时更换已锁画像；lint 后替换并记 intervention（actor/reason/新旧 digest 落账本），verify 时监管可见修订史",
+    )
+    task_amend.add_argument("--portrait", default="", help="新画像全文（与 --portrait-file 二选一）")
+    task_amend.add_argument("--portrait-file", type=Path, default=None, help="从文件读取新画像全文（UTF-8）")
+    task_amend.add_argument("--actor", required=True, help="谁批准这次修订（进证据链）")
+    task_amend.add_argument("--reason", required=True, help="市长指名的纠偏内容（进证据链）")
     task_list = task_commands.add_parser("list")
     task_list.add_argument("--format", choices=("text", "json"), default="text")
     task_orient = task_commands.add_parser("orient")
@@ -776,7 +784,7 @@ def main(argv: list[str] | None = None) -> int:
             print(_json(status))
             return 0 if status["managed"] else 1
         if args.command == "task":
-            from .tasks import abandon_task, declare_front_back, declare_full_scan, finish_task, list_tasks, orient_task, refresh_task, start_task, task_record, verify_task
+            from .tasks import abandon_task, amend_portrait, declare_front_back, declare_full_scan, finish_task, list_tasks, orient_task, refresh_task, start_task, task_record, verify_task
 
             if args.task_command == "start":
                 print(
@@ -804,6 +812,17 @@ def main(argv: list[str] | None = None) -> int:
                     print(_json(declare_full_scan(Path.cwd(), reason=args.reason)))
                 else:
                     print(_json(declare_front_back(Path.cwd(), reason=args.reason)))
+                return 0
+            if args.task_command == "amend-portrait":
+                portrait_text = str(args.portrait or "")
+                if args.portrait_file is not None:
+                    if portrait_text.strip():
+                        raise AG2CError("--portrait and --portrait-file are mutually exclusive")
+                    try:
+                        portrait_text = args.portrait_file.read_text(encoding="utf-8")
+                    except OSError as exc:
+                        raise AG2CError(f"cannot read portrait file {args.portrait_file}: {exc}") from exc
+                print(_json(amend_portrait(Path.cwd(), portrait=portrait_text, actor=args.actor, reason=args.reason)))
                 return 0
             if args.task_command == "list":
                 records = list_tasks(Path.cwd())

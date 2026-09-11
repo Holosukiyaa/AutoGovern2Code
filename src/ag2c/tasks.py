@@ -1098,6 +1098,24 @@ def verify_task(start: Path, *, _auto_refreshed: bool = False) -> dict[str, Any]
     )
     after_check_digest = change_digest(worktree, task["source"]["head"])
     checker_mutated_change = before_check_digest != after_check_digest
+    # 调度器 Phase 1 影子模式：算出「本会跳过什么」但不真跳，plan 落 verify
+    # 记录与账本事件供观察。可观测性不能成为新故障源——任何异常降级留痕。
+    try:
+        from .scheduler import shadow_plan
+
+        shadow = shadow_plan(
+            planned_checker_ids=[str(item["id"]) for item in report["results"]],
+            all_checker_ids=[str(checker.checker_id) for checker in policy.checkers],
+            change_digest=after_check_digest,
+            events=read_events(canonical_manifest.ledger_path),
+        )
+    except Exception as exc:
+        shadow = {"schema": "ag2c.shadow-plan.v1", "mode": "shadow", "error": str(exc)}
+    if shadow.get("would_skip") is not None and not shadow.get("error"):
+        print(
+            f"影子计划：本会跳过 {len(shadow['would_skip'])}/{len(shadow.get('entries', []))} 个 checker（缓存命中），本次仍全跑",
+            file=sys.stderr,
+        )
     timed = [item for item in report["results"] if isinstance(item.get("duration_ms"), (int, float)) and item.get("duration_ms")]
     if timed:
         slowest = sorted(timed, key=lambda item: -item["duration_ms"])[:3]
@@ -1157,6 +1175,9 @@ def verify_task(start: Path, *, _auto_refreshed: bool = False) -> dict[str, Any]
         "acceptance": report["acceptance"],
         "check_ledger_event_digest": report["ledger_event_digest"],
         "regulator": regulator_result,
+        # 调度器 Phase 1：影子计划是信息性字段（同 checker_durations 的口径），
+        # 不参与证据绑定的固定键比对，旧版 finish 读到也能容忍。
+        "shadow_plan": shadow,
     }
     verification_event = append_event(
         canonical_manifest.ledger_path,

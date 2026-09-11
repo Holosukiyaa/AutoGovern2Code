@@ -230,8 +230,11 @@ provenance: author=holo(研究圆桌), against=5119cd4bce0e2d90f074764b7de52eacc
   patrol 读的是账本——守卫被拆时账本根本没有新事件可记。
 - **沉默本身应该成为警情**："预期有提交活动却没有任何治理事件"是巡逻队
   该报告的；目前巡逻队只报告已发生的事件。
-- **待填充**：trunk 提交审计（无 AG2C trailer 的提交报警）；
-  守卫心跳/定期自检机制。
+- **已落地（2026-09-11）**：hazard 新增两源——`guard-removed`（守卫心跳：
+  core.hooksPath 偏离或 hooks 目录失踪即报警，纳管登记为门槛）与
+  `ungoverned-commit`（trunk 提交审计：账本首事件为基线，无 AG2C-Task
+  trailer 的主干提交逐条上榜；市长直推同样上榜，hazard-dismiss 是认领通道）。
+  定期自检的巡逻调度归入 scheduler 任务。
 
 ### 4.5 A 级：验证剧场——严格执法于模糊目标
 
@@ -501,7 +504,8 @@ worker AI 提议改可信基（checks/tasks/gitops/review/ledger/storage）
 - [ ] 知识卡写入的指令式内容扫描规则集（4.2）
 - [ ] 可信基清单的最终范围与辖区标签实现（4.1 / 5.1）
 - [ ] "监管缺席"进危房名单的阈值与种类权重（4.3）
-- [ ] trunk 无 trailer 提交的事后审计；守卫心跳（4.4）
+- [x] ~~trunk 无 trailer 提交的事后审计；守卫心跳（4.4）~~ 已落地：hazard 的
+      guard-removed / ungoverned-commit 两源（2026-09-11）
 - [ ] 治理解冻仪式设计（4.8）
 - [ ] guidance token 预算：上限值、裁剪策略、超预算报警通道（3.3）
 - [ ] 事件日落：触发器定义、与墙钟的并存/迁移（3.2）

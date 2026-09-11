@@ -8,6 +8,10 @@
 - 普查陈旧 / 过期卡片：census freshness=="stale" 的房间与 status=="stale" 的知识卡
 - 监管缺席（最重）：账本 task-verification 事件里连续 N 次 regulator unavailable
   （已配置却拿不到裁决）→ 最像"验证"的验证在静默缺席（4.3：沉默本身即警情）
+- 守卫拆除（最重）：core.hooksPath 偏离本 store 的 state/hooks 或目录失踪
+  → 门禁形同虚设的当下即报警，不等事后（4.4：沉默本身即警情）
+- 无 trailer 提交：治理存在后落在主干、没有 AG2C-Task trailer 的提交
+  → 绕开结果门的活动；市长直推也上榜，hazard-dismiss 是认领通道（4.4 事后审计）
 
 与 patrol 同一条军规：任何输入异常都降级为空报告，绝不抛异常——看板必须在
 项目出问题时也能渲染，因为那正是用户看它的时刻。
@@ -15,6 +19,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from datetime import datetime, timedelta, timezone
@@ -26,13 +31,14 @@ from .util import hidden_process_kwargs
 
 HAZARD_SCHEMA = "ag2c.hazard.v1"
 
-#: 严重度基线：regulator-absent（监管静默缺席，验证形同虚设）> hollow（安全网缺失）
-#: > duplicate（复用债）> budget（肥胖）> stale（档案旧）。
-_KIND_WEIGHT = {"regulator-absent": 50, "hollow": 40, "duplicate": 30, "budget": 20, "stale": 10}
+#: 严重度基线：guard-removed（守卫被拆，一切门禁形同虚设）> regulator-absent
+#: （监管静默缺席，验证形同虚设）> ungoverned-commit（无 trailer 提交绕开结果门）
+#: > hollow（安全网缺失）> duplicate（复用债）> budget（肥胖）> stale（档案旧）。
+_KIND_WEIGHT = {"guard-removed": 60, "regulator-absent": 50, "ungoverned-commit": 45, "hollow": 40, "duplicate": 30, "budget": 20, "stale": 10}
 
 #: 固定建议模板——制度在说话，不是 AI 自由文本。措辞规则：大白话+专业，
 #: 单独拎出来无需懂城市隐喻即可理解。
-SUGGESTIONS = {"regulator-absent": "检查监管端点与密钥；或显式 govern regulator --strict off 承认降级", "hollow": "补充能捕获该类缺陷的测试", "duplicate": "合并重复实现", "budget": "精简或拆分", "stale": "重新普查确认"}
+SUGGESTIONS = {"guard-removed": "重新 enroll 恢复守卫；确认是刻意拆除则用 govern hazard-dismiss 登记", "regulator-absent": "检查监管端点与密钥；或显式 govern regulator --strict off 承认降级", "ungoverned-commit": "确认提交来源；市长直推用 govern hazard-dismiss 认领，否则追查守卫去向", "hollow": "补充能捕获该类缺陷的测试", "duplicate": "合并重复实现", "budget": "精简或拆分", "stale": "重新普查确认"}
 
 #: 监管缺席升级阈值：连续这么多次 verify 没拿到裁决才进名单（偶发网络抖动不报）。
 _REGULATOR_ABSENT_THRESHOLD = 3
@@ -215,6 +221,106 @@ def _parse_seen(value: object) -> datetime | None:
         return None
 
 
+def _git_output(root: Path, *args: str) -> str | None:
+    """跑一次只读 git；任何失败返回 None（调用方按降级处理，宁多报不漏报的另一面是不炸看板）。"""
+    try:
+        proc = subprocess.run(
+            ["git", *args],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            **hidden_process_kwargs(),
+        )
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout
+
+
+def _guard_hazards(manifest) -> list[dict[str, Any]]:
+    """守卫心跳（4.4）：core.hooksPath 必须指向本 store 的 state/hooks 且目录在。
+
+    一条 git config 即可拆守卫——拆除当下就是警情，不等事后审计。
+    门槛是 activation.json（纳管登记）：未纳管的项目没有守卫可拆，不报。"""
+    try:
+        if not (manifest.state_dir / "activation.json").is_file():
+            return []
+        expected = str((manifest.state_dir / "hooks").resolve())
+        actual = str(_git_output(manifest.project_root, "config", "--get", "core.hooksPath") or "").strip()
+        if os.path.normcase(actual) == os.path.normcase(expected) and Path(expected).is_dir():
+            return []
+        if not actual:
+            detail = f"守卫已拆：core.hooksPath 未设置，应为 {expected}"
+        elif os.path.normcase(actual) != os.path.normcase(expected):
+            detail = f"守卫已拆：core.hooksPath={actual}，应为 {expected}"
+        else:
+            detail = f"守卫已拆：hooks 目录失踪（{expected}）"
+        return [
+            {
+                "target": "core.hooksPath",
+                "kind": "guard-removed",
+                "detail": detail,
+                "evidence": {"store": "git-config", "expected": expected, "actual": actual},
+            }
+        ]
+    except Exception:
+        return []
+
+
+#: 无 trailer 审计的扫描上限（提交数）。治理后的提交实务上远少于此；上限防历史洪水。
+_UNGOVERNED_SCAN_CAP = 500
+
+
+def _ungoverned_commit_hazards(manifest, events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """trunk 无 trailer 提交的事后审计（4.4）：治理存在之后落在主干、却没有
+    AG2C-Task trailer 的提交 = 绕开结果门的活动。
+
+    市长直推也上榜——系统无法区分市长与拆守卫的攻击者，hazard-dismiss 登记
+    豁免就是市长的认领通道。基线取账本首事件：治理存在之前的提交没有可治理性。
+    门槛是 activation.json（纳管登记）：未纳管的项目谈不上"绕开"守卫。
+    """
+    trunk = str(getattr(manifest, "trunk", "") or "").strip()
+    if not trunk:
+        return []
+    if not (manifest.state_dir / "activation.json").is_file():
+        return []
+    baseline = next((str(event.get("occurred_at")) for event in events if event.get("occurred_at")), "")
+    if not baseline:
+        return []
+    raw = _git_output(
+        manifest.project_root,
+        "log",
+        trunk,
+        f"--since={baseline}",
+        f"-n{_UNGOVERNED_SCAN_CAP}",
+        "--format=%H%x1f%cI%x1f%an%x1f%B%x1e",
+    )
+    if not raw:
+        return []
+    hazards: list[dict[str, Any]] = []
+    for record in raw.split("\x1e"):
+        parts = record.strip("\n").split("\x1f", 3)
+        if len(parts) != 4 or not parts[0].strip():
+            continue
+        sha, committed_at, author, message = parts[0].strip(), parts[1].strip(), parts[2].strip(), parts[3]
+        if "AG2C-Task:" in message:
+            continue
+        subject = message.strip().splitlines()[0] if message.strip() else ""
+        hazards.append(
+            {
+                "target": sha[:12],
+                "kind": "ungoverned-commit",
+                "detail": f"无 AG2C-Task trailer 的主干提交：{subject}（{author}）",
+                "evidence": {"store": "git", "commit": sha, "at": committed_at},
+            }
+        )
+    return hazards
+
+
 def _file_last_commit(root: Path, relpath: str) -> datetime | None:
     """文件在 git 里的最后提交时间。查询失败返回 None——调用方按 standing 处理（宁多报不漏报）。"""
     try:
@@ -395,6 +501,14 @@ def hazard_report(manifest, policy=None, *, now: datetime | None = None) -> dict
         pass
     try:
         hazards.extend(_regulator_absent_hazards(events))
+    except Exception:
+        pass
+    try:
+        hazards.extend(_guard_hazards(manifest))
+    except Exception:
+        pass
+    try:
+        hazards.extend(_ungoverned_commit_hazards(manifest, events))
     except Exception:
         pass
     try:

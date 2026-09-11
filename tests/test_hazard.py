@@ -14,11 +14,12 @@ from unittest import mock
 import bootstrap
 
 from ag2c.errors import AG2CError
+from ag2c.config import discover_manifest, load_manifest
 from ag2c.hazard import HAZARD_SCHEMA, SUGGESTIONS, _warning_freshness, dismiss_hazard, hazard_report, load_dismissals
 from ag2c.ledger import append_event, read_events
 from ag2c_gui.dashboard import dashboard_model
 
-from support import _git, bare_manifest, write_project
+from support import _git, bare_manifest, git_project, write_project
 
 
 def _mutation_canary(manifest, *, result: str, mutation: str) -> None:
@@ -502,6 +503,175 @@ class LiveDuplicateScanTests(unittest.TestCase):
             manifest = load_manifest(root / ".ag2c" / "manifest.json")
             report = hazard_report(manifest)
             self.assertEqual([], [h for h in report["hazards"] if h["kind"] == "duplicate"])
+
+
+class GuardHeartbeatTests(unittest.TestCase):
+    """守卫心跳（4.4）：core.hooksPath 偏离本 store 的 state/hooks 或目录失踪即报警。"""
+
+    @staticmethod
+    def _expected(manifest) -> str:
+        return str((manifest.state_dir / "hooks").resolve())
+
+    @staticmethod
+    def _enroll_marker(manifest) -> None:
+        """写下纳管登记——守卫心跳只对纳管项目求值（未纳管没有守卫可拆）。"""
+        manifest.state_dir.mkdir(parents=True, exist_ok=True)
+        (manifest.state_dir / "activation.json").write_text('{"schema": "ag2c.activation.v1"}', encoding="utf-8")
+
+    @staticmethod
+    def _guard_hazards(report: dict) -> list[dict]:
+        return [h for h in report["hazards"] if h["kind"] == "guard-removed"]
+
+    def test_hooks_path_matching_and_dir_present_no_hazard(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = git_project(Path(directory) / "proj")
+            manifest = bare_manifest(root)
+            self._enroll_marker(manifest)
+            expected = self._expected(manifest)
+            Path(expected).mkdir(parents=True)
+            _git(root, "config", "core.hooksPath", expected)
+            self.assertEqual([], self._guard_hazards(hazard_report(manifest)))
+
+    def test_not_enrolled_no_guard_hazard(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = git_project(Path(directory) / "proj")
+            manifest = bare_manifest(root)  # 无 activation.json：未纳管，没有守卫可拆
+            self.assertEqual([], self._guard_hazards(hazard_report(manifest)))
+
+    def test_hooks_path_unset_is_hazard(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = git_project(Path(directory) / "proj")
+            manifest = bare_manifest(root)
+            self._enroll_marker(manifest)
+            Path(self._expected(manifest)).mkdir(parents=True)
+            hazards = self._guard_hazards(hazard_report(manifest))
+            self.assertEqual(1, len(hazards))
+            self.assertEqual("core.hooksPath", hazards[0]["target"])
+            self.assertIn("未设置", hazards[0]["detail"])
+            self.assertEqual(SUGGESTIONS["guard-removed"], hazards[0]["suggestion"])
+
+    def test_hooks_path_wrong_is_hazard(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = git_project(Path(directory) / "proj")
+            manifest = bare_manifest(root)
+            self._enroll_marker(manifest)
+            expected = self._expected(manifest)
+            Path(expected).mkdir(parents=True)
+            _git(root, "config", "core.hooksPath", str(root / "elsewhere"))
+            hazards = self._guard_hazards(hazard_report(manifest))
+            self.assertEqual(1, len(hazards))
+            self.assertIn("elsewhere", hazards[0]["detail"])
+            self.assertIn(expected, hazards[0]["detail"])
+
+    def test_hooks_dir_missing_is_hazard(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = git_project(Path(directory) / "proj")
+            manifest = bare_manifest(root)
+            self._enroll_marker(manifest)
+            expected = self._expected(manifest)
+            _git(root, "config", "core.hooksPath", expected)  # 配置对，目录不在
+            hazards = self._guard_hazards(hazard_report(manifest))
+            self.assertEqual(1, len(hazards))
+            self.assertIn("目录失踪", hazards[0]["detail"])
+
+
+def _commit_at(root: Path, message: str, *, when: str) -> str:
+    """以显式 author/committer 日期提交全部暂存内容，返回完整 sha。"""
+    env = dict(os.environ, GIT_COMMITTER_DATE=when, GIT_AUTHOR_DATE=when)
+    subprocess.run(["git", "-C", str(root), "add", "--all"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(root), "commit", "-m", message], check=True, capture_output=True, env=env)
+    return subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+
+
+def _amend_date(root: Path, when: str) -> None:
+    """把 HEAD 改签到指定日期——把夹具初始提交钉死在治理基线之前，排除同秒碰撞。"""
+    env = dict(os.environ, GIT_COMMITTER_DATE=when, GIT_AUTHOR_DATE=when)
+    subprocess.run(["git", "-C", str(root), "commit", "--amend", "--no-edit"], check=True, capture_output=True, env=env)
+
+
+class UngovernedCommitTests(unittest.TestCase):
+    """trunk 无 trailer 事后审计（4.4）：治理存在后的无 trailer 提交逐条上榜。"""
+
+    PRE_HISTORY = "2020-01-01T00:00:00+00:00"
+    POST_BASELINE = "2030-01-01T00:00:00+00:00"
+
+    def _project(self, tmp: str):
+        root = git_project(Path(tmp) / "proj")
+        write_project(root)
+        _amend_date(root, self.PRE_HISTORY)
+        manifest = load_manifest(discover_manifest(root))
+        # 纳管登记：无 trailer 审计只对纳管项目求值
+        manifest.state_dir.mkdir(parents=True, exist_ok=True)
+        (manifest.state_dir / "activation.json").write_text('{"schema": "ag2c.activation.v1"}', encoding="utf-8")
+        return root, manifest
+
+    @staticmethod
+    def _ungoverned(report: dict) -> list[dict]:
+        return [h for h in report["hazards"] if h["kind"] == "ungoverned-commit"]
+
+    def test_commit_with_trailer_not_flagged(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, manifest = self._project(directory)
+            append_event(manifest.ledger_path, "project-enrolled", {"root": str(root)})
+            (root / "src" / "governed.txt").write_text("x", encoding="utf-8")
+            _commit_at(root, "governed change\n\nAG2C-Task: t-1", when=self.POST_BASELINE)
+            self.assertEqual([], self._ungoverned(hazard_report(manifest)))
+
+    def test_commit_without_trailer_is_flagged(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, manifest = self._project(directory)
+            append_event(manifest.ledger_path, "project-enrolled", {"root": str(root)})
+            (root / "src" / "direct.txt").write_text("x", encoding="utf-8")
+            sha = _commit_at(root, "mayor direct push", when=self.POST_BASELINE)
+            hazards = self._ungoverned(hazard_report(manifest))
+            self.assertEqual(1, len(hazards))
+            self.assertEqual(sha[:12], hazards[0]["target"])
+            self.assertIn("mayor direct push", hazards[0]["detail"])
+            self.assertIn("AG2C Test", hazards[0]["detail"])
+            self.assertEqual(SUGGESTIONS["ungoverned-commit"], hazards[0]["suggestion"])
+
+    def test_empty_ledger_means_no_baseline_no_report(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, manifest = self._project(directory)
+            (root / "src" / "direct.txt").write_text("x", encoding="utf-8")
+            _commit_at(root, "mayor direct push", when=self.POST_BASELINE)
+            self.assertEqual([], self._ungoverned(hazard_report(manifest)))
+
+    def test_pre_baseline_initial_commit_not_flagged(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, manifest = self._project(directory)
+            append_event(manifest.ledger_path, "project-enrolled", {"root": str(root)})
+            # 只有基线前的初始提交（无 trailer）——治理之前没有可治理性
+            self.assertEqual([], self._ungoverned(hazard_report(manifest)))
+
+    def test_no_trunk_registered_skips_audit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = git_project(Path(directory) / "proj")
+            manifest = bare_manifest(root)  # 无 trunk 字段
+            append_event(manifest.ledger_path, "project-enrolled", {"root": str(root)})
+            _commit_at(root, "mayor direct push", when=self.POST_BASELINE)
+            self.assertEqual([], self._ungoverned(hazard_report(manifest)))
+
+    def test_new_kinds_dismissible(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, manifest = self._project(directory)
+            append_event(manifest.ledger_path, "project-enrolled", {"root": str(root)})
+            (root / "src" / "direct.txt").write_text("x", encoding="utf-8")
+            sha = _commit_at(root, "mayor direct push", when=self.POST_BASELINE)
+            now = datetime(2026, 9, 11, tzinfo=timezone.utc)
+            dismiss_hazard(manifest, sha[:12], "ungoverned-commit", actor="mayor", reason="市长直推 docs，认领", now=now)
+            dismiss_hazard(manifest, "core.hooksPath", "guard-removed", actor="mayor", reason="夹具无守卫，认领", now=now)
+            report = hazard_report(manifest, now=now)
+            self.assertEqual([], self._ungoverned(report))
+            self.assertEqual([], GuardHeartbeatTests._guard_hazards(report))
+            self.assertEqual(2, report["dismissed"])
+
+    def test_new_kind_weights(self) -> None:
+        from ag2c.hazard import _KIND_WEIGHT
+
+        self.assertEqual(60, _KIND_WEIGHT["guard-removed"])
+        self.assertEqual(45, _KIND_WEIGHT["ungoverned-commit"])
+        self.assertGreater(_KIND_WEIGHT["guard-removed"], _KIND_WEIGHT["regulator-absent"])
 
 
 if __name__ == "__main__":

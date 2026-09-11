@@ -51,7 +51,6 @@ FAST = [
     "test_graph",
     "test_green_shadow",
     "test_harnesses",
-    "test_hazard",
     "test_index",
     "test_ledger",
     "test_notify",
@@ -73,6 +72,8 @@ TASKS_SUITE = [
 #: 治理机制：从 fast 下沉的重模块（变异/监管/MCP/证据锚/日落/知识/预算），
 #: 绑定 src/ag2c 与 tests 房间。test_verify_costs 的 verify 级测试要真 enroll
 #: 夹具（约 45s），按冒烟集门槛同样下沉——自家人先守自家规矩。
+#: test_hazard 于 2026-09-11 下沉：4.4 的 git 夹具测试（GuardHeartbeat/
+#: UngovernedCommit）把模块养到实测 11.1s，超冒烟集门槛 4 倍。
 GOVERNANCE_SUITE = [
     "test_mutation",
     "test_mcp",
@@ -83,6 +84,7 @@ GOVERNANCE_SUITE = [
     "test_census_hardening",
     "test_budgets",
     "test_verify_costs",
+    "test_hazard",
     # t59：文件粒度户口 + 删除门，实测 10.8s（git 夹具 + 普查），超冒烟集门槛下沉。
     "test_file_grain",
 ]

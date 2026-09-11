@@ -192,6 +192,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="申报：本任务将同时修改产品代码与验证它的测试（巴林条款），verify 放行但记 intervention 并提升监管审查级别",
     )
+    task_start.add_argument(
+        "--coordinate",
+        action="append",
+        default=[],
+        metavar="DIM=VALUE",
+        help="AGF 七维坐标申报（可重复）：effect/contract/meaning/quality/decider/grain/failure，封闭枚举；未申报维度从触及卡片的 jurisdiction 保守推导",
+    )
     task_commands.add_parser("verify")
     task_declare = task_commands.add_parser(
         "declare", help="中途申报：默认前后台同改（巴林条款）；--full-scan 申报全量验收（验证成本治理）。写入任务记录后 verify 放行并记 intervention"
@@ -787,6 +794,15 @@ def main(argv: list[str] | None = None) -> int:
             from .tasks import abandon_task, amend_portrait, declare_front_back, declare_full_scan, finish_task, list_tasks, orient_task, refresh_task, start_task, task_record, verify_task
 
             if args.task_command == "start":
+                coordinate_declaration: dict[str, str] = {}
+                for item in args.coordinate or []:
+                    dim, sep, value = str(item).partition("=")
+                    if not sep:
+                        raise AG2CError(f"--coordinate expects DIM=VALUE: {item!r}")
+                    dim = dim.strip()
+                    if dim in coordinate_declaration:
+                        raise AG2CError(f"--coordinate repeated for dimension: {dim}")
+                    coordinate_declaration[dim] = value.strip()
                 print(
                     _json(
                         start_task(
@@ -799,6 +815,7 @@ def main(argv: list[str] | None = None) -> int:
                             worktree_root=args.worktree_root,
                             portrait=args.portrait,
                             touches_verification=bool(args.touches_verification),
+                            coordinates=coordinate_declaration,
                         )
                     )
                 )

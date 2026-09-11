@@ -283,9 +283,13 @@ def _start_evidence_valid(
         "route_state": task.get("route", {}).get("state"),
     }
     # Tasks started before the result gate existed have no portrait in the
-    # start event; only bind it when the event carries one.
+    # start event; only bind it when the event carries one. Same conditional
+    # binding for coordinates (added after the gate): tasks started before the
+    # coordinate declaration existed carry no coordinates key and stay valid.
     if "portrait" in event["payload"]:
         expected["portrait"] = task.get("portrait")
+    if "coordinates" in event["payload"]:
+        expected["coordinates"] = task.get("coordinates")
     if event["payload"] == expected:
         return True
     # 画像修订（amend-portrait）是合法的画像迁移通道：start 事件锚定的是修订
@@ -640,6 +644,7 @@ def start_task(
     worktree_root: Path | None = None,
     portrait: str = "",
     touches_verification: bool = False,
+    coordinates: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     root = repository_root(start)
     status = activation_status(root)
@@ -686,6 +691,22 @@ def start_task(
     record_path = _task_path(canonical, task_id)
     if record_path.exists():
         raise AG2CError(f"AG2C task already exists: {task_id}")
+    # AGF 坐标申报（对账三件套第一件）：申报校验 + 卡片推导 + 三桶来源标注，
+    # 随任务记录与 task-started 账本事件落账——本任务只申报记录，对账执法
+    # 是后续任务。非法枚举值在 worktree 创建之前拒绝，不留半成品。
+    from .coordinates import constraint_warnings, resolve_coordinates
+    from .households import coerce_jurisdiction
+
+    jurisdictions = []
+    for item in entry_slice.get("cards", []):
+        try:
+            card = policy.card(str(item.get("id")))
+        except StopIteration:
+            continue
+        jurisdiction = coerce_jurisdiction(card.jurisdiction)
+        if jurisdiction:
+            jurisdictions.append(jurisdiction)
+    resolved_coordinates = resolve_coordinates(coordinates, jurisdictions)
     configured_root = os.environ.get("AG2C_WORKTREE_ROOT")
     base = worktree_root or (Path(configured_root) if configured_root else manifest.path.parent / "worktrees")
     worktree = (base.resolve() / task_id).resolve()
@@ -730,10 +751,18 @@ def start_task(
             "fallback_reasons": entry_slice["route"]["fallback_reasons"],
             "checker_ids": [item["id"] for item in entry_slice["check_plan"]],
         },
+        "coordinates": resolved_coordinates,
         "interventions": [],
         "verifications": [],
     }
     _atomic_json(record_path, task)
+    # 维度间约束机查（警告不拦）：quality=human 而 decider 不到人时记
+    # warning-history。kind 不在 ESCALATABLE_KINDS，永不硬化成门。
+    coordinate_warnings = constraint_warnings(task_id, resolved_coordinates["effective"])
+    if coordinate_warnings:
+        from .checks import _record_warnings_and_find_escalated
+
+        _record_warnings_and_find_escalated(manifest, coordinate_warnings, count_key=task_id)
     marker = git_private_path(worktree, "ag2c-task.json")
     _atomic_json(marker, {"schema": TASK_SCHEMA, "task_id": task_id, "canonical_root": str(canonical)})
     event = append_event(
@@ -749,6 +778,7 @@ def start_task(
             "worktree_branch": branch,
             "slice_digest": entry_slice["slice_digest"],
             "route_state": entry_slice["route"]["state"],
+            "coordinates": task["coordinates"],
         },
     )
     task["start_ledger_event_digest"] = event["event_digest"]

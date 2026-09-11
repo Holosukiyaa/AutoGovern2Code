@@ -290,6 +290,10 @@ def tool_defs() -> list[dict[str, Any]]:
                     "type": "boolean",
                     "description": "巴林条款申报：本任务将同时修改产品代码与验证它的测试。申报后 verify 放行但记 intervention 并提升监管审查级别；不申报的同改会被 verify 拦截。",
                 },
+                "coordinates": {
+                    "type": "object",
+                    "description": "AGF 七维坐标申报（可选）：effect/contract/meaning/quality/decider/grain/failure，封闭枚举（见 agf/src/agf/models.py）；未申报维度从触及卡片的 jurisdiction 保守推导，多卡冲突取更严档。只申报记录，不执法。",
+                },
                 "cwd": _cwd_prop(),
             },
             ["goal", "portrait"],
@@ -490,6 +494,9 @@ def _call_start(args: dict[str, Any]) -> Any:
             "(Done looks like / Surfaces / Out of result / Inferences) and lock it before coding."
         )
     paths = _string_list(args, "paths") or _string_list(args, "path")
+    coordinates = args.get("coordinates")
+    if coordinates is not None and not isinstance(coordinates, Mapping):
+        raise AG2CError("coordinates must be an object of dimension=value")
     return start_task(
         _cwd(args),
         goal=str(args.get("goal") or ""),
@@ -498,6 +505,7 @@ def _call_start(args: dict[str, Any]) -> Any:
         all_mode=bool(args.get("all")),
         portrait=portrait,
         touches_verification=bool(args.get("touches_verification")),
+        coordinates=dict(coordinates) if coordinates else None,
     )
 
 

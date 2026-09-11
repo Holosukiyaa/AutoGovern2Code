@@ -967,6 +967,71 @@ def _committed_delta(canonical: Path, base: str, manifest) -> list[str]:
     return [path for path in paths if keep(path)]
 
 
+#: 治理关键路径：这些模块的代码决定 verify 本身的判罚——门禁编排（tasks）、
+#: checker 执行与警告升级（checks）、监管裁决（review）、政策默认值（config，
+#: regulator.strict 翻转就在这）、切片选择（slicer，决定哪些 checker 进场）、
+#: 产品验收结论（acceptance）、危房判定（hazard）、选择性验证影子计划
+#: （scheduler）。治理收紧必须到达执行 verify 的进程：在途任务的 worktree
+#: 跑旧代码等于换锁不换门（2026-09-11 事故：strict 默认值翻转合并后，4 次
+#: verify 仍被翻转前开工的 worktree 用旧代码放行——账本 17:41-18:05 UTC）。
+GOVERNANCE_CODE_PATHS: tuple[str, ...] = (
+    "src/ag2c/tasks.py",
+    "src/ag2c/checks.py",
+    "src/ag2c/review.py",
+    "src/ag2c/config.py",
+    "src/ag2c/slicer.py",
+    "src/ag2c/acceptance.py",
+    "src/ag2c/hazard.py",
+    "src/ag2c/scheduler.py",
+)
+
+
+def _governance_code_reconcile(canonical: Path, worktree: Path, task: dict[str, Any], manifest) -> None:
+    """治理代码对账（AGF 对账三件套——坐标申报/对账/降档棘轮——的第一个实例）。
+
+    canonical 在任务开工后推进了治理关键路径、且 worktree 未包含这些更新
+    （纯落后）时拒绝 verify：此时继续验证等于用旧锁验新门，通过的结论
+    不可信。worktree 自己改了这些文件不算落后——那是任务内容本身；双方
+    同改由既有的 canonical-head-diverged 相交检查接管（报冲突而非落后）。
+    比对本身出故障（git/IO）降级为 intervention 留痕，不阻塞 verify。
+    """
+    source_head = str(task["source"]["head"])
+    try:
+        canonical_head = head(canonical)
+        if canonical_head == source_head:
+            return
+        moved = sorted(set(_committed_delta(canonical, source_head, manifest)) & set(GOVERNANCE_CODE_PATHS))
+        if not moved:
+            return
+        touched = set(changed_paths(worktree, source_head))
+        behind = [path for path in moved if path not in touched]
+    except (AG2CError, OSError) as exc:
+        _record_intervention(
+            canonical,
+            manifest,
+            task,
+            "governance-code-reconcile-degraded",
+            {"error": str(exc)[:200]},
+        )
+        return
+    if not behind:
+        return
+    _record_intervention(
+        canonical,
+        manifest,
+        task,
+        "governance-code-behind",
+        {"paths": behind, "source_head": source_head, "canonical_head": canonical_head},
+    )
+    raise AG2CError(
+        "治理代码对账失败：canonical 已更新治理关键代码，本 worktree 跑的是旧版本，"
+        "继续 verify 等于换锁不换门（治理收紧不回溯在途任务）。落后文件：\n- "
+        + "\n- ".join(behind)
+        + f"\n从 canonical 运行：ag2c task refresh --task {task['id']}，然后重新 verify"
+        "（新进程才会加载新代码——进程内的 auto-refresh 救不了已经在跑的旧代码）。"
+    )
+
+
 def verify_task(start: Path, *, _auto_refreshed: bool = False) -> dict[str, Any]:
     worktree = repository_root(start)
     canonical, task = _task_from_worktree(worktree)
@@ -976,6 +1041,10 @@ def verify_task(start: Path, *, _auto_refreshed: bool = False) -> dict[str, Any]
     if formal_dirty:
         _record_intervention(canonical, canonical_manifest, task, "canonical-write-blocked", {"paths": formal_dirty})
         raise AG2CError("canonical worktree changed during the task; refusing verification")
+    # 治理代码对账必须先于 HEAD 分叉自愈：auto-refresh 在同一进程内重基，
+    # 磁盘字节是新的、内存里跑的仍是旧治理代码——这个洞只能靠拒绝+手动
+    # refresh+新进程重验来堵。
+    _governance_code_reconcile(canonical, worktree, task, canonical_manifest)
     actual_paths = changed_paths(worktree, task["source"]["head"])
     if not actual_paths:
         raise AG2CError("task worktree has no changes to verify")

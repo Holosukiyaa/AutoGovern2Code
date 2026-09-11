@@ -299,5 +299,112 @@ class AutoRefreshTests(unittest.TestCase):
             self.assertIn("# other lane", (root / "src" / "worker" / "job.py").read_text(encoding="utf-8"))
 
 
+class GovernanceReconcileTests(AutoRefreshTests):
+    """治理代码对账：worktree 的治理关键代码落后 canonical 时 verify 拒绝。
+
+    复用 AutoRefreshTests 的生产拓扑夹具；GOVERNANCE_CODE_PATHS 打补丁成夹具
+    里存在的路径（夹具 policy 只认 src/api 与 src/worker 两个房间）。
+    """
+
+    def _intervention_kinds(self, root: Path, task_id: str) -> list[str]:
+        return [item["kind"] for item in self._task_record(root, task_id)["interventions"]]
+
+    def test_verify_refused_when_governance_code_behind(self) -> None:
+        from ag2c.errors import AG2CError
+        from ag2c.tasks import verify_task
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._project(tmp)
+            task = self._start(root)
+            worktree = Path(task["worktree"]["path"])
+            self._touch_task_file(worktree)
+            record_census(worktree)
+            with mock.patch("ag2c.tasks.GOVERNANCE_CODE_PATHS", ("src/worker/job.py",)):
+                self._diverge_canonical(root, "src/worker/job.py")  # canonical 推进了治理关键代码
+                with self.assertRaisesRegex(AG2CError, "治理代码对账失败"):
+                    verify_task(worktree)
+            record = self._task_record(root, task["id"])
+            kinds = self._intervention_kinds(root, task["id"])
+            self.assertIn("governance-code-behind", kinds)
+            behind = next(item for item in record["interventions"] if item["kind"] == "governance-code-behind")
+            self.assertEqual(["src/worker/job.py"], behind["paths"])
+
+    def test_verify_passes_when_task_itself_touches_governance_code(self) -> None:
+        """领先放行：任务自己改了治理关键文件（canonical 未动）——那正是任务内容本身。"""
+        from ag2c.tasks import verify_task
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._project(tmp)
+            task = self._start(root)
+            worktree = Path(task["worktree"]["path"])
+            self._touch_task_file(worktree)
+            record_census(worktree)
+            with mock.patch("ag2c.tasks.GOVERNANCE_CODE_PATHS", ("src/api/service.py",)):
+                self.assertTrue(verify_task(worktree)["passed"])
+            self.assertNotIn("governance-code-behind", self._intervention_kinds(root, task["id"]))
+
+    def test_verify_passes_when_canonical_moves_only_non_governance_code(self) -> None:
+        """一致放行：canonical 动了、但动的不是治理关键文件——并行税自愈照旧。"""
+        from ag2c.tasks import verify_task
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._project(tmp)
+            task = self._start(root)
+            worktree = Path(task["worktree"]["path"])
+            self._touch_task_file(worktree)
+            record_census(worktree)
+            with mock.patch("ag2c.tasks.GOVERNANCE_CODE_PATHS", ("src/ag2c/tasks.py",)):  # 夹具里不存在
+                self._diverge_canonical(root, "src/worker/job.py")
+                self.assertTrue(verify_task(worktree)["passed"])
+            self.assertNotIn("governance-code-behind", self._intervention_kinds(root, task["id"]))
+
+    def test_verify_passes_after_manual_refresh(self) -> None:
+        """refresh 后放行：被拒绝 → 手动 refresh → 重验通过（新代码随新进程生效）。"""
+        from ag2c.errors import AG2CError
+        from ag2c.tasks import refresh_task, verify_task
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._project(tmp)
+            task = self._start(root)
+            worktree = Path(task["worktree"]["path"])
+            self._touch_task_file(worktree)
+            record_census(worktree)
+            with mock.patch("ag2c.tasks.GOVERNANCE_CODE_PATHS", ("src/worker/job.py",)):
+                self._diverge_canonical(root, "src/worker/job.py")
+                with self.assertRaisesRegex(AG2CError, "治理代码对账失败"):
+                    verify_task(worktree)
+                refresh_task(root, task["id"])
+                self.assertTrue(verify_task(worktree)["passed"])
+            # worktree 现在带着 canonical 的治理更新
+            self.assertIn("# other lane", (worktree / "src" / "worker" / "job.py").read_text(encoding="utf-8"))
+
+    def test_reconcile_failure_degrades_without_blocking(self) -> None:
+        """降级原则：比对本身出 git 故障不阻塞 verify，记 intervention 留痕。"""
+        import ag2c.tasks as tasks_module
+        from ag2c.errors import AG2CError
+        from ag2c.tasks import verify_task
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._project(tmp)
+            task = self._start(root)
+            worktree = Path(task["worktree"]["path"])
+            self._touch_task_file(worktree)
+            record_census(worktree)
+            real_delta = tasks_module._committed_delta
+            calls = {"n": 0}
+
+            def flaky_delta(canonical, base, manifest):
+                calls["n"] += 1
+                if calls["n"] == 1:  # 只对账这一次炸；后续 HEAD 分叉检查拿到真 delta
+                    raise AG2CError("boom")
+                return real_delta(canonical, base, manifest)
+
+            with mock.patch("ag2c.tasks.GOVERNANCE_CODE_PATHS", ("src/worker/job.py",)):
+                with mock.patch.object(tasks_module, "_committed_delta", flaky_delta):
+                    self._diverge_canonical(root, "src/worker/job.py")
+                    self.assertTrue(verify_task(worktree)["passed"])
+            self.assertIn("governance-code-reconcile-degraded", self._intervention_kinds(root, task["id"]))
+
+
 if __name__ == "__main__":
     unittest.main()

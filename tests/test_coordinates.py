@@ -23,10 +23,13 @@ from support import git_project, write_project
 from ag2c.config import discover_manifest, load_manifest
 from ag2c.coordinates import (
     CONSERVATIVE_DEFAULTS,
+    COORDINATE_ENUMS,
     COORDINATE_FIELDS,
     CONSTRAINT_WARNING_KIND,
+    RECONCILIATION_WARNING_KIND,
     constraint_warnings,
     derive_from_cards,
+    reconciliation_warnings,
     resolve_coordinates,
     validate_declaration,
 )
@@ -435,6 +438,181 @@ class EntryPointTests(unittest.TestCase):
                         "coordinates": "quality=human",
                     }
                 )
+
+
+# --- 对账三件套第二件：枚举对账机器锚 + 申报 vs 推导对账 ---
+
+_SNAPSHOT_PATH = Path(__file__).parent / "agf_enums_snapshot.json"
+
+#: AGF 七维维度名 → models.py 里的模块级集合符号。
+_AGF_ENUM_SYMBOLS = {
+    "effect": "EFFECTS",
+    "contract": "CONTRACTS",
+    "meaning": "MEANINGS",
+    "quality": "QUALITIES",
+    "decider": "DECIDERS",
+    "grain": "GRAINS",
+    "failure": "FAILURES",
+}
+
+
+def _load_snapshot() -> dict:
+    return json.loads(_SNAPSHOT_PATH.read_text(encoding="utf-8"))
+
+
+def _agf_live_enums(models_path: Path) -> dict[str, list[str]]:
+    """ast 解析 AGF models.py 提取七维枚举成员（指针而非引擎：读源码当数据，不 import agf）。"""
+    import ast
+
+    tree = ast.parse(models_path.read_text(encoding="utf-8"))
+    found: dict[str, list[str]] = {}
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if not isinstance(target, ast.Name):
+            continue
+        for dim, symbol in _AGF_ENUM_SYMBOLS.items():
+            if target.id != symbol:
+                continue
+            if not isinstance(node.value, (ast.Set, ast.Tuple, ast.List)):
+                raise AssertionError(f"AGF {symbol} 不再是字面集合，快照口径失效")
+            values = []
+            for elt in node.value.elts:
+                if not isinstance(elt, ast.Constant) or not isinstance(elt.value, str):
+                    raise AssertionError(f"AGF {symbol} 含非字符串字面量，快照口径失效")
+                values.append(elt.value)
+            found[dim] = sorted(values)
+    return found
+
+
+class EnumSnapshotTests(unittest.TestCase):
+    """对账①：枚举对齐从注释锚升级为机器锚——coordinates.py == vendored 快照 == AGF 实况。
+
+    成员口径对账：AGF 用无序 set，AG2C 用有序 tuple（顺序承载严格度 rank，
+    是 AG2C 自己的语义），所以对账只比成员集合，不比顺序。
+    """
+
+    def test_coordinates_match_snapshot(self) -> None:
+        snapshot = _load_snapshot()
+        self.assertEqual("ag2c.agf-enums-snapshot/v1", snapshot["schema"])
+        self.assertEqual(sorted(COORDINATE_FIELDS), sorted(snapshot["enums"]))
+        for dim in COORDINATE_FIELDS:
+            self.assertEqual(
+                sorted(snapshot["enums"][dim]),
+                sorted(COORDINATE_ENUMS[dim]),
+                f"{dim} 与 vendored 快照漂移：AG2C 改了枚举却没同步快照（或反之）",
+            )
+
+    def test_snapshot_matches_live_agf_repo(self) -> None:
+        """AGF 仓在本机时校验快照==实况；仓不在跳过（CI 不能依赖邻居仓）。"""
+        snapshot = _load_snapshot()
+        source = snapshot["source"]
+        repo = Path(os.environ.get(source["env_override"]) or source["repo_hint"])
+        models = repo / source["file"]
+        if not models.is_file():
+            self.skipTest(f"AGF 仓不在本机（{models}），跳过实况对账")
+        live = _agf_live_enums(models)
+        self.assertEqual(sorted(COORDINATE_FIELDS), sorted(live))
+        for dim in COORDINATE_FIELDS:
+            self.assertEqual(
+                sorted(snapshot["enums"][dim]),
+                live[dim],
+                f"{dim} 快照落后于 AGF 仓实况：AGF 修宪后需人工吸收（vendored 快照是有意识的同步点）",
+            )
+
+
+class ReconciliationWarningTests(unittest.TestCase):
+    """对账②函数级：申报比推导宽松（rank 更低）才警告；更严/一致/无从对账都静默。"""
+
+    def test_looser_declaration_warns(self) -> None:
+        warnings = reconciliation_warnings("t-x", {"meaning": "none"}, {"meaning": "summary"})
+        self.assertEqual(1, len(warnings))
+        self.assertEqual(RECONCILIATION_WARNING_KIND, warnings[0]["kind"])
+        self.assertEqual("t-x:meaning-declared-looser", warnings[0]["key"])
+        self.assertIn("meaning=none", warnings[0]["detail"])
+        self.assertIn("summary", warnings[0]["detail"])
+
+    def test_stricter_or_equal_declaration_silent(self) -> None:
+        self.assertEqual([], reconciliation_warnings("t-x", {"meaning": "projection"}, {"meaning": "summary"}))
+        self.assertEqual([], reconciliation_warnings("t-x", {"contract": "machine"}, {"contract": "machine"}))
+
+    def test_underivable_dimensions_not_reconciled(self) -> None:
+        # effect/quality/failure/grain 卡片推导不出；declared 有而 derived 无 → 无从对账
+        self.assertEqual([], reconciliation_warnings("t-x", {"quality": "none"}, {"contract": "machine"}))
+        self.assertEqual([], reconciliation_warnings("t-x", {}, {"contract": "machine"}))
+        self.assertEqual([], reconciliation_warnings("t-x", {"contract": "none"}, {}))
+
+    def test_multiple_looser_dimensions_each_warn(self) -> None:
+        warnings = reconciliation_warnings(
+            "t-x",
+            {"contract": "none", "decider": "machine"},
+            {"contract": "partial", "decider": "confirm"},
+        )
+        self.assertEqual({"t-x:contract-declared-looser", "t-x:decider-declared-looser"}, {w["key"] for w in warnings})
+
+
+class ReconciliationWiringTests(unittest.TestCase):
+    """对账②的 verify 接线：真实 verify_task 驱动——警告进 verify 记录 + warning-history，且不拦。"""
+
+    @staticmethod
+    def _touch_and_verify(root: Path, started: dict) -> dict:
+        from support import record_census
+
+        from ag2c.tasks import verify_task
+
+        worktree = Path(started["worktree"]["path"])
+        service = worktree / "src" / "api" / "service.py"
+        service.write_text(service.read_text(encoding="utf-8") + "# touched\n", encoding="utf-8")
+        record_census(worktree)
+        return verify_task(worktree)
+
+    def test_verify_warns_on_looser_declaration_without_blocking(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _project(tmp)
+            # 夹具卡 meaning=named → 推导 summary；申报 none 比推导宽松
+            started = _start(root, coordinates={"meaning": "none"})
+            report = self._touch_and_verify(root, started)
+            self.assertTrue(report["passed"])  # 警告级：不拦
+            reconciliation = report["verification"]["coordinate_reconciliation"]
+            self.assertEqual({"meaning": "none"}, reconciliation["declared"])
+            self.assertEqual("summary", reconciliation["derived"]["meaning"])
+            keys = [w["key"] for w in reconciliation["warnings"]]
+            self.assertEqual([f"{started['id']}:meaning-declared-looser"], keys)
+            # 落 warning-history（kind 不在 ESCALATABLE_KINDS，只计数留痕）
+            history = _warning_history(root)
+            hits = [
+                entry
+                for entry in history.get("warnings", {}).values()
+                if entry.get("kind") == RECONCILIATION_WARNING_KIND
+            ]
+            self.assertEqual(1, len(hits))
+            self.assertEqual(f"{started['id']}:meaning-declared-looser", hits[0]["key"])
+
+    def test_verify_silent_when_declaration_not_looser(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _project(tmp)
+            # projection 比推导的 summary 严——保守方向，不警告
+            started = _start(root, coordinates={"meaning": "projection"})
+            report = self._touch_and_verify(root, started)
+            self.assertTrue(report["passed"])
+            reconciliation = report["verification"]["coordinate_reconciliation"]
+            self.assertEqual([], reconciliation["warnings"])
+            history = _warning_history(root)
+            hits = [
+                entry
+                for entry in history.get("warnings", {}).values()
+                if entry.get("kind") == RECONCILIATION_WARNING_KIND
+            ]
+            self.assertEqual([], hits)
+
+    def test_verify_reconciliation_absent_without_declaration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _project(tmp)
+            started = _start(root)  # 无申报 → 无从对账
+            report = self._touch_and_verify(root, started)
+            self.assertTrue(report["passed"])
+            self.assertEqual({"warnings": []}, report["verification"]["coordinate_reconciliation"])
 
 
 if __name__ == "__main__":

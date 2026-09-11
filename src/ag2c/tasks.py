@@ -1274,6 +1274,39 @@ def verify_task(start: Path, *, _auto_refreshed: bool = False) -> dict[str, Any]
         for item in task.get("interventions", [])
     ):
         _record_intervention(canonical, canonical_manifest, task, "scope-expanded", {"paths": expanded})
+    # 申报 vs 推导对账（对账三件套第二件）：declared 比实际工作集卡片重新
+    # 推导的 derived 宽松时出警告——不拦、不进 ESCALATABLE_KINDS（棘轮是第
+    # 三件）。警告落 warning-history（count_key=task_id 按任务去重）并作为
+    # 信息性字段进 verify 记录。对账是观察通道：任何异常降级留痕，不炸 verify。
+    coordinate_reconciliation: dict[str, Any] = {"warnings": []}
+    try:
+        declared_coordinates = dict((task.get("coordinates") or {}).get("declared") or {})
+        if declared_coordinates:
+            from .coordinates import derive_from_cards, reconciliation_warnings
+            from .households import coerce_jurisdiction
+
+            verify_jurisdictions = []
+            for item in actual_slice.get("cards", []):
+                try:
+                    card = policy.card(str(item.get("id")))
+                except StopIteration:
+                    continue
+                jurisdiction = coerce_jurisdiction(card.jurisdiction)
+                if jurisdiction:
+                    verify_jurisdictions.append(jurisdiction)
+            derived_coordinates = derive_from_cards(verify_jurisdictions)
+            recon_warnings = reconciliation_warnings(str(task["id"]), declared_coordinates, derived_coordinates)
+            coordinate_reconciliation = {
+                "declared": declared_coordinates,
+                "derived": derived_coordinates,
+                "warnings": recon_warnings,
+            }
+            if recon_warnings:
+                from .checks import _record_warnings_and_find_escalated
+
+                _record_warnings_and_find_escalated(canonical_manifest, recon_warnings, count_key=str(task["id"]))
+    except Exception as exc:
+        coordinate_reconciliation = {"error": str(exc), "warnings": []}
     before_check_digest = change_digest(worktree, task["source"]["head"])
     report = run_checks(
         manifest,
@@ -1365,6 +1398,9 @@ def verify_task(start: Path, *, _auto_refreshed: bool = False) -> dict[str, Any]
         # 调度器 Phase 1：影子计划是信息性字段（同 checker_durations 的口径），
         # 不参与证据绑定的固定键比对，旧版 finish 读到也能容忍。
         "shadow_plan": shadow,
+        # 坐标对账（三件套第二件）：同 shadow_plan 的信息性字段口径——可机验
+        # 但不参与证据绑定比对；警告级产出，永不拦截。
+        "coordinate_reconciliation": coordinate_reconciliation,
     }
     verification_event = append_event(
         canonical_manifest.ledger_path,

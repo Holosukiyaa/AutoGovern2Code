@@ -1,0 +1,53 @@
+{
+  "schema": "ag2c.agf-enums-snapshot/v1",
+  "source": {
+    "repo_hint": "C:\\WorkSpace\\Code\\agf",
+    "env_override": "AG2C_AGF_REPO",
+    "file": "src/agf/models.py",
+    "commit": "cbd1ccc",
+    "recorded_at": "2026-09-11"
+  },
+  "enums": {
+    "effect": [
+      "external",
+      "irreversible",
+      "none",
+      "read",
+      "write"
+    ],
+    "contract": [
+      "machine",
+      "none",
+      "partial"
+    ],
+    "meaning": [
+      "none",
+      "projection",
+      "summary"
+    ],
+    "quality": [
+      "gold",
+      "heuristic",
+      "human",
+      "none"
+    ],
+    "decider": [
+      "confirm",
+      "machine",
+      "none",
+      "review"
+    ],
+    "grain": [
+      "conversation",
+      "flow",
+      "run",
+      "step"
+    ],
+    "failure": [
+      "escalate",
+      "fail_closed",
+      "retry",
+      "skip"
+    ]
+  }
+}

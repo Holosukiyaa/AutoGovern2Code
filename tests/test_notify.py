@@ -440,5 +440,61 @@ class CensusStaleGateWiringTests(unittest.TestCase):
             self.assertEqual(2, kinds.count(KIND_CENSUS_STALE))
 
 
+class HazardPushTrayIntegrationTests(unittest.TestCase):
+    """任务4 监管遗留的集成兑现：真实驱动托盘轮询路径（management.project_details）
+    → 真实危房检测（guard-removed：纳管登记在、core.hooksPath 未装）→ KIND_HAZARD
+    通知落队列；二次轮询去重不轰炸。与 HazardPushTests 的函数级用例互补：
+    那些注合成报告证 push_critical_hazards，这条证 overlay 接线本身不是空炮。"""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.mkdtemp()
+        self._old = os.environ.get("AG2C_DATA_ROOT", "")
+        os.environ["AG2C_DATA_ROOT"] = self._tmp
+
+    def tearDown(self) -> None:
+        if self._old:
+            os.environ["AG2C_DATA_ROOT"] = self._old
+        else:
+            os.environ.pop("AG2C_DATA_ROOT", None)
+
+    def test_tray_poll_pushes_critical_hazard_and_dedups(self) -> None:
+        import subprocess
+
+        from support import git_project
+
+        from ag2c.enrollment import enroll_project
+        from ag2c.management import project_details
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            # 生产拓扑夹具（与 test_coordinates._project 同款）：真实纳管进隔离
+            # 数据根——activation.json 与守卫由 enrollment 真实安装，manifest 可发现。
+            os.environ["AG2C_DATA_ROOT"] = str(base / "ag2c-data")
+            root = git_project(base / "proj")
+            enroll_project(root, skill_root=base / "skills", harnesses=("agents",))
+            # 真实 guard-removed：纳管登记在，但守卫被拆（core.hooksPath 未设置）
+            subprocess.run(
+                ["git", "-C", str(root), "config", "--unset", "core.hooksPath"],
+                check=True,
+                capture_output=True,
+            )
+
+            details = project_details(root, refresh=True)
+            self.assertTrue(details["available"])
+            hazard_kinds = [entry["kind"] for entry in details["hazards"]["hazards"]]
+            self.assertIn("guard-removed", hazard_kinds)  # 检测本身真实命中（severity 60 ≥ 50）
+
+            project_id = details["manifest"]["project_id"]
+            pushed = [item for item in pending_notifications(project_id) if item["kind"] == KIND_HAZARD]
+            self.assertEqual(1, len(pushed))
+            self.assertIn("guard-removed", pushed[0]["title"])
+            self.assertIn("60", pushed[0]["title"])
+
+            # 托盘再次轮询（看板开着 = 高频轮询）：同一条目不重复轰炸
+            project_details(root, refresh=True)
+            project_details(root, refresh=True)
+            self.assertEqual(1, notification_count(project_id))
+
+
 if __name__ == "__main__":
     unittest.main()

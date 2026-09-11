@@ -6,8 +6,13 @@
 同步本身是一次有意识的修宪吸收，不是依赖漂移。
 
 设计依据：docs/dev/AGF-INSPIRATIONS.md（对账三件套：坐标申报/对账/降档棘轮
-——本模块是第一件；对账 checker 是后续任务）、docs/dev/AG2K-INSPIRATIONS.md
-（信任阶梯 L0-L3，decider 按层级分档）。
+——本模块承载第一件（申报）与第二件的对账函数（reconciliation_warnings，
+verify 期接线见 tasks.verify_task）；降档棘轮是第三件，不在此）、
+docs/dev/AG2K-INSPIRATIONS.md（信任阶梯 L0-L3，decider 按层级分档）。
+
+坐标的生命周期：随 task-started 账本事件锚定，任务中途不可改——
+amend-portrait 的修订链只迁移画像字段，坐标不一致维持拒绝（监管观察②
+定案）；坐标要变只能 abandon 重开，用新的 start 事件做新的申报。
 
 推导的保守原则：未申报的维度从 path_specs 触及卡片的 jurisdiction 推导，
 多张卡冲突时取更严的档（rank 最大）；卡片 jurisdiction 覆盖不到的维度
@@ -70,6 +75,10 @@ CONSERVATIVE_DEFAULTS: dict[str, str] = {
 #: 维度间约束警告的 kind。刻意不加入 checks.ESCALATABLE_KINDS：约束机查刚
 #: 上线，先观察误报率，永不硬化成门。
 CONSTRAINT_WARNING_KIND = "coordinate-constraint"
+
+#: 申报 vs 推导对账警告的 kind。同 CONSTRAINT_WARNING_KIND 的纪律：不进
+#: ESCALATABLE_KINDS——对账三件套第二件只出警告，降档棘轮是第三件。
+RECONCILIATION_WARNING_KIND = "coordinate-reconciliation"
 
 
 def validate_declaration(declaration: dict[str, Any]) -> dict[str, str]:
@@ -172,4 +181,36 @@ def constraint_warnings(task_id: str, effective: dict[str, str]) -> list[dict[st
                 ),
             }
         )
+    return warnings
+
+
+def reconciliation_warnings(
+    task_id: str,
+    declared: dict[str, str],
+    derived: dict[str, str],
+) -> list[dict[str, str]]:
+    """申报 vs 推导对账（三件套第二件）：申报比推导宽松的维度出警告。
+
+    只比 STRICTNESS_RANKS 覆盖的维度（contract/decider/meaning）——其余维度
+    卡片推导不出，无从对账。申报比推导严是保守方向，不警告；一致也不警告。
+    警告不拦 verify、不硬化成门（棘轮是第三件）；verify 期由 tasks.verify_task
+    接线，落 warning-history 并作为信息性字段进 verify 记录。
+    """
+    warnings: list[dict[str, str]] = []
+    for dim, ranks in STRICTNESS_RANKS.items():
+        declared_value = declared.get(dim)
+        derived_value = derived.get(dim)
+        if declared_value is None or derived_value is None:
+            continue
+        if ranks[declared_value] < ranks[derived_value]:
+            warnings.append(
+                {
+                    "kind": RECONCILIATION_WARNING_KIND,
+                    "key": f"{task_id}:{dim}-declared-looser",
+                    "detail": (
+                        f"申报 {dim}={declared_value} 比工作集卡片推导的 {derived_value} 宽松；"
+                        "若申报是有意放宽请确认，否则应按推导收紧申报"
+                    ),
+                }
+            )
     return warnings

@@ -416,5 +416,83 @@ class AmendFinishEvidenceTests(unittest.TestCase):
             self.assertFalse(_start_evidence_valid(manifest, _record(root)))
 
 
+SAMPLE_COORDINATES = {
+    "declared": {"quality": "heuristic"},
+    "derived": {"meaning": "summary"},
+    "defaults": {"effect": "write"},
+    "effective": {"quality": "heuristic", "meaning": "summary", "effect": "write"},
+}
+
+
+def _bind_coordinated_start_event(root: Path, coordinates: dict, task_id: str = "t-amend", portrait: str = OLD_PORTRAIT) -> dict:
+    """_bind_start_event 的带坐标变体：任务记录与 start 事件都携带同一份 coordinates。"""
+    record = _record(root, task_id)
+    record["coordinates"] = coordinates
+    _task_path(root, task_id).write_text(json.dumps(record), encoding="utf-8")
+    manifest = load_manifest(discover_manifest(root))
+    payload = {
+        "task_id": task_id,
+        "goal": record.get("goal"),
+        "source_head": record.get("source", {}).get("started_head") or record.get("source", {}).get("head"),
+        "source_branch": record.get("source", {}).get("started_branch") or record.get("source", {}).get("branch"),
+        "worktree": record.get("worktree", {}).get("path"),
+        "worktree_branch": record.get("worktree", {}).get("branch"),
+        "slice_digest": record.get("route", {}).get("slice_digest"),
+        "route_state": record.get("route", {}).get("state"),
+        "portrait": portrait,
+        "coordinates": coordinates,
+    }
+    event = append_event(manifest.ledger_path, "task-started", payload)
+    record["start_ledger_event_digest"] = event["event_digest"]
+    _task_path(root, task_id).write_text(json.dumps(record), encoding="utf-8")
+    return record
+
+
+class AmendCoordinateBindingTests(unittest.TestCase):
+    """监管观察②定案：amend 链下 start 证据的坐标绑定必须仍然生效。
+
+    语义：amend 不改坐标——修订链只迁移画像字段；坐标随 task-started 事件
+    账本锚定，要变只能 abandon 重开（新 start 事件 = 新申报）。修订链有效
+    但坐标被篡改的任务，finish 证据门禁维持拒绝。
+    """
+
+    def test_amend_chain_valid_when_coordinates_untouched(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = git_project(Path(tmp) / "proj")
+            write_project(root)
+            _fake_open_task(root)
+            _bind_coordinated_start_event(root, SAMPLE_COORDINATES)
+            amend_portrait(root, portrait=NEW_PORTRAIT, actor="holo", reason="预算口径纠偏：60s→90s")
+            manifest = load_manifest(discover_manifest(root))
+            self.assertTrue(_start_evidence_valid(manifest, _record(root)))
+
+    def test_tampered_coordinates_rejected_despite_valid_amend_chain(self) -> None:
+        """修订链完全合法，但坐标在 start 之后被改（申报比进场时宽松）→ 拒绝。"""
+        with TemporaryDirectory() as tmp:
+            root = git_project(Path(tmp) / "proj")
+            write_project(root)
+            _fake_open_task(root)
+            _bind_coordinated_start_event(root, SAMPLE_COORDINATES)
+            amend_portrait(root, portrait=NEW_PORTRAIT, actor="holo", reason="预算口径纠偏：60s→90s")
+            record = _record(root)
+            record["coordinates"]["declared"]["quality"] = "none"  # 篡改：放宽申报
+            _task_path(root, "t-amend").write_text(json.dumps(record), encoding="utf-8")
+            manifest = load_manifest(discover_manifest(root))
+            self.assertFalse(_start_evidence_valid(manifest, _record(root)))
+
+    def test_tampered_coordinates_without_amend_rejected(self) -> None:
+        """无修订链时改坐标同样拒绝（坐标绑定的基线行为在 amend 分支外不变）。"""
+        with TemporaryDirectory() as tmp:
+            root = git_project(Path(tmp) / "proj")
+            write_project(root)
+            _fake_open_task(root)
+            _bind_coordinated_start_event(root, SAMPLE_COORDINATES)
+            record = _record(root)
+            record["coordinates"]["effective"]["effect"] = "none"
+            _task_path(root, "t-amend").write_text(json.dumps(record), encoding="utf-8")
+            manifest = load_manifest(discover_manifest(root))
+            self.assertFalse(_start_evidence_valid(manifest, _record(root)))
+
+
 if __name__ == "__main__":
     unittest.main()

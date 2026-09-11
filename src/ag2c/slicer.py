@@ -214,6 +214,8 @@ def compile_slice(
         # context rooms (relation walk) carry knowledge, not test obligations.
         card["direct"] = card["id"] in direct_ids
     checker_reasons: dict[str, set[str]] = defaultdict(set)
+    # Only direct-hit rooms contribute checkers. A scenario checker that lives
+    # only on a context card stays not-in-slice; bind it on the room that changes.
     for card_id in reasons:
         if card_id not in direct_ids:
             continue

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- scenario 检查器 `check.knowledge.ag2c-gui` 设 always=true：verify 跑桌面启动验收，acceptance.scenario 不再长期 not-in-slice。未绑到 knowledge.ag2c（implementation-check-mismatch）。
+
 - MCP census 观察分支默认摘要（household_count/freshness/stale），`verbose=true` 才回全量房间树。Covered by `McpCensusPayloadTests` observe 两例。
 
 - 降档棘轮：`coordinate-reconciliation` 的 key 按维度稳定（不含 task id），跨任务计数，第 3 次同维宽松申报硬化。`coordinate-constraint` 仍不硬化。Covered by `DowngradeRatchetTests`。

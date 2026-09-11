@@ -607,7 +607,10 @@ def _census_cache_key(manifest: Manifest, policy: Policy) -> tuple[Any, ...] | N
             root = manifest.target_root(target.target_id)
             head = str(_git(root, "rev-parse", "HEAD") or "")
             dirty = str(_git(root, "status", "--porcelain") or "")
-            parts.extend([target.target_id, head, hashlib.sha256(dirty.encode("utf-8", "replace")).hexdigest()])
+            # 检出根路径必须在 key 里：canonical 与任务 worktree 共享 policy/state
+            # 文件，HEAD 与 dirty 状态相同的瞬间（如任务刚开工）会碰撞；内容相同
+            # 时无害，但「碰撞即同内容」是运气不是设计。
+            parts.extend([str(root), target.target_id, head, hashlib.sha256(dirty.encode("utf-8", "replace")).hexdigest()])
             parts.extend(_dirty_file_stats(root, dirty))
         return tuple(parts)
     except Exception:

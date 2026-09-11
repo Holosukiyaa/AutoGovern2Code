@@ -266,6 +266,11 @@ def _review_census_locked(start: Path, *, card_ids: list[str], all_cards: bool, 
         if item["id"] not in chosen:
             continue
         record = {"id": f'{batch}:{item["id"]}', "card_id": item["id"], "surveyed_at": timestamp, "actor": actor, "reason": reason, "summary": item["summary"], "scope_digest": item["scope_digest"], "declaration_digest": item["declaration_digest"], "scopes": item["scopes"], "file_count": item["file_count"], "code_count": item["code_count"], "project_revisions": report["revisions"], "known_issues": item["issues"], "previous": next((entry["id"] for entry in reversed(state["records"]) if entry["card_id"] == item["id"]), None)}
+        # 代码版本戳：digest 语义随代码演进，长驻进程（MCP server/托盘）可能跑旧代码。
+        # 戳让「哪个年代的工具录的」可查；跨版本拒收的门禁留给后续任务。
+        from . import __version__
+
+        record["code_version"] = __version__
         record["last_source_change"] = item["last_source_change"]
         record["digest"] = digest_json(record)
         additions.append(record)

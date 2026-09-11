@@ -699,15 +699,48 @@ def _call_census(args: dict[str, Any]) -> Any:
     root = _cwd(args)
     if args.get("record"):
         cards = _string_list(args, "card") or _string_list(args, "cards")
-        return review_census(
+        result = review_census(
             root,
             card_ids=cards,
             all_cards=bool(args.get("all")) and not cards,
             actor=_actor(args),
             reason=str(args.get("reason") or "").strip() or "mcp census record",
         )
+        warning = _canonical_census_warning(root)
+        if warning:
+            result["warning"] = warning
+        return result
     manifest = load_manifest(discover_manifest(repository_root(root)), project_root=root)
     return census_report(manifest, load_policy(manifest))
+
+
+def _canonical_census_warning(root: Path) -> str | None:
+    """cwd 脚枪提示：在 canonical 检出上录普查、且有开放任务时提醒。
+
+    finish 的新鲜度门禁读的是 worktree 的普查记录；在 canonical 上录的记录
+    对进行中的任务不算数。警告不阻塞（canonical 普查本身合法，如发版后全量）。
+    """
+    try:
+        from .enrollment import activation_status
+        from .tasks import TERMINAL_TASK_STATES, list_tasks
+
+        status = activation_status(root)
+        canonical = Path(status["canonical_root"]).resolve()
+        if root.resolve() != canonical:
+            return None
+        open_tasks = [t for t in list_tasks(root) if t.get("state") not in TERMINAL_TASK_STATES]
+        if not open_tasks:
+            return None
+        lines = [
+            "census recorded on the CANONICAL checkout while tasks are open; "
+            "finish reads the task worktree's records, so record again with cwd=<worktree> for:",
+        ]
+        for task in open_tasks:
+            worktree = (task.get("worktree") or {}).get("path") or "<no worktree>"
+            lines.append(f"- {task['id']} [{task.get('state')}] worktree: {worktree}")
+        return "\n".join(lines)
+    except Exception:
+        return None
 
 
 def _call_span(args: dict[str, Any]) -> Any:

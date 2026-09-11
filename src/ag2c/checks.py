@@ -1066,6 +1066,9 @@ def run_checks(
     warnings.extend(_budget_warnings(manifest, policy, entry_slice))
     warnings.extend(_duplicate_warnings(manifest, entry_slice))
     warnings.extend(_cross_slice_warnings(manifest, entry_slice))
+    from .softcap import file_soft_cap_warnings
+
+    warnings.extend(file_soft_cap_warnings(manifest))
     # 证据锚：切片内知识卡的 provides 必须锚定 references 的真实顶层符号。
     # 存量迁移期——进 warning-history 追踪但刻意不加入 ESCALATABLE_KINDS，永不升级阻断。
     from .anchors import provides_anchor_warnings

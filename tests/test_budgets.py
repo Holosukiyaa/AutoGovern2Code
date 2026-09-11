@@ -14,9 +14,10 @@ from unittest import mock
 import bootstrap
 
 from ag2c.budgets import HEADROOM, effective_budget_lines, load_budgets, recalibrate_budgets
-from ag2c.checks import _budget_warnings
+from ag2c.checks import ESCALATABLE_KINDS, _budget_warnings, _escalatable, _record_warnings_and_find_escalated
 from ag2c.ledger import read_events
 from ag2c.model import Card, Manifest, Target
+from ag2c.softcap import SOFTCAP_LINES, SOFTCAP_WARNING_KIND, file_soft_cap_warnings
 
 
 def _card(room: str, *, budget_lines: int = 0) -> Card:
@@ -334,6 +335,18 @@ class HouseholdBudgetLinesTests(unittest.TestCase):
         self.assertIn("knowledge.api-docs:lines", warning_keys())  # 设置前：超预算
         self._register(budget_lines=500)
         self.assertNotIn("knowledge.api-docs:lines", warning_keys())  # 写入后：警告消失
+
+
+class FileSoftCapTests(unittest.TestCase):
+    def test_cap_silence_unread_and_no_escalate(self) -> None:
+        root = Path(tempfile.mkdtemp()); (root / "state").mkdir(); manifest = Manifest(path=root / "m.json", project_id="t", project_root=root, targets=(Target("app", ".", ("src",), ()),), ledger_path=root / "l.jsonl", policy_path=root / "p.json", state_dir=root / "state")
+        def _w(rel, n):
+            p = root / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_text("x=1\n" * n, encoding="utf-8")
+        _w("src/ag2c/fat.py", SOFTCAP_LINES + 1); _w("src/ag2c/thin.py", SOFTCAP_LINES); _w("src/other/x.py", 900); got = file_soft_cap_warnings(manifest); self.assertEqual(SOFTCAP_WARNING_KIND, got[0]["kind"]); self.assertIn("801", got[0]["detail"])
+        orig = Path.read_text
+        with mock.patch.object(Path, "read_text", lambda self, *a, **k: (_ for _ in ()).throw(OSError("x")) if self.name == "fat.py" else orig(self, *a, **k)):
+            self.assertEqual([], file_soft_cap_warnings(manifest))
+        warn = {"kind": SOFTCAP_WARNING_KIND, "key": "k", "detail": "d"}; self.assertNotIn(SOFTCAP_WARNING_KIND, ESCALATABLE_KINDS); self.assertFalse(_escalatable(warn)); self.assertEqual([], _record_warnings_and_find_escalated(manifest, [warn], count_key="a"))
 
 
 if __name__ == "__main__":

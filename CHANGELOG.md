@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 文件软帽警告。`src/ag2c` 下每个 splitlines()>800 的 `.py` 在 check-run 出 `kind=file-soft-cap`（key=`file-soft-cap:<相对路径>`，detail 含实测行数与软帽）；进 warning-history 但不进 `ESCALATABLE_KINDS`，第三次出现也不拦 verify。≤800 与非 py、读失败跳过。Covered by `test_budgets.py` FileSoftCapTests。
+
 - 开发成本治理第一期。① 监管 API usage 抠进 verify：`extract_usage` 读 prompt_tokens/completion_tokens（兼容 input_tokens/output_tokens），`call_chat` 生产返回 (content, usage)，落 `regulator.usage={model,input,output,source:regulator-api}`；缺字段不虚构。② `ag2c govern cost-report` / MCP `ag2c_cost_report` 纯读三腿仪表——高效（轮次/任务、均时长、verify 失败率）、经济（MTok，监管硬数据与 INFERRED 自报分栏）、有效（一次通过率、监管驳回率、delivery.kind=fix 计数）；不折钱、不进 ESCALATABLE_KINDS。③ finish 可选 `--sessions` / `--estimated-tokens`（MCP 同名字段）落任务记录与 task-completed，source=INFERRED。既有 token_report 托盘粗估不动。ClipboardLock.held 仅在本进程随后 OpenClipboard 失败时为真（市长指名：夹具说真话，test_dashboard 硬断言不动）。Covered by `test_review.py` UsageExtract/UsageWiring、`test_token.py` CostReport/CostSelfReport、`test_cli.py` 解析例。
 
 - 流程摩擦三连修。① 剪贴板防御（测试侧，不补丁 imgui_bundle）：gui 套件剪贴板往返用例先 ctypes `OpenClipboard` 预检，持锁则短窗口重试（5×2s），仍锁才 skip，reason 与 stdout 必含 `clipboard-locked`，禁止静默 skip；ctypes 占锁夹具覆盖「持续持锁 skip / 释放后重试放行」。② `ag2c_mcp_health` 增加 `code_version`（=`ag2c.__version__`）与 `started_at`（模块导入时刻，同进程稳定）；磁盘/canonical 版本为可选对照。③ MCP `ag2c_census` record 分支默认 `census` 为摘要（household_count / freshness / stale），`verbose=true` 才回全量；顶层 `reviewed` / `ledger_event_digest` / `warning` 不动。CLI `census_report` 本体不变。Covered by `test_dashboard.py` 剪贴板守卫三例、`test_mcp.py` 的 health 版本字段例、`test_census_hardening.py` 的 McpCensusPayloadTests。

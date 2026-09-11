@@ -505,7 +505,7 @@ def baseline_debt(manifest: Manifest) -> dict[str, Any]:
 # 不应污染历史。
 WARNING_ESCALATION_THRESHOLD = 3
 WARNING_HISTORY_SCHEMA = "ag2c.warning-history.v1"
-ESCALATABLE_KINDS = frozenset({"over-budget", "possible-duplicate"})
+ESCALATABLE_KINDS = frozenset({"over-budget", "possible-duplicate", "coordinate-reconciliation"})
 _MAX_COUNT_KEYS = 50
 
 

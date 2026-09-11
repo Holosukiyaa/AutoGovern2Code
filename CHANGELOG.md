@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 降档棘轮：`coordinate-reconciliation` 的 key 按维度稳定（不含 task id），跨任务计数，第 3 次同维宽松申报硬化。`coordinate-constraint` 仍不硬化。Covered by `DowngradeRatchetTests`。
+
 - enrollment/rehome 夹具减重：`git_project` 进程内模板拷贝，不再每次 `git init`+`commit`。xdist 实测 enrollment 15.0s→13.3s、rehome 24.0s→22.2s。用例未删。Covered by `GitProjectFixtureTests`。
 
 - 普查跨版本拒收：记录 `code_version` 缺失或与运行中 `ag2c.__version__` 不一致时 freshness 为 `version-mismatch`，不当 `current`。Covered by `CensusCodeVersionTests`。

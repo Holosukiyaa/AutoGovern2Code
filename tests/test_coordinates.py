@@ -14,7 +14,12 @@ from unittest import mock
 import bootstrap  # noqa: F401
 from support import git_project, write_project
 
+from ag2c.checks import (
+    WARNING_ESCALATION_THRESHOLD,
+    _record_warnings_and_find_escalated,
+)
 from ag2c.config import discover_manifest, load_manifest
+from ag2c.model import Manifest
 from ag2c.coordinates import (
     CONSERVATIVE_DEFAULTS,
     COORDINATE_ENUMS,
@@ -519,7 +524,7 @@ class ReconciliationWarningTests(unittest.TestCase):
         warnings = reconciliation_warnings("t-x", {"meaning": "none"}, {"meaning": "summary"})
         self.assertEqual(1, len(warnings))
         self.assertEqual(RECONCILIATION_WARNING_KIND, warnings[0]["kind"])
-        self.assertEqual("t-x:meaning-declared-looser", warnings[0]["key"])
+        self.assertEqual("meaning-declared-looser", warnings[0]["key"])
         self.assertIn("meaning=none", warnings[0]["detail"])
         self.assertIn("summary", warnings[0]["detail"])
 
@@ -539,7 +544,7 @@ class ReconciliationWarningTests(unittest.TestCase):
             {"contract": "none", "decider": "machine"},
             {"contract": "partial", "decider": "confirm"},
         )
-        self.assertEqual({"t-x:contract-declared-looser", "t-x:decider-declared-looser"}, {w["key"] for w in warnings})
+        self.assertEqual({"contract-declared-looser", "decider-declared-looser"}, {w["key"] for w in warnings})
 
 
 class ReconciliationWiringTests(unittest.TestCase):
@@ -568,8 +573,7 @@ class ReconciliationWiringTests(unittest.TestCase):
             self.assertEqual({"meaning": "none"}, reconciliation["declared"])
             self.assertEqual("summary", reconciliation["derived"]["meaning"])
             keys = [w["key"] for w in reconciliation["warnings"]]
-            self.assertEqual([f"{started['id']}:meaning-declared-looser"], keys)
-            # 落 warning-history（kind 不在 ESCALATABLE_KINDS，只计数留痕）
+            self.assertEqual(["meaning-declared-looser"], keys)
             history = _warning_history(root)
             hits = [
                 entry
@@ -577,7 +581,8 @@ class ReconciliationWiringTests(unittest.TestCase):
                 if entry.get("kind") == RECONCILIATION_WARNING_KIND
             ]
             self.assertEqual(1, len(hits))
-            self.assertEqual(f"{started['id']}:meaning-declared-looser", hits[0]["key"])
+            self.assertEqual("meaning-declared-looser", hits[0]["key"])
+            self.assertEqual(1, hits[0]["count"])
 
     def test_verify_silent_when_declaration_not_looser(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -603,6 +608,47 @@ class ReconciliationWiringTests(unittest.TestCase):
             report = self._touch_and_verify(root, started)
             self.assertTrue(report["passed"])
             self.assertEqual({"warnings": []}, report["verification"]["coordinate_reconciliation"])
+
+
+class DowngradeRatchetTests(unittest.TestCase):
+    """降档棘轮：同维宽松申报跨任务计数，第三次硬化；约束警告永不硬化。"""
+
+    def setUp(self) -> None:
+        self._tmp = Path(tempfile.mkdtemp())
+        (self._tmp / "state").mkdir(parents=True)
+        self.manifest = Manifest(
+            path=self._tmp / "manifest.json",
+            project_id="test-proj",
+            project_root=self._tmp,
+            targets=[],
+            ledger_path=self._tmp / "ledger.jsonl",
+            policy_path=self._tmp / "policy.json",
+            state_dir=self._tmp / "state",
+        )
+
+    def test_reconciliation_escalates_on_third_task(self) -> None:
+        warning = {
+            "kind": RECONCILIATION_WARNING_KIND,
+            "key": "meaning-declared-looser",
+            "detail": "申报 meaning=none 比推导 summary 宽松",
+        }
+        self.assertEqual([], _record_warnings_and_find_escalated(self.manifest, [warning], count_key="task-1"))
+        self.assertEqual([], _record_warnings_and_find_escalated(self.manifest, [warning], count_key="task-2"))
+        escalated = _record_warnings_and_find_escalated(self.manifest, [warning], count_key="task-3")
+        self.assertEqual(1, len(escalated))
+        self.assertEqual("meaning-declared-looser", escalated[0]["key"])
+
+    def test_constraint_never_escalates(self) -> None:
+        warning = {
+            "kind": CONSTRAINT_WARNING_KIND,
+            "key": "t:quality-human-decider",
+            "detail": "quality=human 但 decider=none",
+        }
+        for i in range(WARNING_ESCALATION_THRESHOLD + 2):
+            self.assertEqual(
+                [],
+                _record_warnings_and_find_escalated(self.manifest, [warning], count_key=f"task-{i}"),
+            )
 
 
 if __name__ == "__main__":

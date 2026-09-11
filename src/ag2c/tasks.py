@@ -1299,10 +1299,9 @@ def verify_task(start: Path, *, _auto_refreshed: bool = False) -> dict[str, Any]
         for item in task.get("interventions", [])
     ):
         _record_intervention(canonical, canonical_manifest, task, "scope-expanded", {"paths": expanded})
-    # 申报 vs 推导对账（对账三件套第二件）：declared 比实际工作集卡片重新
-    # 推导的 derived 宽松时出警告——不拦、不进 ESCALATABLE_KINDS（棘轮是第
-    # 三件）。警告落 warning-history（count_key=task_id 按任务去重）并作为
-    # 信息性字段进 verify 记录。对账是观察通道：任何异常降级留痕，不炸 verify。
+    # 申报 vs 推导对账（对账三件套第二件 + 降档棘轮第三件）：declared 比
+    # 工作集推导宽松时出警告；key 按维度稳定，count_key=task_id 跨任务计数，
+    # 第 3 次同维宽松硬化。约束警告仍不进 ESCALATABLE_KINDS。
     coordinate_reconciliation: dict[str, Any] = {"warnings": []}
     try:
         declared_coordinates = dict((task.get("coordinates") or {}).get("declared") or {})

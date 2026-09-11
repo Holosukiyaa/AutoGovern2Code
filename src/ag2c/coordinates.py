@@ -76,8 +76,8 @@ CONSERVATIVE_DEFAULTS: dict[str, str] = {
 #: 上线，先观察误报率，永不硬化成门。
 CONSTRAINT_WARNING_KIND = "coordinate-constraint"
 
-#: 申报 vs 推导对账警告的 kind。同 CONSTRAINT_WARNING_KIND 的纪律：不进
-#: ESCALATABLE_KINDS——对账三件套第二件只出警告，降档棘轮是第三件。
+#: 申报 vs 推导对账警告的 kind。降档棘轮（三件套第三件）：key 不含 task id，
+#: 跨任务计数，第 WARNING_ESCALATION_THRESHOLD 次同维宽松申报硬化。
 RECONCILIATION_WARNING_KIND = "coordinate-reconciliation"
 
 
@@ -193,8 +193,8 @@ def reconciliation_warnings(
 
     只比 STRICTNESS_RANKS 覆盖的维度（contract/decider/meaning）——其余维度
     卡片推导不出，无从对账。申报比推导严是保守方向，不警告；一致也不警告。
-    警告不拦 verify、不硬化成门（棘轮是第三件）；verify 期由 tasks.verify_task
-    接线，落 warning-history 并作为信息性字段进 verify 记录。
+    警告落 warning-history；key 按维度稳定（不含 task id），第三次同维宽松
+    申报走既有升级门。verify 期由 tasks.verify_task 接线。
     """
     warnings: list[dict[str, str]] = []
     for dim, ranks in STRICTNESS_RANKS.items():
@@ -206,7 +206,7 @@ def reconciliation_warnings(
             warnings.append(
                 {
                     "kind": RECONCILIATION_WARNING_KIND,
-                    "key": f"{task_id}:{dim}-declared-looser",
+                    "key": f"{dim}-declared-looser",
                     "detail": (
                         f"申报 {dim}={declared_value} 比工作集卡片推导的 {derived_value} 宽松；"
                         "若申报是有意放宽请确认，否则应按推导收紧申报"

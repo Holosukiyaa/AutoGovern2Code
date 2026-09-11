@@ -1,10 +1,4 @@
-"""AGF 七维坐标申报：task start 的最小切口（只申报记录，不执法）。
-
-覆盖画像承诺：枚举校验 / 推导直通与多卡冲突取严 / 申报优先于推导 /
-维度间约束警告（quality=human 而 decider 不到人）/ CLI+MCP 双入口 /
-start 证据对新旧任务的兼容。坐标系宪法在 AGF 仓（agf/src/agf/models.py），
-本模块的枚举逐字对齐它——指针而非引擎。
-"""
+"""AGF 七维坐标申报：task start 的最小切口（只申报记录，不执法）。 覆盖画像承诺：枚举校验 / 推导直通与多卡冲突取严 / 申报优先于推导 / 维度间约束警告（quality=human 而 decider 不到人）/ CLI+MCP 双入口 / start 证据对新旧任务的兼容。坐标系宪法在 AGF 仓（agf/src/agf/models.py）， 本模块的枚举逐字对齐它——指针而非引擎。"""
 
 from __future__ import annotations
 
@@ -487,11 +481,7 @@ def _agf_live_enums(models_path: Path) -> dict[str, list[str]]:
 
 
 class EnumSnapshotTests(unittest.TestCase):
-    """对账①：枚举对齐从注释锚升级为机器锚——coordinates.py == vendored 快照 == AGF 实况。
-
-    成员口径对账：AGF 用无序 set，AG2C 用有序 tuple（顺序承载严格度 rank，
-    是 AG2C 自己的语义），所以对账只比成员集合，不比顺序。
-    """
+    """对账①：枚举对齐从注释锚升级为机器锚——coordinates.py == vendored 快照 == AGF 实况。 成员口径对账：AGF 用无序 set，AG2C 用有序 tuple（顺序承载严格度 rank， 是 AG2C 自己的语义），所以对账只比成员集合，不比顺序。"""
 
     def test_coordinates_match_snapshot(self) -> None:
         snapshot = _load_snapshot()

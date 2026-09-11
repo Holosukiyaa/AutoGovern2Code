@@ -429,12 +429,7 @@ class SectionPromptTests(unittest.TestCase):
 
 
 class DrawSmokeTests(unittest.TestCase):
-    """无头渲染冒烟：draw_dashboard 在真实 imgui 上下文里完整跑帧、不抛异常。
-
-    t53 的教训：引用了本版 imgui_bundle 不存在的 set_window_font_scale，单测全绿
-    但真实 GUI 每帧抛 AttributeError（被 _guarded 吞成空白看板）。纯函数测试覆盖
-    不了绘制 API 的存在性——这个冒烟测试就是为此而设。
-    """
+    """无头渲染冒烟：draw_dashboard 在真实 imgui 上下文里完整跑帧、不抛异常。 t53 的教训：引用了本版 imgui_bundle 不存在的 set_window_font_scale，单测全绿 但真实 GUI 每帧抛 AttributeError（被 _guarded 吞成空白看板）。纯函数测试覆盖 不了绘制 API 的存在性——这个冒烟测试就是为此而设。"""
 
     def _render(self, model, frames: int = 2, open_records: bool = False) -> None:
         from imgui_bundle import imgui
@@ -515,11 +510,7 @@ class DrawSmokeTests(unittest.TestCase):
         self._render(self._full_model(), open_records=True)
 
     def test_clipboard_roundtrip_headless(self):
-        """复制按钮依赖的剪贴板 API 在无头上下文里可用（t54 教训：绘制 API 存在性要冒烟）。
-
-        imgui_bundle 对 OpenClipboard 失败是原生崩溃。任意进程持锁时先预检、
-        短窗口重试，仍锁才 skip，reason 必含 clipboard-locked，禁止静默 skip。
-        """
+        """复制按钮依赖的剪贴板 API 在无头上下文里可用（t54 教训：绘制 API 存在性要冒烟）。 imgui_bundle 对 OpenClipboard 失败是原生崩溃。任意进程持锁时先预检、 短窗口重试，仍锁才 skip，reason 必含 clipboard-locked，禁止静默 skip。"""
         require_clipboard()
         from imgui_bundle import imgui
 
@@ -558,11 +549,7 @@ class DrawSmokeTests(unittest.TestCase):
         require_clipboard(retries=8, wait_s=0.05)
 
     def test_render_leaves_no_ini_debris(self):
-        """无头渲染不得在 cwd 落任何 ini 碎屑（t54 的布局缓存碎屑曾被误提交进仓）。
-
-        口径是 *.ini 全匹配而非特定文件名：imgui 默认 ini 名只是碎屑的一种，
-        任何 ini 落盘都是事故。该口径也不引用仓库里已退役的具体文件路径。
-        """
+        """无头渲染不得在 cwd 落任何 ini 碎屑（t54 的布局缓存碎屑曾被误提交进仓）。 口径是 *.ini 全匹配而非特定文件名：imgui 默认 ini 名只是碎屑的一种， 任何 ini 落盘都是事故。该口径也不引用仓库里已退役的具体文件路径。"""
         import os
         import tempfile
         from pathlib import Path

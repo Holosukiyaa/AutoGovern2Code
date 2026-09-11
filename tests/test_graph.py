@@ -498,11 +498,7 @@ class GovernanceGraphTests(unittest.TestCase):
 
 
 class EmptyLeftoverParentTests(unittest.TestCase):
-    """is_empty_leftover_parent 的杀变异测试。
-
-    变异记录：graph.py 的 file_count > 0 → >= 0 曾存活（t17 变异金丝雀抓获，
-    看板常驻警情）——file_count=0 的合法占位卡必须判定为 True，否则谱系图
-    不再跳过它们。"""
+    """is_empty_leftover_parent 的杀变异测试。 变异记录：graph.py 的 file_count > 0 → >= 0 曾存活（t17 变异金丝雀抓获， 看板常驻警情）——file_count=0 的合法占位卡必须判定为 True，否则谱系图 不再跳过它们。"""
 
     def _placeholder_card(self):
         return {

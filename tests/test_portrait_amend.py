@@ -1,9 +1,4 @@
-"""画像修订机制：任务中途按市长指名纠偏更换已锁画像的通道与证据链。
-
-动机：2026-09-10 D→D2 事故——画像锁定口径错了（<=60s 应为 <=90s）却没有
-修订通道，只能废弃任务重开。amend_portrait 把修订变成一等公民：lint、
-替换、intervention（actor/reason/新旧 digest）落账本，监管可见修订史。
-"""
+"""画像修订机制：任务中途按市长指名纠偏更换已锁画像的通道与证据链。 动机：2026-09-10 D→D2 事故——画像锁定口径错了（<=60s 应为 <=90s）却没有 修订通道，只能废弃任务重开。amend_portrait 把修订变成一等公民：lint、 替换、intervention（actor/reason/新旧 digest）落账本，监管可见修订史。"""
 
 from __future__ import annotations
 
@@ -321,12 +316,7 @@ def _bind_start_event(root: Path, task_id: str = "t-amend", portrait: str = OLD_
 
 
 class AmendFinishEvidenceTests(unittest.TestCase):
-    """finish 路径回归：修订过画像的任务不能被 start 证据门禁误拦（2026-09-11 死路事故）。
-
-    死路：_start_evidence_valid 拿任务当前画像比对 start 事件里的原画像，任何
-    amend 过的任务必然不一致、finish 硬拦且无合法出口。修法是认可账本锚定的
-    portrait-amended 修订链；锚不住或链断裂的维持拒绝。
-    """
+    """finish 路径回归：修订过画像的任务不能被 start 证据门禁误拦（2026-09-11 死路事故）。 死路：_start_evidence_valid 拿任务当前画像比对 start 事件里的原画像，任何 amend 过的任务必然不一致、finish 硬拦且无合法出口。修法是认可账本锚定的 portrait-amended 修订链；锚不住或链断裂的维持拒绝。"""
 
     def test_finish_start_evidence_accepts_ledger_anchored_amendment(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -449,12 +439,7 @@ def _bind_coordinated_start_event(root: Path, coordinates: dict, task_id: str = 
 
 
 class AmendCoordinateBindingTests(unittest.TestCase):
-    """监管观察②定案：amend 链下 start 证据的坐标绑定必须仍然生效。
-
-    语义：amend 不改坐标——修订链只迁移画像字段；坐标随 task-started 事件
-    账本锚定，要变只能 abandon 重开（新 start 事件 = 新申报）。修订链有效
-    但坐标被篡改的任务，finish 证据门禁维持拒绝。
-    """
+    """监管观察②定案：amend 链下 start 证据的坐标绑定必须仍然生效。 语义：amend 不改坐标——修订链只迁移画像字段；坐标随 task-started 事件 账本锚定，要变只能 abandon 重开（新 start 事件 = 新申报）。修订链有效 但坐标被篡改的任务，finish 证据门禁维持拒绝。"""
 
     def test_amend_chain_valid_when_coordinates_untouched(self) -> None:
         with TemporaryDirectory() as tmp:

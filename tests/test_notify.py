@@ -368,9 +368,7 @@ class HazardPushTests(unittest.TestCase):
 
 
 class CensusStaleGateWiringTests(unittest.TestCase):
-    """门禁级接线（监管要求的兑现证据）：驱动真实 enforce_households——
-    块时双通知（gate-block 事件型 + census-stale 条件型）、重复块去重、
-    门禁通过清除、再降级重报。夹具保真：gated=True + record_census。"""
+    """门禁级接线（监管要求的兑现证据）：驱动真实 enforce_households—— 块时双通知（gate-block 事件型 + census-stale 条件型）、重复块去重、 门禁通过清除、再降级重报。夹具保真：gated=True + record_census。"""
 
     def setUp(self) -> None:
         self._tmp = tempfile.mkdtemp()
@@ -441,10 +439,7 @@ class CensusStaleGateWiringTests(unittest.TestCase):
 
 
 class HazardPushTrayIntegrationTests(unittest.TestCase):
-    """任务4 监管遗留的集成兑现：真实驱动托盘轮询路径（management.project_details）
-    → 真实危房检测（guard-removed：纳管登记在、core.hooksPath 未装）→ KIND_HAZARD
-    通知落队列；二次轮询去重不轰炸。与 HazardPushTests 的函数级用例互补：
-    那些注合成报告证 push_critical_hazards，这条证 overlay 接线本身不是空炮。"""
+    """任务4 监管遗留的集成兑现：真实驱动托盘轮询路径（management.project_details） → 真实危房检测（guard-removed：纳管登记在、core.hooksPath 未装）→ KIND_HAZARD 通知落队列；二次轮询去重不轰炸。与 HazardPushTests 的函数级用例互补： 那些注合成报告证 push_critical_hazards，这条证 overlay 接线本身不是空炮。"""
 
     def setUp(self) -> None:
         self._tmp = tempfile.mkdtemp()

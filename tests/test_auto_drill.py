@@ -17,8 +17,7 @@ from support import bare_manifest, write_project
 
 
 def _fake_subprocess(calls: list, returncode: int = 0):
-    """替换 tasks 命名空间里的 subprocess 引用（不动全局 subprocess 模块，
-    否则 gitops 的 git 调用也会被截获）。"""
+    """替换 tasks 命名空间里的 subprocess 引用（不动全局 subprocess 模块， 否则 gitops 的 git 调用也会被截获）。"""
     fake = mock.Mock()
 
     def run(cmd, **kwargs):
@@ -74,10 +73,7 @@ class AutoDrillTests(unittest.TestCase):
             self.assertIn("已通过（缺陷被拦截）", notes[0])
 
     def test_drill_command_carries_actor_and_reason(self) -> None:
-        """CLI 契约测试：canary 子命令强制 --actor/--reason，缺了就是 exit 2。
-
-        （t21 的教训：mock 掉子进程后命令内容不受测，CLI 契约漂移只能靠
-        专门断言命令形状的测试来守。）"""
+        """CLI 契约测试：canary 子命令强制 --actor/--reason，缺了就是 exit 2。 （t21 的教训：mock 掉子进程后命令内容不受测，CLI 契约漂移只能靠 专门断言命令形状的测试来守。）"""
         with TemporaryDirectory() as tmp:
             root = self._project_with_canary(Path(tmp))
             calls: list = []
@@ -103,9 +99,7 @@ class AutoDrillTests(unittest.TestCase):
             self.assertEqual("mutation", command[command.index("--mode") + 1])
 
     def test_drill_capture_forces_utf8(self) -> None:
-        """Windows 控制台是 GBK：子进程输出含 UTF-8 时 text=True 的默认编码
-        会在 reader 线程炸 UnicodeDecodeError（t22 实战教训）；纪要文本也不
-        能含 GBK 不可打印字符（finish hints 要打印）。"""
+        """Windows 控制台是 GBK：子进程输出含 UTF-8 时 text=True 的默认编码 会在 reader 线程炸 UnicodeDecodeError（t22 实战教训）；纪要文本也不 能含 GBK 不可打印字符（finish hints 要打印）。"""
         captured: list = []
         fake = mock.Mock()
 

@@ -83,8 +83,7 @@ class LaunchSrcTests(unittest.TestCase):
             self.assertEqual(module_file.parents[1], _launch_src(module_file, Path(directory)))
 
     def test_non_worktree_module_never_discovers(self) -> None:
-        """托盘项目栏每帧调 mcp_launch_spec；发现内部起 git 子进程（Windows 约 60ms），
-        非 worktree 安装必须走快路径，完全不做 manifest 发现。"""
+        """托盘项目栏每帧调 mcp_launch_spec；发现内部起 git 子进程（Windows 约 60ms）， 非 worktree 安装必须走快路径，完全不做 manifest 发现。"""
         from unittest.mock import patch
 
         from ag2c.mcp_server import _launch_src

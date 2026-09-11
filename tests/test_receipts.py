@@ -145,10 +145,7 @@ class ReceiptDeltaTests(unittest.TestCase):
             self.assertEqual({"path": "fresh.txt", "added": 1, "removed": 0}, rows["fresh.txt"])
 
     def test_write_receipt_twice_overwrites_without_raising(self) -> None:
-        """重试验收会重写同 task_id 的回执：目录已存在也不能崩。
-
-        变异记录：write_receipt 的 mkdir exist_ok True→False 曾存活
-        （t21 自动演习抓获，看板常驻警情）。"""
+        """重试验收会重写同 task_id 的回执：目录已存在也不能崩。 变异记录：write_receipt 的 mkdir exist_ok True→False 曾存活 （t21 自动演习抓获，看板常驻警情）。"""
         with tempfile.TemporaryDirectory() as directory:
             root, manifest, policy, base = self._enrolled(directory)
             task = _fake_task(root, base, "ag2c/test-branch", _verification_for(root, base))
@@ -159,10 +156,7 @@ class ReceiptDeltaTests(unittest.TestCase):
             self.assertTrue(second.exists())
 
     def test_write_receipt_serialization_is_sorted_utf8_and_atomic(self) -> None:
-        """回执落盘格式是证据链的一部分：键序字典序、非 ASCII 原文、无临时文件残留。
-
-        变异记录：write_receipt 的 json.dumps 布尔参数（ensure_ascii=False、
-        sort_keys=True）翻转曾存活（危房名单 2026-09-09 变异存活警情）。"""
+        """回执落盘格式是证据链的一部分：键序字典序、非 ASCII 原文、无临时文件残留。 变异记录：write_receipt 的 json.dumps 布尔参数（ensure_ascii=False、 sort_keys=True）翻转曾存活（危房名单 2026-09-09 变异存活警情）。"""
         with tempfile.TemporaryDirectory() as directory:
             root, manifest, policy, base = self._enrolled(directory)
             task = _fake_task(root, base, "ag2c/test-branch", _verification_for(root, base))

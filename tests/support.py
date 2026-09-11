@@ -68,16 +68,7 @@ def external_state(root: Path) -> Path:
 
 
 def write_project(root: Path, *, extra_file: bool = False, gated: bool = False):
-    """Build a minimal governed project fixture.
-
-    gated=True upgrades the fixture to production gate fidelity (夹具保真度,
-    see tests/test_sunset.py's _canary_project): knowledge cards get a
-    jurisdiction, every room explains its floor, and household_required=true
-    is declared. Any test that exercises gate logic (run_checks / verify_task /
-    enforce_households / finish_task) must use this mode — a fixture more
-    lenient than production is itself a hole. Pair it with record_census()
-    after the final policy mutation so the household gate sees fresh census.
-    """
+    """Build a minimal governed project fixture. gated=True upgrades the fixture to production gate fidelity (夹具保真度, see tests/test_sunset.py's _canary_project): knowledge cards get a jurisdiction, every room explains its floor, and household_required=true is declared. Any test that exercises gate logic (run_checks / verify_task / enforce_households / finish_task) must use this mode — a fixture more lenient than production is itself a hole. Pair it with record_census() after the final policy mutation so the household gate sees fresh census."""
     (root / ".ag2c").mkdir(parents=True)
     (root / "src" / "api").mkdir(parents=True)
     (root / "src" / "worker").mkdir(parents=True)
@@ -219,13 +210,7 @@ def _apply_gate_fidelity(policy: dict) -> None:
 
 
 def record_census(root: Path, *, actor: str = "tester", reason: str = "fixture census") -> None:
-    """git init (idempotent) + record census for every card + rebuild the index.
-
-    Call after the FINAL policy mutation, right before the gate entry under
-    test: the household gate refuses stale census, exactly like production
-    verify does. git init and the census writes both dirty the worktree, so
-    the index is rebuilt last to keep compile_slice's freshness check happy.
-    """
+    """git init (idempotent) + record census for every card + rebuild the index. Call after the FINAL policy mutation, right before the gate entry under test: the household gate refuses stale census, exactly like production verify does. git init and the census writes both dirty the worktree, so the index is rebuilt last to keep compile_slice's freshness check happy."""
     import subprocess
 
     if not (root / ".git").exists():

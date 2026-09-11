@@ -1,5 +1,4 @@
-"""Tests for the AI regulator (agent-review): prompt isolation, verdict
-validation, and the degrade paths. All LLM calls are mocked — no network."""
+"""Tests for the AI regulator (agent-review): prompt isolation, verdict validation, and the degrade paths. All LLM calls are mocked — no network."""
 from __future__ import annotations
 
 import json

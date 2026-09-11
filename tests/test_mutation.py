@@ -1,5 +1,4 @@
-"""Tests for the mutation canary: operators, target selection, and both
-endings (killed = tests have teeth; survived = hollow tests alarm)."""
+"""Tests for the mutation canary: operators, target selection, and both endings (killed = tests have teeth; survived = hollow tests alarm)."""
 from __future__ import annotations
 
 import json
@@ -24,10 +23,7 @@ from support import _git
 
 
 def _mutation_project(root: Path, *, test_body: str):
-    """Governed project whose floor.src is guarded by a real unittest checker.
-
-    household_required=true：测的是金丝雀与门禁的交互，夹具必须保真。
-    """
+    """Governed project whose floor.src is guarded by a real unittest checker. household_required=true：测的是金丝雀与门禁的交互，夹具必须保真。"""
     (root / ".ag2c" / "state").mkdir(parents=True)
     (root / "src").mkdir()
     (root / "tests").mkdir()

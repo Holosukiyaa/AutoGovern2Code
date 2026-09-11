@@ -250,9 +250,7 @@ class DegradationTests(unittest.TestCase):
 
 
 class FreshnessTests(unittest.TestCase):
-    """保鲜：警告历史只记"上次触发"，文件在 last_seen 之后改过的记录降级 unconfirmed。
-
-    校准后查重区走实时扫描（命中即 standing），保鲜机制只服务预算区。"""
+    """保鲜：警告历史只记"上次触发"，文件在 last_seen 之后改过的记录降级 unconfirmed。 校准后查重区走实时扫描（命中即 standing），保鲜机制只服务预算区。"""
 
     def _repo(self, root: Path) -> None:
         _git(root, "init", "-b", "main")
@@ -488,10 +486,7 @@ class LiveDuplicateScanTests(unittest.TestCase):
             self.assertFalse(any("main" in h["detail"] for h in duplicates))
 
     def test_test_only_pairs_stay_off_the_demolition_queue(self) -> None:
-        """双测试文件的相似对不进拆迁队列（测试镜像结构是表驱动常态）。
-
-        夹具的 governed_roots 只含 src，故用 test_ 前缀文件放进 src——
-        没有过滤器时这对必命中（同形 4 行以上），测试才不是空转。"""
+        """双测试文件的相似对不进拆迁队列（测试镜像结构是表驱动常态）。 夹具的 governed_roots 只含 src，故用 test_ 前缀文件放进 src—— 没有过滤器时这对必命中（同形 4 行以上），测试才不是空转。"""
         from ag2c.config import load_manifest
 
         with tempfile.TemporaryDirectory() as directory:

@@ -1,32 +1,4 @@
-"""Named test suites for room-bound checkers.
-
-AG2C binds floor-stage checkers to directory households: a suite runs only
-when the task slice touches that room. This module is the single place that
-maps suite names to test modules, so policy checker commands stay tiny:
-``python -B tests/suites.py <name>``.
-
-Execution delegates to pytest + pytest-xdist (``pip install .[test]``):
-unittest.TestCase suites are collected natively and distributed across CPU
-cores (``-n auto --dist loadgroup``). The gui and fast suites stay serial:
-gui because imgui tray tests are not worker-safe, fast so the Windows spawn
-tax cannot eat its per-module smoke budget. ``tests/conftest.py`` pins the
-gui modules to an ``xdist_group`` so full-run invocations keep them on one
-worker (``SUITES["gui"]`` is exactly ``test_desktop`` + ``test_dashboard``,
-the two pinned modules).
-
-Suite membership is deliberate, not derived:
-- fast: cheap always-on core bound at floor level as the baseline gate.
-  t50 验证成本治理：fast 是真冒烟集——单模块实测 >2.5s 的一律下沉房间套件
-  （2026-09-10 实测合计约 15s，预算目标 <=30s），淤积由验证预算报警看守。
-- tasks / governance: heavy task-lifecycle and governance-mechanism modules
-  demoted out of fast, bound to the src/ag2c and tests rooms.
-- rehome / enrollment / checks / receipts / storage / gitops: slow integration
-  suites bound to the src/ag2c room.
-- gui: imgui tray suite bound to the src/ag2c_gui room.
-
-When a test file appears or retires, update the mapping here; the census and
-test_suites.py keep it honest.
-"""
+"""Named test suites for room-bound checkers. AG2C binds floor-stage checkers to directory households: a suite runs only when the task slice touches that room. This module is the single place that maps suite names to test modules, so policy checker commands stay tiny: ``python -B tests/suites.py <name>``. Execution delegates to pytest + pytest-xdist (``pip install .[test]``): unittest.TestCase suites are collected natively and distributed across CPU cores (``-n auto --dist loadgroup``). The gui and fast suites stay serial: gui because imgui tray tests are not worker-safe, fast so the Windows spawn tax cannot eat its per-module smoke budget. ``tests/conftest.py`` pins the gui modules to an ``xdist_group`` so full-run invocations keep them on one worker (``SUITES["gui"]`` is exactly ``test_desktop`` + ``test_dashboard``, the two pinned modules). Suite membership is deliberate, not derived: - fast: cheap always-on core bound at floor level as the baseline gate. t50 验证成本治理：fast 是真冒烟集——单模块实测 >2.5s 的一律下沉房间套件 （2026-09-10 实测合计约 15s，预算目标 <=30s），淤积由验证预算报警看守。 - tasks / governance: heavy task-lifecycle and governance-mechanism modules demoted out of fast, bound to the src/ag2c and tests rooms. - rehome / enrollment / checks / receipts / storage / gitops: slow integration suites bound to the src/ag2c room. - gui: imgui tray suite bound to the src/ag2c_gui room. When a test file appears or retires, update the mapping here; the census and test_suites.py keep it honest."""
 from __future__ import annotations
 
 import subprocess

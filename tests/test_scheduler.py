@@ -1,7 +1,4 @@
-"""调度器 Phase 1 影子模式：shadow_plan 纯函数与 verify 接线。
-
-影子不真跳——plan 只落 verify 记录与账本事件，观察「本会跳过什么」。
-"""
+"""调度器 Phase 1 影子模式：shadow_plan 纯函数与 verify 接线。 影子不真跳——plan 只落 verify 记录与账本事件，观察「本会跳过什么」。"""
 
 from __future__ import annotations
 

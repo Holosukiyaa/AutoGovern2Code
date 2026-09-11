@@ -340,8 +340,7 @@ class WarningEscalationTests(unittest.TestCase):
         self.assertEqual([1], counts)
 
     def test_none_count_key_is_read_only(self) -> None:
-        """无 count_key 的调用（CLI check/金丝雀/CI 重放）只读不写：
-        不产生新计数，但仍依据既有计数报告已升级的警告。"""
+        """无 count_key 的调用（CLI check/金丝雀/CI 重放）只读不写： 不产生新计数，但仍依据既有计数报告已升级的警告。"""
         warning = self._budget_warning()
         escalated = _record_warnings_and_find_escalated(self.manifest, [warning])
         self.assertEqual([], escalated)
@@ -616,8 +615,7 @@ class DuplicatePrecisionTests(unittest.TestCase):
         self.assertEqual([], self._warnings_for("src/new.py"))
 
     def test_same_name_small_divergent_bodies_not_flagged(self) -> None:
-        """同名同参数数但函数体结构不同 = 命名撞车，不是重复（_clip 教训：
-        checks 截断输出 vs dashboard 截断显示，同名不同义）。"""
+        """同名同参数数但函数体结构不同 = 命名撞车，不是重复（_clip 教训： checks 截断输出 vs dashboard 截断显示，同名不同义）。"""
         self._write("src/old.py", "def helper(a, b):\n    return a + b\n")
         self._write("src/new.py", "def helper(a, b):\n    return a * b\n")
         self.assertEqual([], self._warnings_for("src/new.py"))
@@ -632,8 +630,7 @@ class DuplicatePrecisionTests(unittest.TestCase):
         self.assertIn("同名函数", warnings[0]["detail"])
 
     def test_entry_point_main_not_flagged(self) -> None:
-        """main(argv) 是通用入口名，同名同参数数不携带重复信号——9.7 曾把
-        这个误报硬化成门禁拦截（suites.py:main、cli.py:main 一天两次）。"""
+        """main(argv) 是通用入口名，同名同参数数不携带重复信号——9.7 曾把 这个误报硬化成门禁拦截（suites.py:main、cli.py:main 一天两次）。"""
         self._write("src/old.py", "def main(argv):\n    return 0\n")
         self._write("src/new.py", "def main(argv):\n    return 1\n")
         self.assertEqual([], self._warnings_for("src/new.py"))
@@ -721,10 +718,7 @@ class BaselineDebtTests(unittest.TestCase):
 
 
 class ScanDuplicatePairsTests(unittest.TestCase):
-    """全仓实时查重（checks.scan_duplicate_pairs）：危房名单拆迁队列的数据源。
-
-    与 diff 触发的 _duplicate_warnings 共用 duplicate_match 单一规则；
-    化石记录（旧探测器残留）在实时扫描下自然不再复现。"""
+    """全仓实时查重（checks.scan_duplicate_pairs）：危房名单拆迁队列的数据源。 与 diff 触发的 _duplicate_warnings 共用 duplicate_match 单一规则； 化石记录（旧探测器残留）在实时扫描下自然不再复现。"""
 
     def setUp(self) -> None:
         self._tmp = Path(tempfile.mkdtemp())

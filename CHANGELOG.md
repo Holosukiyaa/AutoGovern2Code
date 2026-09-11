@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- tests 房间减重：多行 docstring 收成完整一句（不截断、不删体内说明注释、顶层 def/class 仍两空行），不删 `def test_`、不改断言、不抬 15500 预算。实测 15499→15265 行。
+
 - `run_agent_review` 通用 except 分支经 `_with_usage` 挂 usage：call_chat 已成功返回后 parse_verdict 抛非 RegulatorError 时不再丢 token 账。Covered by `test_review.py` UsageExtractTests。
 
 - 文件软帽警告。`src/ag2c` 下每个 splitlines()>800 的 `.py` 在 check-run 出 `kind=file-soft-cap`（key=`file-soft-cap:<相对路径>`，detail 含实测行数与软帽）；进 warning-history 但不进 `ESCALATABLE_KINDS`，第三次出现也不拦 verify。≤800 与非 py、读失败跳过。Covered by `test_budgets.py` FileSoftCapTests。

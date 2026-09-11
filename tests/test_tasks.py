@@ -159,11 +159,7 @@ class AutoRefreshTests(unittest.TestCase):
     """并行税自愈：canonical 增量与任务路径不相交时，verify/finish 自动 refresh 而非报错。"""
 
     def _project(self, tmp: str) -> Path:
-        """生产拓扑夹具：enroll_project 外部存储 + gated 夹具 policy。
-
-        仓内 .ag2c 夹具的 state/ledger 是 per-checkout 的，finish 的 receipt 验证
-        会找不到文件；真实项目是 enroll 的外部存储（canonical 与 worktree 共享）。
-        """
+        """生产拓扑夹具：enroll_project 外部存储 + gated 夹具 policy。 仓内 .ag2c 夹具的 state/ledger 是 per-checkout 的，finish 的 receipt 验证 会找不到文件；真实项目是 enroll 的外部存储（canonical 与 worktree 共享）。"""
         import os
         import shutil
 
@@ -300,11 +296,7 @@ class AutoRefreshTests(unittest.TestCase):
 
 
 class GovernanceReconcileTests(AutoRefreshTests):
-    """治理代码对账：worktree 的治理关键代码落后 canonical 时 verify 拒绝。
-
-    复用 AutoRefreshTests 的生产拓扑夹具；GOVERNANCE_CODE_PATHS 打补丁成夹具
-    里存在的路径（夹具 policy 只认 src/api 与 src/worker 两个房间）。
-    """
+    """治理代码对账：worktree 的治理关键代码落后 canonical 时 verify 拒绝。 复用 AutoRefreshTests 的生产拓扑夹具；GOVERNANCE_CODE_PATHS 打补丁成夹具 里存在的路径（夹具 policy 只认 src/api 与 src/worker 两个房间）。"""
 
     def _intervention_kinds(self, root: Path, task_id: str) -> list[str]:
         return [item["kind"] for item in self._task_record(root, task_id)["interventions"]]

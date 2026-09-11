@@ -1,10 +1,4 @@
-"""正主分支守卫：start/finish 前置检查正主处于登记主干。
-
-2026-09-09 事故：正主检出停在旧 feature 分支上，全天 12 个任务的合并
-全部落在它头上，主干原地不动而无人报警——finish 只检查"分支变没变"，
-从不检查"是不是主干"。本模块测试身份检查（require_trunk）、start 集成
-拦截与 govern trunk 登记命令。
-"""
+"""正主分支守卫：start/finish 前置检查正主处于登记主干。 2026-09-09 事故：正主检出停在旧 feature 分支上，全天 12 个任务的合并 全部落在它头上，主干原地不动而无人报警——finish 只检查"分支变没变"， 从不检查"是不是主干"。本模块测试身份检查（require_trunk）、start 集成 拦截与 govern trunk 登记命令。"""
 from __future__ import annotations
 
 import json
@@ -147,8 +141,7 @@ class ConfigureTrunkTests(unittest.TestCase):
 
 
 class TrunkCliTests(unittest.TestCase):
-    """CLI 层全路径：解析 → 分发 → 输出。t18 只测了函数层，接线缺 --format
-    导致合并后首次真实调用崩溃——每一层都要有自己的测试。"""
+    """CLI 层全路径：解析 → 分发 → 输出。t18 只测了函数层，接线缺 --format 导致合并后首次真实调用崩溃——每一层都要有自己的测试。"""
 
     def test_govern_trunk_cli_end_to_end(self) -> None:
         import io

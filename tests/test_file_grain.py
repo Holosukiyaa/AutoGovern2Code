@@ -1,14 +1,4 @@
-"""文件粒度户口（grain=file，t59）：删除门的单文件通道。
-
-删除门（tasks._assert_retirement_diff）此前只认目录户口：根文件拿不到
-jurisdiction（directory_scope 只要 dir/**），活跃房间内的单文件删除被
-cannot-delete-active-household / retirement-diff-touches-active 挡死——
-t54 的两个布局缓存 ini 因此只能冻结。文件粒度户口是最小补救：精确文件路径
-登记、可退役、可确认，已退役文件户口遮蔽房间户口（具体者优先）。
-
-夹具预算：setUpClass 共享一个 git 仓库，每个测试用独立文件名/卡 id，
-删除后即时 commit 保持工作区干净（git diff <head> 只看本测试的删除）。
-"""
+"""文件粒度户口（grain=file，t59）：删除门的单文件通道。 删除门（tasks._assert_retirement_diff）此前只认目录户口：根文件拿不到 jurisdiction（directory_scope 只要 dir/**），活跃房间内的单文件删除被 cannot-delete-active-household / retirement-diff-touches-active 挡死—— t54 的两个布局缓存 ini 因此只能冻结。文件粒度户口是最小补救：精确文件路径 登记、可退役、可确认，已退役文件户口遮蔽房间户口（具体者优先）。 夹具预算：setUpClass 共享一个 git 仓库，每个测试用独立文件名/卡 id， 删除后即时 commit 保持工作区干净（git diff <head> 只看本测试的删除）。"""
 from __future__ import annotations
 
 import json
@@ -130,10 +120,7 @@ class FileHouseholdGateTests(unittest.TestCase):
             _git(self.root, "commit", "-m", "delete src/api/t59-legacy.ini")
 
     def test_floor_only_file_delete_is_unowned(self):
-        """floor 不算删除门的 owner（households_covering_path 只看 jurisdiction）：
-        仅被 floor 覆盖的文件删除报 cannot-delete-unowned——钉死这个真实语义。
-        手改 policy 加隔离楼层 floor.t59iso，避开共享夹具里其他测试累积的
-        knowledge 户口（如 src/api/** 的 t59-cur）污染。"""
+        """floor 不算删除门的 owner（households_covering_path 只看 jurisdiction）： 仅被 floor 覆盖的文件删除报 cannot-delete-unowned——钉死这个真实语义。 手改 policy 加隔离楼层 floor.t59iso，避开共享夹具里其他测试累积的 knowledge 户口（如 src/api/** 的 t59-cur）污染。"""
         policy_path = self.root / ".ag2c" / "policy.json"
         raw = json.loads(policy_path.read_text(encoding="utf-8"))
         raw["cards"].append(
@@ -156,11 +143,7 @@ class FileHouseholdGateTests(unittest.TestCase):
             _git(self.root, "checkout", "--", "src/t59iso/t59-active.ini")
 
     def test_changed_path_touching_active_household_blocked(self):
-        """retirement-diff-touches-active 精确钉死：合法删除（退役文件户口）+
-        改动落在活跃知识户口 → 第二循环挡住。
-        touch 文件内容刻意与 del 不同：内容相同的 删+加 会被 git 判成改名
-        （R100），--diff-filter=D 下删除集为空、门禁整体不激活——删除的口径是
-        "内容真正消失"，移动由 rehome 自己的环路治理（见 tasks.py 门禁头注释）。"""
+        """retirement-diff-touches-active 精确钉死：合法删除（退役文件户口）+ 改动落在活跃知识户口 → 第二循环挡住。 touch 文件内容刻意与 del 不同：内容相同的 删+加 会被 git 判成改名 （R100），--diff-filter=D 下删除集为空、门禁整体不激活——删除的口径是 "内容真正消失"，移动由 rehome 自己的环路治理（见 tasks.py 门禁头注释）。"""
         head = self._commit_file("src/api/t59-mix-del.ini")
         self._register_file_household("knowledge.t59-mix", "src/api/t59-mix-del.ini")
         retire_household(self.root, card_id="knowledge.t59-mix", actor="test", reason="retire for mix test")
@@ -265,9 +248,7 @@ class FileHouseholdGateTests(unittest.TestCase):
         self.assertEqual("file", card.jurisdiction["span"])
 
     def test_directory_retirement_chain_regression(self):
-        """目录退役链回归（画像④）：目录户口 retire → confirm → 删文件放行；
-        legacy 无 replaced_by 仍挡。共用判定（_check_retired_household 重构）的回归面。
-        用 tests/** 避开其他测试已登记的 src 目录户口（cannot-overlap-household）。"""
+        """目录退役链回归（画像④）：目录户口 retire → confirm → 删文件放行； legacy 无 replaced_by 仍挡。共用判定（_check_retired_household 重构）的回归面。 用 tests/** 避开其他测试已登记的 src 目录户口（cannot-overlap-household）。"""
         head = self._commit_file("tests/t59-dir.ini")
         register_household(
             self.root,

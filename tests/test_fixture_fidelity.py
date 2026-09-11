@@ -1,15 +1,4 @@
-"""Fixture fidelity audit (夹具保真度): gate-logic tests must run gated.
-
-A test fixture that is more lenient than production is itself a hole: if a
-test exercises gate logic while household_required=false, the household gate
-is silently off and the test proves less than production demands. The
-reference pattern is tests/test_sunset.py's _canary_project, which declares
-household_required=true.
-
-This meta-test scans tests/test_*.py source: any file that calls a gate
-entry point must visibly opt into a gated fixture (write_project(...,
-gated=True), record_census, or an explicit household_required declaration).
-"""
+"""Fixture fidelity audit (夹具保真度): gate-logic tests must run gated. A test fixture that is more lenient than production is itself a hole: if a test exercises gate logic while household_required=false, the household gate is silently off and the test proves less than production demands. The reference pattern is tests/test_sunset.py's _canary_project, which declares household_required=true. This meta-test scans tests/test_*.py source: any file that calls a gate entry point must visibly opt into a gated fixture (write_project(..., gated=True), record_census, or an explicit household_required declaration)."""
 
 import unittest
 from pathlib import Path

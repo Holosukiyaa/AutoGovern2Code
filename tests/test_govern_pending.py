@@ -1,13 +1,4 @@
-"""pending_updates 的 unowned-area 归属口径（t58）。
-
-根文件：任意卡的精确 include（无 glob）或 references 收录即算有主——知识卡
-认领根文件是合法登记（t56 布局缓存 ini 的教训：认领了却消不掉待办）。
-根目录：口径不变，只有 floor 卡能认领。
-
-冒烟集预算是硬约束（单模块 <=2.5s）：全类共享一个 git 夹具、一次 git add、
-一次 pending_updates 调用，用 subTest 保持每条断言独立可定位——git 夹具
-是这里唯一的重资源，摊薄它是留在 FAST 的唯一办法（监管者 t58 打回意见）。
-"""
+"""pending_updates 的 unowned-area 归属口径（t58）。 根文件：任意卡的精确 include（无 glob）或 references 收录即算有主——知识卡 认领根文件是合法登记（t56 布局缓存 ini 的教训：认领了却消不掉待办）。 根目录：口径不变，只有 floor 卡能认领。 冒烟集预算是硬约束（单模块 <=2.5s）：全类共享一个 git 夹具、一次 git add、 一次 pending_updates 调用，用 subTest 保持每条断言独立可定位——git 夹具 是这里唯一的重资源，摊薄它是留在 FAST 的唯一办法（监管者 t58 打回意见）。"""
 from __future__ import annotations
 
 import copy

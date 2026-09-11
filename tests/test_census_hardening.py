@@ -25,12 +25,7 @@ def _git_fixture(root: Path) -> None:
 
 
 class CensusCacheKeyRootTests(unittest.TestCase):
-    """检出根路径必须进普查缓存 key。
-
-    canonical 与任务 worktree 共享同一份 policy/state 文件（外部存储），
-    HEAD 与 dirty 状态相同的瞬间（任务刚开工、未提交）缺了 root 就会碰撞。
-    内容相同时碰撞无害，但「碰撞即同内容」应是设计而非运气。
-    """
+    """检出根路径必须进普查缓存 key。 canonical 与任务 worktree 共享同一份 policy/state 文件（外部存储）， HEAD 与 dirty 状态相同的瞬间（任务刚开工、未提交）缺了 root 就会碰撞。 内容相同时碰撞无害，但「碰撞即同内容」应是设计而非运气。"""
 
     def test_checkout_root_is_part_of_the_key(self) -> None:
         from ag2c.households import _census_cache_key
@@ -51,8 +46,7 @@ class CensusCacheKeyRootTests(unittest.TestCase):
 
 
 class CensusCodeVersionTests(unittest.TestCase):
-    """每条普查记录带代码版本戳：digest 语义随代码演进，长驻进程
-    （MCP server/托盘）可能跑旧代码，版本戳让「哪个年代的工具录的」可查。"""
+    """每条普查记录带代码版本戳：digest 语义随代码演进，长驻进程 （MCP server/托盘）可能跑旧代码，版本戳让「哪个年代的工具录的」可查。"""
 
     def test_record_carries_code_version(self) -> None:
         import ag2c
@@ -71,11 +65,7 @@ class CensusCodeVersionTests(unittest.TestCase):
 
 
 class McpCanonicalCensusWarningTests(unittest.TestCase):
-    """cwd 脚枪提示：在 canonical 检出上录普查且有开放任务时，结果带 warning。
-
-    finish 的新鲜度门禁读的是 worktree 的普查记录；在 canonical 上录的记录
-    对进行中的任务不算数。警告不阻塞——canonical 普查本身合法（如发版后全量）。
-    """
+    """cwd 脚枪提示：在 canonical 检出上录普查且有开放任务时，结果带 warning。 finish 的新鲜度门禁读的是 worktree 的普查记录；在 canonical 上录的记录 对进行中的任务不算数。警告不阻塞——canonical 普查本身合法（如发版后全量）。"""
 
     def _record(self, root: Path) -> dict:
         from ag2c.mcp_server import _call_census

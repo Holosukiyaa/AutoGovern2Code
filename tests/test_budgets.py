@@ -1,7 +1,4 @@
-"""动态房间预算（budgets.py）：系统算预算，用户被告知。
-
-棘轮语义：首锚 实测×1.2；缩小自动收紧；增长不放宽；显式 policy 预算优先。
-"""
+"""动态房间预算（budgets.py）：系统算预算，用户被告知。 棘轮语义：首锚 实测×1.2；缩小自动收紧；增长不放宽；显式 policy 预算优先。"""
 
 from __future__ import annotations
 
@@ -255,11 +252,7 @@ class DynamicBudgetWarningTests(unittest.TestCase):
 
 
 class HouseholdBudgetLinesTests(unittest.TestCase):
-    """govern household 的显式行预算：写入 / 省略保留 / 0 清除 / 负数拒绝。
-
-    死锁教训（2026-09-10）：动态预算棘轮只下不上，家庭房间刻意增长后
-    没有任何合法通道抬预算，升级门全局锁死——此参数就是那条通道。
-    """
+    """govern household 的显式行预算：写入 / 省略保留 / 0 清除 / 负数拒绝。 死锁教训（2026-09-10）：动态预算棘轮只下不上，家庭房间刻意增长后 没有任何合法通道抬预算，升级门全局锁死——此参数就是那条通道。"""
 
     def setUp(self) -> None:
         from support import git_project, write_project
@@ -316,8 +309,7 @@ class HouseholdBudgetLinesTests(unittest.TestCase):
             self._register(budget_lines=-1)
 
     def test_explicit_budget_clears_over_budget_warning(self) -> None:
-        """场景验收（画像承诺②）：写入前 _budget_warnings 报 key=...:lines
-        over-budget；用新参数抬显式预算后，同一 key 从警告里消失。"""
+        """场景验收（画像承诺②）：写入前 _budget_warnings 报 key=...:lines over-budget；用新参数抬显式预算后，同一 key 从警告里消失。"""
         from ag2c.config import discover_manifest, load_manifest, load_policy
 
         doc = self.root / "docs" / "a.md"

@@ -1,8 +1,4 @@
-"""绿灯带阴影：每个"通过"旁标注本次未检查什么（反向引导收口规则 3）。
-
-阴影数据全部来自任务验证记录的既有字段（acceptance / checker_results /
-regulator），dashboard 层纯函数装配；字段缺失或畸形时静默降级，绝不编造。
-"""
+"""绿灯带阴影：每个"通过"旁标注本次未检查什么（反向引导收口规则 3）。 阴影数据全部来自任务验证记录的既有字段（acceptance / checker_results / regulator），dashboard 层纯函数装配；字段缺失或畸形时静默降级，绝不编造。"""
 from __future__ import annotations
 
 import unittest

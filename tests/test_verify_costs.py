@@ -1,9 +1,4 @@
-"""验证成本治理（verify_costs.py）：verify 自身的预算与计量。
-
-计量：checker 耗时从账本 check-run 事件可查询；预算：首锚 实测×1.5（近5次
-最大）、棘轮只紧不松、显式 budget_seconds 优先、无历史/坏仓不报警；超支
-产出 over-budget 警告进 9.7 管道；全量验收需任务级显式声明（申请预算）。
-"""
+"""验证成本治理（verify_costs.py）：verify 自身的预算与计量。 计量：checker 耗时从账本 check-run 事件可查询；预算：首锚 实测×1.5（近5次 最大）、棘轮只紧不松、显式 budget_seconds 优先、无历史/坏仓不报警；超支 产出 over-budget 警告进 9.7 管道；全量验收需任务级显式声明（申请预算）。"""
 
 from __future__ import annotations
 
@@ -93,11 +88,7 @@ class DurationHistoryTests(unittest.TestCase):
 
 
 class EffectiveTimeoutTests(unittest.TestCase):
-    """硬杀线单源派生（P0 2026-09-10）：预算×KILL_FACTOR×并行度；无锚定回退静态×并行度。
-
-    病灶：静态 timeout 按单跑拍值，checker_parallelism=4 时九套件互拖全部
-    假性撞墙（exit_code=null、耗时恰等于上限），同代码串行全绿。
-    """
+    """硬杀线单源派生（P0 2026-09-10）：预算×KILL_FACTOR×并行度；无锚定回退静态×并行度。 病灶：静态 timeout 按单跑拍值，checker_parallelism=4 时九套件互拖全部 假性撞墙（exit_code=null、耗时恰等于上限），同代码串行全绿。"""
 
     def _anchor(self, manifest: Manifest, checker_id: str, budget_seconds: float) -> None:
         store = {checker_id: {"budget_seconds": budget_seconds, "measured_seconds": budget_seconds, "updated_at": "2026-09-10T00:00:00+00:00", "actor": "t", "reason": "r"}}

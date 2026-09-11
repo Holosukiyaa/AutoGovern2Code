@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- MCP census 观察分支默认摘要（household_count/freshness/stale），`verbose=true` 才回全量房间树。Covered by `McpCensusPayloadTests` observe 两例。
+
 - 降档棘轮：`coordinate-reconciliation` 的 key 按维度稳定（不含 task id），跨任务计数，第 3 次同维宽松申报硬化。`coordinate-constraint` 仍不硬化。Covered by `DowngradeRatchetTests`。
 
 - enrollment/rehome 夹具减重：`git_project` 进程内模板拷贝，不再每次 `git init`+`commit`。xdist 实测 enrollment 15.0s→13.3s、rehome 24.0s→22.2s。用例未删。Covered by `GitProjectFixtureTests`。

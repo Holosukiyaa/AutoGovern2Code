@@ -386,7 +386,7 @@ def tool_defs() -> list[dict[str, Any]]:
                 "actor": {"type": "string"},
                 "verbose": {
                     "type": "boolean",
-                    "description": "With record: return the full census report under census. Default is a summary (household_count / freshness / stale).",
+                    "description": "Return the full census report (record: under census; observe: as the payload). Default is a summary (household_count / freshness / stale).",
                 },
                 "cwd": _cwd_prop(),
             },
@@ -766,7 +766,10 @@ def _call_census(args: dict[str, Any]) -> Any:
             result["census"] = _census_record_summary(result.get("census") or {})
         return result
     manifest = load_manifest(discover_manifest(repository_root(root)), project_root=root)
-    return census_report(manifest, load_policy(manifest))
+    report = census_report(manifest, load_policy(manifest))
+    if args.get("verbose"):
+        return report
+    return _census_record_summary(report)
 
 
 def _canonical_census_warning(root: Path) -> str | None:

@@ -161,7 +161,7 @@ class McpCanonicalCensusWarningTests(unittest.TestCase):
 
 
 class McpCensusPayloadTests(unittest.TestCase):
-    """record 分支默认只回摘要；verbose=true 才回全量。顶层键不动。"""
+    """record 与观察分支默认只回摘要；verbose=true 才回全量。顶层键不动。"""
 
     def _record(self, root: Path, **extra) -> dict:
         from ag2c.mcp_server import _call_census
@@ -198,6 +198,35 @@ class McpCensusPayloadTests(unittest.TestCase):
         self.assertIn("households", census)
         self.assertGreaterEqual(len(census["households"]), 1)
         self.assertNotIn("household_count", census)
+
+    def _observe(self, root: Path, **extra) -> dict:
+        from ag2c.mcp_server import _call_census
+
+        payload = {"cwd": str(root)}
+        payload.update(extra)
+        return _call_census(payload)
+
+    def test_observe_default_is_summary_without_households(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root)
+            _git_fixture(root)
+            result = self._observe(root)
+        self.assertIn("household_count", result)
+        self.assertGreaterEqual(result["household_count"], 1)
+        self.assertIn("freshness", result)
+        self.assertIn("stale", result)
+        self.assertNotIn("households", result)
+
+    def test_observe_verbose_returns_full_households(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root)
+            _git_fixture(root)
+            result = self._observe(root, verbose=True)
+        self.assertIn("households", result)
+        self.assertGreaterEqual(len(result["households"]), 1)
+        self.assertNotIn("household_count", result)
 
 
 if __name__ == "__main__":

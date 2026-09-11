@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import threading
+import time
 import unittest
 
+from clipboard_guard import (
+    CLIPBOARD_LOCKED_MARK,
+    ClipboardLock,
+    require_clipboard,
+)
 from ag2c_gui.dashboard import (
     DANGER,
     DECISION,
@@ -508,7 +515,12 @@ class DrawSmokeTests(unittest.TestCase):
         self._render(self._full_model(), open_records=True)
 
     def test_clipboard_roundtrip_headless(self):
-        """复制按钮依赖的剪贴板 API 在无头上下文里可用（t54 教训：绘制 API 存在性要冒烟）。"""
+        """复制按钮依赖的剪贴板 API 在无头上下文里可用（t54 教训：绘制 API 存在性要冒烟）。
+
+        imgui_bundle 对 OpenClipboard 失败是原生崩溃。任意进程持锁时先预检、
+        短窗口重试，仍锁才 skip，reason 必含 clipboard-locked，禁止静默 skip。
+        """
+        require_clipboard()
         from imgui_bundle import imgui
 
         ctx = imgui.create_context()
@@ -518,6 +530,32 @@ class DrawSmokeTests(unittest.TestCase):
             self.assertEqual(imgui.get_clipboard_text(), prompt)
         finally:
             imgui.destroy_context(ctx)
+
+    def test_clipboard_guard_skips_when_locked(self):
+        with ClipboardLock() as lock:
+            if not lock.held:
+                raise unittest.SkipTest(
+                    f"{CLIPBOARD_LOCKED_MARK}: could not acquire fixture lock"
+                )
+            with self.assertRaises(unittest.SkipTest) as raised:
+                require_clipboard(retries=2, wait_s=0.0)
+            self.assertIn(CLIPBOARD_LOCKED_MARK, str(raised.exception))
+
+    def test_clipboard_guard_retries_then_proceeds(self):
+        lock = ClipboardLock()
+        lock.__enter__()
+        self.addCleanup(lock.release)
+        if not lock.held:
+            raise unittest.SkipTest(
+                f"{CLIPBOARD_LOCKED_MARK}: could not acquire fixture lock"
+            )
+
+        def _unlock_soon() -> None:
+            time.sleep(0.12)
+            lock.release()
+
+        threading.Thread(target=_unlock_soon, daemon=True).start()
+        require_clipboard(retries=8, wait_s=0.05)
 
     def test_render_leaves_no_ini_debris(self):
         """无头渲染不得在 cwd 落任何 ini 碎屑（t54 的布局缓存碎屑曾被误提交进仓）。

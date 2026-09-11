@@ -31,6 +31,9 @@ PYTHON_PLACEHOLDER = "<python>"
 SRC_PLACEHOLDER = "<ag2c-src>"
 CONNECT_RESOURCE_URI = "ag2c://connect"
 
+PROCESS_STARTED_AT = datetime.now(timezone.utc).isoformat()
+_VERSION_ASSIGN = re.compile(r'^__version__\s*=\s*["\']([^"\']+)["\']', re.M)
+
 MCP_INSTRUCTIONS = """This workspace is governed by AutoGovern2Code (AG2C) when `ag2c_guard_status` reports managed.
 
 You already have the AG2C workflow through this MCP connection (instructions, resources, tools). Do not ask the user to paste a copy-prompt, install Skill folders, or configure Git. Do not git commit on the canonical checkout.
@@ -373,6 +376,10 @@ def tool_defs() -> list[dict[str, Any]]:
                 "card": {"type": "array", "items": {"type": "string"}},
                 "reason": {"type": "string"},
                 "actor": {"type": "string"},
+                "verbose": {
+                    "type": "boolean",
+                    "description": "With record: return the full census report under census. Default is a summary (household_count / freshness / stale).",
+                },
                 "cwd": _cwd_prop(),
             },
         ),
@@ -698,6 +705,18 @@ def _call_retrieve(args: dict[str, Any]) -> Any:
     )
 
 
+def _census_record_summary(report: Mapping[str, Any]) -> dict[str, Any]:
+    """MCP record payload: room count, freshness histogram, stale ids. Not the full tree."""
+    households = list(report.get("households") or [])
+    freshness = dict(((report.get("counts") or {}).get("freshness") or {}))
+    stale = [str(item.get("id")) for item in households if item.get("freshness") == "stale"]
+    return {
+        "household_count": len(households),
+        "freshness": freshness,
+        "stale": stale,
+    }
+
+
 def _call_census(args: dict[str, Any]) -> Any:
     from .config import discover_manifest, load_manifest, load_policy
     from .gitops import repository_root
@@ -717,6 +736,8 @@ def _call_census(args: dict[str, Any]) -> Any:
         warning = _canonical_census_warning(root)
         if warning:
             result["warning"] = warning
+        if not args.get("verbose"):
+            result["census"] = _census_record_summary(result.get("census") or {})
         return result
     manifest = load_manifest(discover_manifest(repository_root(root)), project_root=root)
     return census_report(manifest, load_policy(manifest))
@@ -1194,6 +1215,15 @@ def _guard_probe(cwd: str | Path | None = None, *, managed: bool | None = None) 
     return {"managed": bool(status.get("managed")), "issues": list(status.get("issues") or [])}
 
 
+def _version_in_init(path: Path) -> str | None:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = _VERSION_ASSIGN.search(text)
+    return match.group(1) if match else None
+
+
 def mcp_health(
     *,
     handshake: bool = True,
@@ -1228,7 +1258,7 @@ def mcp_health(
     elif not guard_ok:
         issues = (guard or {}).get("issues") or []
         error = str(issues[0] if issues else "Git hook is off")
-    return {
+    payload: dict[str, Any] = {
         "ok": ok,
         "status": status,
         "label": label,
@@ -1242,4 +1272,23 @@ def mcp_health(
         "handshake": handshake_result,
         "guard": guard,
         "clients": [{"harness": item["harness"], "configured": item["configured"]} for item in clients],
+        "code_version": __version__,
+        "started_at": PROCESS_STARTED_AT,
     }
+    disk = _version_in_init(src / "ag2c" / "__init__.py") if src_ok else None
+    if disk:
+        payload["disk_code_version"] = disk
+    if cwd:
+        try:
+            from .enrollment import activation_status
+
+            status_info = activation_status(Path(str(cwd)))
+            if status_info.get("managed"):
+                canon = _version_in_init(
+                    Path(str(status_info["canonical_root"])) / "src" / "ag2c" / "__init__.py"
+                )
+                if canon:
+                    payload["canonical_code_version"] = canon
+        except (AG2CError, OSError, KeyError):
+            pass
+    return payload

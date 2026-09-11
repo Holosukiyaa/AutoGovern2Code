@@ -131,5 +131,45 @@ class McpCanonicalCensusWarningTests(unittest.TestCase):
             self.assertNotIn("warning", result)
 
 
+class McpCensusPayloadTests(unittest.TestCase):
+    """record 分支默认只回摘要；verbose=true 才回全量。顶层键不动。"""
+
+    def _record(self, root: Path, **extra) -> dict:
+        from ag2c.mcp_server import _call_census
+
+        payload = {"record": True, "all": True, "actor": "test", "reason": "probe", "cwd": str(root)}
+        payload.update(extra)
+        return _call_census(payload)
+
+    def test_record_default_is_summary_without_households(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root)
+            _git_fixture(root)
+            result = self._record(root)
+        self.assertIn("reviewed", result)
+        self.assertIn("ledger_event_digest", result)
+        census = result["census"]
+        self.assertIn("household_count", census)
+        self.assertGreaterEqual(census["household_count"], 1)
+        self.assertIn("freshness", census)
+        self.assertIn("stale", census)
+        self.assertNotIn("households", census)
+        self.assertIsInstance(census["stale"], list)
+
+    def test_record_verbose_returns_full_households(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root)
+            _git_fixture(root)
+            result = self._record(root, verbose=True)
+        self.assertIn("reviewed", result)
+        self.assertIn("ledger_event_digest", result)
+        census = result["census"]
+        self.assertIn("households", census)
+        self.assertGreaterEqual(len(census["households"]), 1)
+        self.assertNotIn("household_count", census)
+
+
 if __name__ == "__main__":
     unittest.main()

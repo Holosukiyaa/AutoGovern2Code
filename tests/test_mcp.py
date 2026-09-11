@@ -13,6 +13,7 @@ from ag2c.harnesses import PACKAGED_SKILLS
 from ag2c.mcp_server import (
     CONNECT_RESOURCE_URI,
     MCP_INSTRUCTIONS,
+    PROCESS_STARTED_AT,
     PYTHON_PLACEHOLDER,
     SRC_PLACEHOLDER,
     handle_mcp_request,
@@ -292,6 +293,8 @@ class McpServerTests(unittest.TestCase):
         self.assertIn("record", properties)
         self.assertIn("all", properties)
         self.assertEqual("boolean", properties["all"]["type"])
+        self.assertIn("verbose", properties)
+        self.assertEqual("boolean", properties["verbose"]["type"])
 
     def test_household_tool_schema_exposes_entrypoint_checker_command(self) -> None:
         household = next(item for item in tool_defs() if item["name"] == "ag2c_household")
@@ -485,6 +488,20 @@ class McpServerTests(unittest.TestCase):
         tool = _rpc("tools/call", {"name": "ag2c_mcp_health", "arguments": {"handshake": False}})
         payload = json.loads(tool["result"]["content"][0]["text"])
         self.assertTrue(payload["skills_internalized"])
+
+    def test_health_reports_code_version_and_started_at(self):
+        import ag2c
+
+        first = mcp_health(handshake=False, home=Path(tempfile.mkdtemp()))
+        second = mcp_health(handshake=False, home=Path(tempfile.mkdtemp()))
+        self.assertEqual(ag2c.__version__, first["code_version"])
+        self.assertEqual(PROCESS_STARTED_AT, first["started_at"])
+        self.assertEqual(first["started_at"], second["started_at"])
+        self.assertRegex(first["started_at"], r"^\d{4}-\d{2}-\d{2}T")
+        tool = _rpc("tools/call", {"name": "ag2c_mcp_health", "arguments": {"handshake": False}})
+        payload = json.loads(tool["result"]["content"][0]["text"])
+        self.assertEqual(ag2c.__version__, payload["code_version"])
+        self.assertEqual(PROCESS_STARTED_AT, payload["started_at"])
 
 
 class AsyncVerifyTests(unittest.TestCase):

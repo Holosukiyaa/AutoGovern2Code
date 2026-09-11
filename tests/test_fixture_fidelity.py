@@ -1,7 +1,10 @@
 """Fixture fidelity audit (夹具保真度): gate-logic tests must run gated. A test fixture that is more lenient than production is itself a hole: if a test exercises gate logic while household_required=false, the household gate is silently off and the test proves less than production demands. The reference pattern is tests/test_sunset.py's _canary_project, which declares household_required=true. This meta-test scans tests/test_*.py source: any file that calls a gate entry point must visibly opt into a gated fixture (write_project(..., gated=True), record_census, or an explicit household_required declaration)."""
 
+import tempfile
 import unittest
 from pathlib import Path
+
+from support import _git, git_project
 
 TESTS_DIR = Path(__file__).resolve().parent
 
@@ -37,6 +40,27 @@ class FixtureFidelityTests(unittest.TestCase):
             "record_census, or an explicit household_required declaration); see "
             "tests/test_sunset.py's _canary_project",
         )
+
+
+class GitProjectFixtureTests(unittest.TestCase):
+    """git_project copies a process-local template; instances stay isolated."""
+
+    def test_second_repo_does_not_see_mutations_to_the_first(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            first = git_project(base / "a")
+            second = git_project(base / "b")
+            (first / "src" / "value.py").write_text("VALUE = 9\n", encoding="utf-8")
+            self.assertEqual("VALUE = 1\n", (second / "src" / "value.py").read_text(encoding="utf-8"))
+            self.assertEqual("main", _git(first, "rev-parse", "--abbrev-ref", "HEAD"))
+            self.assertEqual("main", _git(second, "rev-parse", "--abbrev-ref", "HEAD"))
+
+    def test_existing_destination_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "demo"
+            root.mkdir()
+            with self.assertRaises(FileExistsError):
+                git_project(root)
 
     def test_meta_scan_actually_finds_gate_tests(self) -> None:
         # Guard the guard: the scan must keep finding the known gate testers,

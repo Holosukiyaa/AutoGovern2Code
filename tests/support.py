@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import atexit
 import json
+import shutil
 import subprocess
 import sys
+import tempfile
+import threading
 from pathlib import Path
 
 import bootstrap
@@ -36,7 +40,12 @@ def bare_manifest(root: Path):
     )
 
 
-def git_project(root: Path) -> Path:
+_GIT_TEMPLATE: Path | None = None
+_GIT_TEMPLATE_LOCK = threading.Lock()
+
+
+def _populate_git_repo(root: Path) -> Path:
+    """Build the starter tree and make one commit. Used once per process for the template."""
     root.mkdir(parents=True)
     (root / "src").mkdir()
     (root / "tests").mkdir()
@@ -56,6 +65,29 @@ def git_project(root: Path) -> Path:
     _git(root, "config", "user.email", "ag2c-test@example.invalid")
     _git(root, "add", "--all")
     _git(root, "commit", "-m", "initial")
+    return root.resolve()
+
+
+def _git_template() -> Path:
+    global _GIT_TEMPLATE
+    if _GIT_TEMPLATE is not None:
+        return _GIT_TEMPLATE
+    with _GIT_TEMPLATE_LOCK:
+        if _GIT_TEMPLATE is not None:
+            return _GIT_TEMPLATE
+        scratch = Path(tempfile.mkdtemp(prefix="ag2c-git-template-"))
+        _GIT_TEMPLATE = _populate_git_repo(scratch / "repo")
+        atexit.register(shutil.rmtree, scratch, True)
+        return _GIT_TEMPLATE
+
+
+def git_project(root: Path) -> Path:
+    """Isolated starter git repo. After the first call in a process, copies a template instead of git init+commit."""
+    root = Path(root)
+    if root.exists():
+        raise FileExistsError(f"git_project destination exists: {root}")
+    root.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(_git_template(), root)
     return root.resolve()
 
 

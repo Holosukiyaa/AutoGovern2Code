@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- enrollment/rehome 夹具减重：`git_project` 进程内模板拷贝，不再每次 `git init`+`commit`。xdist 实测 enrollment 15.0s→13.3s、rehome 24.0s→22.2s。用例未删。Covered by `GitProjectFixtureTests`。
+
 - 普查跨版本拒收：记录 `code_version` 缺失或与运行中 `ag2c.__version__` 不一致时 freshness 为 `version-mismatch`，不当 `current`。Covered by `CensusCodeVersionTests`。
 
 - warning-dismiss 先落账本再写历史：`append_event` 失败时 `state/warning-history.json` 磁盘字节不变。Covered by `WarningDismissTests` ledger-failure 例。

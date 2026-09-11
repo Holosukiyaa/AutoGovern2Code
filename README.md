@@ -7,7 +7,7 @@
 
 [中文](README.zh-CN.md) · [Adoption](docs/ADOPTION.md) · [Architecture](docs/dev/ARCHITECTURE.md) · [Releases](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)
 
-Current release: **v0.9.0** (2026-09-07). Alpha. Windows only. Single-user and local.
+Current release: **v0.10.0** (2026-09-11). Alpha. Windows only. Single-user and local.
 
 AutoGovern2Code is a local open-source governance layer for AI coding. Add a Git project once. The AI entry is a generic MCP connect prompt (placeholders, no vendor lock-in) plus **检测 MCP**. Skill text lives inside that MCP. Work happens in an external Git worktree, the project's own checks run, and only verified bytes fast-forward. Evidence stays on this machine.
 

@@ -962,7 +962,7 @@ def apply_startup(enabled: bool, executable: str) -> None:
                 pass
 
 
-def register_app(executable: str, version: str = "0.9.0") -> None:
+def register_app(executable: str, version: str = "0.10.0") -> None:
     if os.name != "nt":
         return
     import winreg

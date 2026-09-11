@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 - 2026-09-11
 
 - 换锁不换门，堵上了：`verify_task` 开头新增治理代码对账（AGF 对账三件套——坐标申报/对账/降档棘轮——的第一个实例）。`GOVERNANCE_CODE_PATHS` 列出决定 verify 判罚本身的八个模块（tasks/checks/review/config/slicer/acceptance/hazard/scheduler，各自职责见代码注释）；canonical 在任务开工后推进了其中任何文件、而 worktree 未包含该更新（纯落后）时，verify 被拒绝并列出落后文件、提示从 canonical 运行 `ag2c task refresh` 后重验——进程内的 auto-refresh 只能换磁盘字节，换不了已经在跑的旧代码，所以这个检查刻意排在 HEAD 分叉自愈之前。worktree 自己改了这些文件不算落后（那是任务内容本身；双方同改由既有 canonical-head-diverged 相交检查接管）；比对本身出 git/IO 故障降级为 `governance-code-reconcile-degraded` intervention 留痕，不阻塞 verify；拒绝时记 `governance-code-behind`（带 paths 与双侧 head）。动机：2026-09-11 事故——`policy.regulator.strict` 默认值翻转（e042028）合并后，仍有 4 次 verify 被翻转前开工的 worktree 用旧代码在监管 401 时放行（账本 17:41-18:05 UTC），治理收紧不回溯在途任务。Covered by `GovernanceReconcileTests`（落后被拒+干预记录 / 领先放行 / canonical 只动非治理文件时并行税自愈照旧 / 手动 refresh 后重验放行 / 比对故障降级不阻塞）。
 

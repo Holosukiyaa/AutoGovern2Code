@@ -7,7 +7,7 @@
 
 [English](README.md) · [接入说明](docs/ADOPTION.md) · [架构](docs/dev/ARCHITECTURE.md) · [Releases](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)
 
-当前版本：**v0.9.0**（2026-09-07）。Alpha。仅 Windows。单人、本机。
+当前版本：**v0.10.0**（2026-09-11）。Alpha。仅 Windows。单人、本机。
 
 AutoGovern2Code 是一层本地、开源的 AI 编程治理工具。把 Git 工程加入一次即可。AI 入口只有两件事：通用 MCP 连接说明（占位符，不绑厂商、不写本机路径）和 **检测 MCP**。Skill 全文在 MCP 里。施工在工程外的 Git worktree，运行项目自己的检查，只把验证过的提交 fast-forward 回原分支。完整证据留在这台电脑上。
 

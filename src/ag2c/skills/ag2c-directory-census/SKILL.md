@@ -1,6 +1,6 @@
 ---
 name: ag2c-directory-census
-version: 0.9.0
+version: 0.10.0
 description: Investigate AutoGovern2Code directory rooms, split 占位/黑盒, and apply coverage tags (未打标 / 整夹一张 / 一文件一张) while looking at the tree. Use when the user asks to 彻查, 普查, census, 说清目录, 打标, split ownership, or find unexplained files under a claimed parent. Observe with `ag2c govern census`, register only proper-subset rooms, set a tag on each inspected room, and never name a catch-all parent. Do not write 设计思路 here (`ag2c-knowledge-authoring` does that from the tags). Do not change product files; hand leftover deletion to ag2c-governed-development after `govern retire`.
 ---
 

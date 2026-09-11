@@ -60,6 +60,7 @@ GOVERNANCE_SUITE = [
     "test_hazard",
     # t59：文件粒度户口 + 删除门，实测 10.8s（git 夹具 + 普查），超冒烟集门槛下沉。
     "test_file_grain",
+    "test_flatten",
 ]
 
 SUITES = {

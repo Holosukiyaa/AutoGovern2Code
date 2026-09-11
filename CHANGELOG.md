@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 反向开发机制：`govern flatten-queue` 按行数×提交数排序 `src/ag2c`；`govern flatten-check` 纯搬运门（新增非豁免行必须来自删除行，豁免 import 与模块 docstring）。Covered by `test_flatten.py`。
+
 - scenario 检查器 `check.knowledge.ag2c-gui` 设 always=true：verify 跑桌面启动验收，acceptance.scenario 不再长期 not-in-slice。未绑到 knowledge.ag2c（implementation-check-mismatch）。
 
 - MCP census 观察分支默认摘要（household_count/freshness/stale），`verbose=true` 才回全量房间树。Covered by `McpCensusPayloadTests` observe 两例。

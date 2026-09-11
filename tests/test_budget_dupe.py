@@ -234,6 +234,62 @@ class MultiDimensionBudgetTests(unittest.TestCase):
         self.assertEqual(15, DERIVED_AST_NODES_PER_LINE)
         self.assertEqual(160, DERIVED_CHARS_PER_LINE)
 
+    def _source_fixture(self, card: Card) -> list[dict[str, str]]:
+        """30 行文件 + 10 行预算的房间，返回 _budget_warnings 的输出。"""
+        self._write("src/mod.py", "x = 1\n" * 30)
+        manifest = self._manifest_with_target()
+        policy = mock.Mock()
+        policy.card = lambda cid: card if cid == "knowledge.room" else None
+        fake_report = {"households": [{"id": "knowledge.room", "code_count": 30, "files": ["app:src/mod.py"]}]}
+        with mock.patch("ag2c.households.census_report", return_value=fake_report):
+            return _budget_warnings(manifest, policy, {})
+
+    def test_explicit_budget_marks_source_explicit(self) -> None:
+        card = Card(
+            card_id="knowledge.room", card_type="knowledge", title="room", summary="room",
+            scopes=(), checkers=(), references=(), jurisdiction={"span": "folder"},
+            budget_lines=10,
+        )
+        warnings = self._source_fixture(card)
+        self.assertTrue(warnings)
+        for w in warnings:
+            self.assertEqual("explicit", w["budget_source"])  # 派生维度跟随父预算来源
+
+    def test_dynamic_budget_marks_source_dynamic(self) -> None:
+        # 无显式 budget_lines；预算来自动态仓 state/budgets.json
+        (self._tmp / "state").mkdir(parents=True, exist_ok=True)
+        (self._tmp / "state" / "budgets.json").write_text(
+            json.dumps({"schema": "ag2c.budgets.v1",
+                        "rooms": {"knowledge.room": {"budget_lines": 10}}}),
+            encoding="utf-8",
+        )
+        card = Card(
+            card_id="knowledge.room", card_type="knowledge", title="room", summary="room",
+            scopes=(), checkers=(), references=(), jurisdiction={"span": "folder"},
+        )
+        warnings = self._source_fixture(card)
+        self.assertTrue(warnings)
+        for w in warnings:
+            self.assertEqual("dynamic", w["budget_source"])
+
+    def test_explicit_chars_overrides_dynamic_lines_source(self) -> None:
+        """混合来源：行动态、chars 人工——chars 维度标 explicit，lines 标 dynamic。"""
+        (self._tmp / "state").mkdir(parents=True, exist_ok=True)
+        (self._tmp / "state" / "budgets.json").write_text(
+            json.dumps({"schema": "ag2c.budgets.v1",
+                        "rooms": {"knowledge.room": {"budget_lines": 10}}}),
+            encoding="utf-8",
+        )
+        card = Card(
+            card_id="knowledge.room", card_type="knowledge", title="room", summary="room",
+            scopes=(), checkers=(), references=(), jurisdiction={"span": "folder"},
+            budget_chars=100,
+        )
+        warnings = self._source_fixture(card)
+        sources = {w["dimension"]: w["budget_source"] for w in warnings}
+        self.assertEqual("dynamic", sources["lines"])
+        self.assertEqual("explicit", sources["chars"])
+
 
 class WarningEscalationTests(unittest.TestCase):
     """9.7: a warning ignored N times hardens into a gate block (泰坦尼克)."""
@@ -318,6 +374,7 @@ class WarningEscalationTests(unittest.TestCase):
         counts = [e["count"] for e in history["warnings"].values()]
         self.assertEqual([WARNING_ESCALATION_THRESHOLD + 2], counts)  # tracked, not escalated
 
+
     def test_corrupt_history_file_starts_fresh(self) -> None:
         path = self._tmp / "state" / "warning-history.json"
         path.write_text("{not json", encoding="utf-8")
@@ -393,6 +450,62 @@ class WarningEscalationTests(unittest.TestCase):
         entry_slice = {"entries": {"paths": [{"path": "tests/test_x.py", "target": "app"}]}}
         warnings = _duplicate_warnings(manifest, entry_slice)
         self.assertEqual([], [w for w in warnings if "setUp" in w.get("key", "")])
+
+
+class DynamicBudgetEscalationTests(unittest.TestCase):
+    """动态预算（系统快照）的 over-budget 永不硬化；人工定价的维持第三次硬化。"""
+
+    def setUp(self) -> None:
+        self._tmp = Path(tempfile.mkdtemp())
+        (self._tmp / "state").mkdir(parents=True)
+        self.manifest = Manifest(
+            path=self._tmp / "manifest.json",
+            project_id="test-proj",
+            project_root=self._tmp,
+            targets=[],
+            ledger_path=self._tmp / "ledger.jsonl",
+            policy_path=self._tmp / "policy.json",
+            state_dir=self._tmp / "state",
+        )
+
+    def _warning(self, source: str) -> dict[str, str]:
+        return {"kind": "over-budget", "room": "knowledge.room", "dimension": "lines",
+                "key": "knowledge.room:lines", "detail": "600 行代码，预算 500 行",
+                "budget_source": source}
+
+    def test_dynamic_budget_never_escalates_but_is_counted(self) -> None:
+        warning = self._warning("dynamic")
+        for i in range(WARNING_ESCALATION_THRESHOLD + 2):
+            escalated = _record_warnings_and_find_escalated(self.manifest, [warning], count_key=f"task-{i}")
+            self.assertEqual([], escalated)  # 第 3/4/5 次仍只是警告
+        history = _load_warning_history(self.manifest)
+        counts = [e["count"] for e in history["warnings"].values()]
+        self.assertEqual([WARNING_ESCALATION_THRESHOLD + 2], counts)  # 计数照涨，留痕不断
+
+    def test_explicit_budget_still_escalates_on_third(self) -> None:
+        warning = self._warning("explicit")
+        _record_warnings_and_find_escalated(self.manifest, [warning], count_key="task-1")
+        _record_warnings_and_find_escalated(self.manifest, [warning], count_key="task-2")
+        escalated = _record_warnings_and_find_escalated(self.manifest, [warning], count_key="task-3")
+        self.assertEqual(1, len(escalated))
+        self.assertEqual("explicit", escalated[0]["budget_source"])
+
+    def test_missing_budget_source_keeps_legacy_behavior(self) -> None:
+        """budget_source 缺失（旧历史、verify_costs 秒预算）按人工处理：第三次硬化。"""
+        warning = self._warning("explicit")
+        del warning["budget_source"]
+        for i in range(WARNING_ESCALATION_THRESHOLD):
+            escalated = _record_warnings_and_find_escalated(self.manifest, [warning], count_key=f"task-{i}")
+        self.assertEqual(1, len(escalated))
+
+    def test_dynamic_history_escalates_once_room_becomes_explicit(self) -> None:
+        """房间从动态转人工定价后，既有计数 ≥3 的警告下一次出现立即硬化——价格对话到期。"""
+        warning = self._warning("dynamic")
+        for i in range(WARNING_ESCALATION_THRESHOLD):
+            escalated = _record_warnings_and_find_escalated(self.manifest, [warning], count_key=f"task-{i}")
+            self.assertEqual([], escalated)
+        escalated = _record_warnings_and_find_escalated(self.manifest, [self._warning("explicit")], count_key="task-next")
+        self.assertEqual(1, len(escalated))
 
 
 class WarningDismissTests(unittest.TestCase):

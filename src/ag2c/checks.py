@@ -179,14 +179,20 @@ def _budget_warnings(manifest: Manifest, policy: Policy, entry_slice: dict[str, 
         budget_ast = card.budget_ast_nodes or (budget_lines * DERIVED_AST_NODES_PER_LINE if budget_lines else 0)
         if budget_lines <= 0 and budget_chars <= 0 and budget_ast <= 0:
             continue
+        # 预算来源：人工定价（policy 显式字段）vs 动态仓快照。派生维度
+        # （chars/ast 从行预算推算）跟随其父预算的来源。该标记决定 9.7
+        # 硬化分流——动态快照注定随房间自然增长过期，不该硬化成门。
+        lines_source = "explicit" if int(card.budget_lines or 0) > 0 else "dynamic"
+        chars_source = "explicit" if int(card.budget_chars or 0) > 0 else lines_source
+        ast_source = "explicit" if int(card.budget_ast_nodes or 0) > 0 else lines_source
         room = str(item.get("id") or "")
         measured = _room_code_measurements(manifest, item)
         dimensions = (
-            ("lines", measured["lines"], budget_lines, "行"),
-            ("chars", measured["chars"], budget_chars, "字符"),
-            ("ast_nodes", measured["ast_nodes"], budget_ast, "AST 节点"),
+            ("lines", measured["lines"], budget_lines, "行", lines_source),
+            ("chars", measured["chars"], budget_chars, "字符", chars_source),
+            ("ast_nodes", measured["ast_nodes"], budget_ast, "AST 节点", ast_source),
         )
-        for dimension, actual, budget, unit in dimensions:
+        for dimension, actual, budget, unit, source in dimensions:
             if budget > 0 and actual > budget:
                 warnings.append({
                     "kind": "over-budget",
@@ -194,6 +200,7 @@ def _budget_warnings(manifest: Manifest, policy: Policy, entry_slice: dict[str, 
                     "dimension": dimension,
                     "key": f"{room}:{dimension}",
                     "detail": f"{actual} {unit}，预算 {budget}（超出 {actual - budget}，维度 {dimension}）",
+                    "budget_source": source,
                 })
     return warnings
 
@@ -488,6 +495,8 @@ def baseline_debt(manifest: Manifest) -> dict[str, Any]:
 # time while still present hardens into a gate block. Informational hints
 # (cross-slice-dependency) describe blast radius, not defects — a hub module
 # cannot "fix" being imported — so they are tracked but never escalate.
+# Dynamic-budget over-budget warnings (budget_source=dynamic) are tracked but
+# never escalate either: a system snapshot going stale is not defiance.
 #
 # 计数语义（t25 调优）："无视"按任务计，不按 verify 运行次数计——同一任务
 # 内重试 verify（修无关问题、普查过期、换行符事故）不等于无视警告。调用方
@@ -498,6 +507,23 @@ WARNING_ESCALATION_THRESHOLD = 3
 WARNING_HISTORY_SCHEMA = "ag2c.warning-history.v1"
 ESCALATABLE_KINDS = frozenset({"over-budget", "possible-duplicate"})
 _MAX_COUNT_KEYS = 50
+
+
+def _escalatable(warning: dict[str, str]) -> bool:
+    """缺陷类警告才硬化；动态预算的超标警告永远只警告、不成门。
+
+    动态预算是系统按普查实测拍的快照（budgets.py 棘轮只紧不松），增长型
+    房间（tests/docs）自然长个儿必然顶破它——快照过期不该硬化成门，否则
+    等于惩罚增长本身（2026-09-11 tests 房间：覆盖率增长 338 行，第三个
+    携带该警告的任务被门拦住）。人工定价（policy 显式 budget_lines）的
+    超标才升级对峙——价格是人定的，不符就该重新谈。budget_source 缺失
+    的警告（旧历史、verify_costs 秒预算）按人工处理，维持既有行为。
+    """
+    if str(warning.get("kind") or "") not in ESCALATABLE_KINDS:
+        return False
+    if warning.get("kind") == "over-budget" and str(warning.get("budget_source") or "") == "dynamic":
+        return False
+    return True
 
 
 def _warning_history_path(manifest: Manifest) -> Path:
@@ -558,7 +584,7 @@ def _record_warnings_and_find_escalated(
                 del count_keys[:-_MAX_COUNT_KEYS]  # 只留最近一批 key；count 单调不回退
             entry["last_seen"] = now
             entry["detail"] = str(warning.get("detail") or "")
-        if str(entry.get("kind") or "") in ESCALATABLE_KINDS and int(entry.get("count") or 0) >= WARNING_ESCALATION_THRESHOLD:
+        if _escalatable(warning) and int(entry.get("count") or 0) >= WARNING_ESCALATION_THRESHOLD:
             escalated.append({**warning, "count": entry["count"]})
     if count_key is not None:
         try:

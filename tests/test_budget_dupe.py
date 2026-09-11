@@ -554,6 +554,20 @@ class WarningDismissTests(unittest.TestCase):
         self.assertEqual("holo", payload["actor"])
         self.assertEqual("已知情", payload["reason"])
 
+    def test_ledger_failure_leaves_history_bytes_unchanged(self) -> None:
+        _record_warnings_and_find_escalated(self.manifest, [self._budget_warning()], count_key="task-1")
+        path = self.manifest.state_dir / "warning-history.json"
+        before = path.read_bytes()
+        with mock.patch("ag2c.ledger.append_event", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                dismiss_warning(self.manifest, "knowledge.room:lines", actor="holo", reason="x")
+        self.assertEqual(before, path.read_bytes())
+        self.assertEqual(1, list(_load_warning_history(self.manifest)["warnings"].values())[0]["count"])
+        self.assertEqual(
+            [],
+            [e for e in read_events(self.manifest.ledger_path) if e.get("event_type") == "warning-dismiss"],
+        )
+
 
 class DuplicatePrecisionTests(unittest.TestCase):
     """The detector must be high-precision, because 9.7 warnings harden."""

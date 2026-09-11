@@ -601,7 +601,8 @@ def dismiss_warning(manifest: Manifest, key: str, *, actor: str, reason: str) ->
 
     删除条目而非清零：账本事件承载审计（key、被删时的计数、actor、reason），
     历史文件保持"当前活着的警告"语义。dismissal 后同 key 从零重新计数，
-    反复出现的问题会再次升级——这是特性。
+    反复出现的问题会再次升级——这是特性。先落账本再写历史：append_event
+    失败时 warning-history 磁盘字节不变。
     """
     from .ledger import append_event
 
@@ -615,23 +616,23 @@ def dismiss_warning(manifest: Manifest, key: str, *, actor: str, reason: str) ->
     matches = {fp: entry for fp, entry in store.items() if isinstance(entry, dict) and str(entry.get("key") or "") == key}
     if not matches:
         raise AG2CError(f"unknown warning key: {key!r}（warning-history 中不存在）")
-    for fingerprint in matches:
-        store.pop(fingerprint, None)
     dismissed = [
         {"kind": str(entry.get("kind") or ""), "count": int(entry.get("count") or 0)}
         for entry in matches.values()
     ]
+    event = append_event(
+        manifest.ledger_path,
+        "warning-dismiss",
+        {"key": key, "dismissed": dismissed, "actor": actor, "reason": reason},
+    )
+    for fingerprint in matches:
+        store.pop(fingerprint, None)
     try:
         _warning_history_path(manifest).write_text(
             json.dumps(history, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
     except OSError as exc:
         raise AG2CError(f"warning-history 写回失败：{exc}") from exc
-    event = append_event(
-        manifest.ledger_path,
-        "warning-dismiss",
-        {"key": key, "dismissed": dismissed, "actor": actor, "reason": reason},
-    )
     return {"key": key, "dismissed": dismissed, "ledger_event_digest": event.get("event_digest")}
 
 

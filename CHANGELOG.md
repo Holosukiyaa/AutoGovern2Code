@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- warning-dismiss 先落账本再写历史：`append_event` 失败时 `state/warning-history.json` 磁盘字节不变。Covered by `WarningDismissTests` ledger-failure 例。
+
 - tests 房间减重：多行 docstring 收成完整一句（不截断、不删体内说明注释、顶层 def/class 仍两空行），不删 `def test_`、不改断言、不抬 15500 预算。实测 15499→15265 行。
 
 - `run_agent_review` 通用 except 分支经 `_with_usage` 挂 usage：call_chat 已成功返回后 parse_verdict 抛非 RegulatorError 时不再丢 token 账。Covered by `test_review.py` UsageExtractTests。

@@ -7,7 +7,7 @@
 - 预算超标：warning-history 的 over-budget → 楼体肥胖
 - 普查陈旧 / 过期卡片：census freshness=="stale" 的房间与 status=="stale" 的知识卡
 - 监管缺席（最重）：账本 task-verification 事件里连续 N 次 regulator unavailable
-  （已配置却拿不到裁决）→ 最像"验证"的验证在静默缺席（4.3：沉默不是警情）
+  （已配置却拿不到裁决）→ 最像"验证"的验证在静默缺席（4.3：沉默本身即警情）
 
 与 patrol 同一条军规：任何输入异常都降级为空报告，绝不抛异常——看板必须在
 项目出问题时也能渲染，因为那正是用户看它的时刻。

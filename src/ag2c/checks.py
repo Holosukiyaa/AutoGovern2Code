@@ -570,6 +570,45 @@ def _record_warnings_and_find_escalated(
     return escalated
 
 
+def dismiss_warning(manifest: Manifest, key: str, *, actor: str, reason: str) -> dict[str, Any]:
+    """撤销一条警告的累计计数——升级门的合法出口，语义是"已知情"，不是"已修复"。
+
+    删除条目而非清零：账本事件承载审计（key、被删时的计数、actor、reason），
+    历史文件保持"当前活着的警告"语义。dismissal 后同 key 从零重新计数，
+    反复出现的问题会再次升级——这是特性。
+    """
+    from .ledger import append_event
+
+    key = str(key or "").strip()
+    if not key:
+        raise AG2CError("warning-dismiss requires a --key")
+    history = _load_warning_history(manifest)
+    store = history.get("warnings", {})
+    # 历史以 fingerprint（kind+key 的 digest）为键；用户面对的是升级门报错里
+    # 的 key 字段（如 check.suite-enrollment:seconds），按条目内 key 匹配。
+    matches = {fp: entry for fp, entry in store.items() if isinstance(entry, dict) and str(entry.get("key") or "") == key}
+    if not matches:
+        raise AG2CError(f"unknown warning key: {key!r}（warning-history 中不存在）")
+    for fingerprint in matches:
+        store.pop(fingerprint, None)
+    dismissed = [
+        {"kind": str(entry.get("kind") or ""), "count": int(entry.get("count") or 0)}
+        for entry in matches.values()
+    ]
+    try:
+        _warning_history_path(manifest).write_text(
+            json.dumps(history, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+    except OSError as exc:
+        raise AG2CError(f"warning-history 写回失败：{exc}") from exc
+    event = append_event(
+        manifest.ledger_path,
+        "warning-dismiss",
+        {"key": key, "dismissed": dismissed, "actor": actor, "reason": reason},
+    )
+    return {"key": key, "dismissed": dismissed, "ledger_event_digest": event.get("event_digest")}
+
+
 def _module_name_for(rel_path: str, target_root: str) -> str:
     """Convert a relative file path to its Python module name.
 
@@ -902,7 +941,7 @@ def run_checks(
             )
             try:
                 # 硬杀线单源派生（P0 2026-09-10）：动态秒预算×3×并行度，无锚定回退
-                # 静态 timeout×并行度。parallelism 在下方赋值、调用时闭包读取。
+                # 静态 timeout×并行度。parallelism 是 _execute 的形参，此处直接传入。
                 from .verify_costs import effective_timeout_seconds
 
                 timeout_seconds = effective_timeout_seconds(manifest, checker, parallelism=parallelism)

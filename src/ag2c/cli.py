@@ -393,6 +393,11 @@ def build_parser() -> argparse.ArgumentParser:
     baseline_cmd.add_argument("--actor", required=True)
     baseline_cmd.add_argument("--reason", required=True)
     baseline_cmd.add_argument("--format", choices=("text", "json"), default="json")
+    wdismiss_cmd = govern_commands.add_parser("warning-dismiss", help="撤销一条警告的累计计数（警告升级门的合法出口），带 actor/reason 落账本；计数从零重来")
+    wdismiss_cmd.add_argument("--key", required=True, help="警告 key，与升级门报错中一致（如 check.suite-enrollment:seconds）")
+    wdismiss_cmd.add_argument("--actor", required=True)
+    wdismiss_cmd.add_argument("--reason", required=True)
+    wdismiss_cmd.add_argument("--format", choices=("text", "json"), default="json")
     regulator_cmd = govern_commands.add_parser("regulator", help="configure the AI regulator (agent-review): endpoint / model / strict / enable")
     regulator_cmd.add_argument("--enable", choices=("on", "off"), default="")
     regulator_cmd.add_argument("--endpoint", default="")
@@ -1023,6 +1028,10 @@ def main(argv: list[str] | None = None) -> int:
                 from .checks import accept_test_baseline
 
                 result = accept_test_baseline(manifest, policy, list(args.checker), actor=args.actor, reason=args.reason)
+            elif args.govern_command == "warning-dismiss":
+                from .checks import dismiss_warning
+
+                result = dismiss_warning(manifest, args.key, actor=args.actor, reason=args.reason)
             elif args.govern_command == "regulator":
                 from .govern import configure_regulator
 

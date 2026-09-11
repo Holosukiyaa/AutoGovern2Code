@@ -21,8 +21,11 @@ from ag2c.checks import (
     _record_warnings_and_find_escalated,
     _room_code_measurements,
     baseline_debt,
+    dismiss_warning,
 )
 from ag2c.config import load_policy
+from ag2c.errors import AG2CError
+from ag2c.ledger import read_events
 from ag2c.model import Card, Manifest, Target
 
 from support import bare_manifest
@@ -390,6 +393,54 @@ class WarningEscalationTests(unittest.TestCase):
         entry_slice = {"entries": {"paths": [{"path": "tests/test_x.py", "target": "app"}]}}
         warnings = _duplicate_warnings(manifest, entry_slice)
         self.assertEqual([], [w for w in warnings if "setUp" in w.get("key", "")])
+
+
+class WarningDismissTests(unittest.TestCase):
+    """govern warning-dismiss：升级门的合法出口——删除计数条目并落账本。"""
+
+    def setUp(self) -> None:
+        self._tmp = Path(tempfile.mkdtemp())
+        (self._tmp / "state").mkdir(parents=True)
+        self.manifest = Manifest(
+            path=self._tmp / "manifest.json",
+            project_id="test-proj",
+            project_root=self._tmp,
+            targets=[],
+            ledger_path=self._tmp / "ledger.jsonl",
+            policy_path=self._tmp / "policy.json",
+            state_dir=self._tmp / "state",
+        )
+
+    def _budget_warning(self) -> dict[str, str]:
+        return {"kind": "over-budget", "room": "knowledge.room", "dimension": "lines",
+                "key": "knowledge.room:lines", "detail": "600 行代码，预算 500 行"}
+
+    def test_dismiss_clears_count_and_restarts_escalation_clock(self) -> None:
+        warning = self._budget_warning()
+        for i in range(WARNING_ESCALATION_THRESHOLD):
+            _record_warnings_and_find_escalated(self.manifest, [warning], count_key=f"task-{i}")
+        result = dismiss_warning(self.manifest, "knowledge.room:lines", actor="holo", reason="已知：等套件瘦身任务")
+        self.assertEqual(WARNING_ESCALATION_THRESHOLD, result["dismissed"][0]["count"])
+        self.assertEqual({}, _load_warning_history(self.manifest)["warnings"])
+        # 计数从零重来：dismissal 后再出现两次也不升级
+        for i in range(WARNING_ESCALATION_THRESHOLD - 1):
+            escalated = _record_warnings_and_find_escalated(self.manifest, [warning], count_key=f"post-{i}")
+            self.assertEqual([], escalated)
+
+    def test_dismiss_unknown_key_refused(self) -> None:
+        with self.assertRaises(AG2CError):
+            dismiss_warning(self.manifest, "no.such:key", actor="holo", reason="typo")
+
+    def test_dismiss_writes_ledger_event(self) -> None:
+        _record_warnings_and_find_escalated(self.manifest, [self._budget_warning()], count_key="task-1")
+        dismiss_warning(self.manifest, "knowledge.room:lines", actor="holo", reason="已知情")
+        events = [e for e in read_events(self.manifest.ledger_path) if e.get("event_type") == "warning-dismiss"]
+        self.assertEqual(1, len(events))
+        payload = events[0]["payload"]
+        self.assertEqual("knowledge.room:lines", payload["key"])
+        self.assertEqual([{"kind": "over-budget", "count": 1}], payload["dismissed"])
+        self.assertEqual("holo", payload["actor"])
+        self.assertEqual("已知情", payload["reason"])
 
 
 class DuplicatePrecisionTests(unittest.TestCase):

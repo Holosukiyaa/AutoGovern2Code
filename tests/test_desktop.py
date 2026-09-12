@@ -20,6 +20,12 @@ import ag2c_gui.desktop
 from ag2c_gui.desktop import DesktopServer
 
 
+def _imgui_sources(root: Path | None = None) -> str:
+    base = (root or Path(__file__).resolve().parents[1]) / "src" / "ag2c_gui"
+    names = ("imgui_tray.py", "imgui_state.py", "imgui_panels.py", "imgui_runtime.py")
+    return "\n".join((base / name).read_text(encoding="utf-8") for name in names if (base / name).is_file())
+
+
 class DesktopBootProbeTests(unittest.TestCase):
     def test_boot_probe_script_passes_against_a_real_server(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -235,7 +241,7 @@ class ProjectDigestTests(unittest.TestCase):
                 self.assertNotEqual(touched, _project_digest(root)["digest"])
 
     def test_tray_polls_digest_and_reloads_on_change(self) -> None:
-        ui = (Path(__file__).resolve().parents[1] / "src" / "ag2c_gui" / "imgui_tray.py").read_text(encoding="utf-8")
+        ui = _imgui_sources()
         self.assertIn("AUTO_REFRESH_INTERVAL_S", ui)
         self.assertIn("def _maybe_auto_refresh", ui)
         self.assertIn("def _poll_digest", ui)
@@ -308,7 +314,7 @@ class ProjectDigestTests(unittest.TestCase):
                 self.assertIn("guard", payload)
 
     def test_tray_watchdog_banner_source(self) -> None:
-        ui = (Path(__file__).resolve().parents[1] / "src" / "ag2c_gui" / "imgui_tray.py").read_text(encoding="utf-8")
+        ui = _imgui_sources()
         self.assertIn("guard_warning", ui)
         self.assertIn("canonicalDirty", ui)
         self.assertIn("看门狗报警", ui)
@@ -404,7 +410,7 @@ class RehomeJobTests(unittest.TestCase):
 class TrayHostSourceTests(unittest.TestCase):
     def test_tray_host_is_hello_imgui_without_webview2_or_pyside(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        ui = (root / "src" / "ag2c_gui" / "imgui_tray.py").read_text(encoding="utf-8")
+        ui = _imgui_sources(root)
         host = (root / "src" / "ag2c_gui" / "tray_host.py").read_text(encoding="utf-8")
         host += "\n" + (root / "src" / "ag2c_gui" / "tray_inspect.py").read_text(encoding="utf-8")
         caption = (root / "src" / "ag2c_gui" / "tray_caption_win32.py").read_text(encoding="utf-8")
@@ -691,7 +697,7 @@ class TraySelectionTests(unittest.TestCase):
         self.assertIn("docs/i18n/ADOPTION.md", right)
 
     def test_tray_hides_nav_cursor_and_uses_unique_selectable_ids(self) -> None:
-        ui = (Path(__file__).resolve().parents[1] / "src" / "ag2c_gui" / "imgui_tray.py").read_text(encoding="utf-8")
+        ui = _imgui_sources()
         self.assertIn("set_nav_cursor_visible(False)", ui)
         self.assertIn("Col_.nav_cursor", ui)
         self.assertIn("widget_id(label, root)", ui)
@@ -1424,7 +1430,7 @@ class TrayGateTests(unittest.TestCase):
             self.assertIn("未命中文件  详情  missing/nope.py", written)
 
     def test_audit_overlay_is_not_a_dock_and_newest_is_reversed_in_gui_source(self) -> None:
-        ui = (Path(__file__).resolve().parents[1] / "src" / "ag2c_gui" / "imgui_tray.py").read_text(encoding="utf-8")
+        ui = _imgui_sources()
         self.assertIn("reversed(state.audit_lines)", ui)
         self.assertIn('small_button("清空")', ui)
         self.assertIn('small_button("打开日志文件")', ui)

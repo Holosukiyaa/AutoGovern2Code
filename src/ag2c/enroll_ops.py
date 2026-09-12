@@ -230,6 +230,12 @@ def enroll_project(
         "ledger_event": event["event_digest"],
         "recovery": recovery,
         "next_step": _first_drill_step(),
+        "regulator": {
+            "status": "not-configured",
+            "finish_allowed": True,
+            "command": "ag2c govern regulator --enable on --endpoint <url> --model <model> --actor <you> --reason <why>",
+            "why": "new projects do not inherit AG2C's strict regulator; finish still works; configure explicitly for semantic review",
+        },
     }
     hint = _git_identity_hint(root)
     if hint:

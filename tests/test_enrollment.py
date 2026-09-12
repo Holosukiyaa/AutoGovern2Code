@@ -97,9 +97,7 @@ class FirstDrillTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             _, result = self._enrolled(directory)
             step = result.get("next_step") or {}
-            self.assertEqual("first-drill", step.get("action"))
-            self.assertIn("ag2c canary", step.get("command") or "")
-            self.assertTrue(step.get("why"))
+            self.assertEqual(("first-drill", True), (step.get("action"), bool(step.get("why") and "ag2c canary" in (step.get("command") or ""))))
 
     def test_guard_status_hints_first_drill_until_team_exists(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -134,6 +132,8 @@ class EnrollmentTests(unittest.TestCase):
             self.assertTrue(status_entries(root))
             self.assertTrue(str(git(root, "config", "--get", "ag2c.manifest")).strip())
             self.assertNotIn("git_identity", result)
+            policy = json.loads((Path(result["store"]) / "policy.json").read_text(encoding="utf-8"))
+            self.assertEqual(("not-configured", False), (result["regulator"]["status"], "regulator" in policy))
 
     def test_enroll_hints_when_git_identity_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

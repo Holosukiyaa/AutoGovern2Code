@@ -426,6 +426,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="纯搬运门：stdin 统一 diff，新增非豁免行必须来自删除行",
     )
     flatten_check_cmd.add_argument("--format", choices=("text", "json"), default="json")
+    flatten_split_cmd = govern_commands.add_parser(
+        "flatten-split",
+        help="拆分原语：抽出顶层符号到同目录新模块，源文件门面再导出",
+    )
+    flatten_split_cmd.add_argument("--source", required=True, help="源文件，相对仓库根，如 src/ag2c/tasks.py")
+    flatten_split_cmd.add_argument("--dest", required=True, help="目标新文件，须与源同目录")
+    flatten_split_cmd.add_argument("--name", action="append", default=[], help="要抽出的顶层函数/类/常量名，可重复")
+    flatten_split_cmd.add_argument("--dry-run", action="store_true", help="只报告计划，不写文件")
+    flatten_split_cmd.add_argument("--format", choices=("text", "json"), default="json")
     wdismiss_cmd = govern_commands.add_parser("warning-dismiss", help="撤销一条警告的累计计数（警告升级门的合法出口），带 actor/reason 落账本；计数从零重来")
     wdismiss_cmd.add_argument("--key", required=True, help="警告 key，与升级门报错中一致（如 check.suite-enrollment:seconds）")
     wdismiss_cmd.add_argument("--actor", required=True)
@@ -1158,6 +1167,23 @@ def main(argv: list[str] | None = None) -> int:
                     return 1
                 print(_json(result))
                 return 1 if violations else 0
+            elif args.govern_command == "flatten-split":
+                from .flatten import flatten_split
+
+                result = flatten_split(
+                    Path.cwd(),
+                    source=args.source,
+                    dest=args.dest,
+                    names=list(args.name),
+                    dry_run=bool(args.dry_run),
+                )
+                if args.format == "text":
+                    print(f"flatten-split: {result['source']} -> {result['dest']} ({', '.join(result['names'])})")
+                    if result.get("dry_run"):
+                        print("dry-run")
+                    return 0
+                print(_json(result))
+                return 0
             elif args.govern_command == "warning-dismiss":
                 from .checks import dismiss_warning
 

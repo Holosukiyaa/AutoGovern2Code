@@ -1,20 +1,24 @@
-"""反向开发：热度×肥胖度队列 + 纯搬运门。
+"""反向开发：热度×肥胖度队列 + 纯搬运门 + 拆分原语。
 
-队列给 boy scout 拆谁；纯搬运门验收摊平 diff——新增非豁免行的哈希必须
-全部出现在删除行里。豁免 import/from 行与新文件开头的模块 docstring。
+队列给 boy scout 拆谁；flatten_split 抽出顶层符号到新模块并由源文件再导出；
+纯搬运门验收摊平 diff——新增非豁免行的哈希必须全部出现在删除行里。
+豁免 import/from 行与新文件开头的模块 docstring。
 """
 from __future__ import annotations
 
+import ast
 import hashlib
 import re
 from pathlib import Path
 from typing import Any
 
+from .errors import AG2CError
 from .gitops import git
 from .softcap import SOFTCAP_ROOT
 
 FLATTEN_QUEUE_SCHEMA = "ag2c.flatten-queue.v1"
 FLATTEN_CHECK_SCHEMA = "ag2c.flatten-check.v1"
+FLATTEN_SPLIT_SCHEMA = "ag2c.flatten-split.v1"
 
 _IMPORT_RE = re.compile(r"^[ \t]*(import |from )")
 _DOCSTRING_OPEN_RE = re.compile(r'^[ \t]*("""|\'\'\')')
@@ -117,3 +121,140 @@ def flatten_queue(root: Path) -> list[dict[str, Any]]:
         items.append({"path": rel, "lines": lines, "heat": heat, "score": lines * heat})
     items.sort(key=lambda item: (-int(item["score"]), str(item["path"])))
     return items
+
+
+def _top_level_nodes(tree: ast.Module) -> dict[str, ast.stmt]:
+    found: dict[str, ast.stmt] = {}
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            found[node.name] = node
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    found[target.id] = node
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            found[node.target.id] = node
+    return found
+
+
+def _posix(rel: str) -> str:
+    return rel.replace("\\", "/").lstrip("./")
+
+
+def flatten_split(
+    root: Path,
+    *,
+    source: str,
+    dest: str,
+    names: list[str],
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Copy named top-level defs from source into dest; source re-exports them."""
+    root = root.resolve()
+    source_rel = _posix(source)
+    dest_rel = _posix(dest)
+    wanted = [item.strip() for item in names if str(item).strip()]
+    if not wanted:
+        raise AG2CError("flatten-split requires --name")
+    if source_rel == dest_rel:
+        raise AG2CError("flatten-split source and dest must differ")
+    if Path(source_rel).parent.as_posix() != Path(dest_rel).parent.as_posix():
+        raise AG2CError("flatten-split dest must be in the same directory as source")
+    src_path = root / source_rel
+    dest_path = root / dest_rel
+    if not src_path.is_file():
+        raise AG2CError(f"flatten-split source missing: {source_rel}")
+    if dest_path.exists() and not dry_run:
+        raise AG2CError(f"flatten-split dest already exists: {dest_rel}")
+    text = src_path.read_text(encoding="utf-8")
+    try:
+        tree = ast.parse(text)
+    except SyntaxError as exc:
+        raise AG2CError(f"flatten-split cannot parse {source_rel}: {exc}") from exc
+    index = _top_level_nodes(tree)
+    missing = [name for name in wanted if name not in index]
+    if missing:
+        raise AG2CError("flatten-split unknown names: " + ", ".join(missing))
+    lines = text.splitlines(keepends=True)
+    ranges: list[tuple[int, int, str]] = []
+    seen: set[int] = set()
+    for name in wanted:
+        node = index[name]
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        start = int(node.lineno)
+        decorators = getattr(node, "decorator_list", None) or []
+        if decorators:
+            start = min(start, int(decorators[0].lineno))
+        end = int(node.end_lineno or node.lineno)
+        ranges.append((start, end, name))
+    ranges.sort()
+    payload: dict[str, Any] = {
+        "schema": FLATTEN_SPLIT_SCHEMA,
+        "source": source_rel,
+        "dest": dest_rel,
+        "names": wanted,
+        "ranges": [{"name": name, "start": start, "end": end} for start, end, name in ranges],
+        "dry_run": bool(dry_run),
+    }
+    if dry_run:
+        return payload
+    blocks = ["".join(lines[start - 1 : end]) for start, end, _name in ranges]
+    new_lines = lines[:]
+    for start, end, _name in sorted(ranges, key=lambda item: item[0], reverse=True):
+        del new_lines[start - 1 : end]
+    collapsed: list[str] = []
+    blanks = 0
+    for line in new_lines:
+        if line.strip() == "":
+            blanks += 1
+            if blanks <= 2:
+                collapsed.append(line if line.endswith("\n") else line + "\n")
+            continue
+        blanks = 0
+        collapsed.append(line)
+    new_lines = collapsed
+    import_mod = Path(dest_rel).stem
+    import_line = "from ." + import_mod + " import " + ", ".join(wanted) + "\n"
+    insert_at = 0
+    idx = 0
+    while idx < len(new_lines) and not new_lines[idx].strip():
+        idx += 1
+    if idx < len(new_lines):
+        opened = _DOCSTRING_OPEN_RE.match(new_lines[idx])
+        if opened:
+            quote = opened.group(1)
+            if new_lines[idx].count(quote) >= 2 and new_lines[idx].rstrip().endswith(quote):
+                idx += 1
+            else:
+                idx += 1
+                while idx < len(new_lines) and quote not in new_lines[idx]:
+                    idx += 1
+                if idx < len(new_lines):
+                    idx += 1
+        insert_at = idx
+    for i, line in enumerate(new_lines):
+        if i < insert_at or line[:1] in " \t":
+            continue
+        stripped = line.strip()
+        if stripped.startswith("from __future__") or stripped.startswith("import ") or stripped.startswith("from "):
+            insert_at = i + 1
+    if insert_at < len(new_lines) and new_lines[insert_at].strip() != "":
+        new_lines.insert(insert_at, "\n")
+    new_lines.insert(insert_at, import_line)
+    body = "".join(new_lines)
+    if not body.endswith("\n"):
+        body += "\n"
+    src_path.write_text(body.rstrip("\n") + "\n", encoding="utf-8")
+    pieces: list[str] = []
+    for block in blocks:
+        chunk = block if block.endswith("\n") else block + "\n"
+        if pieces:
+            pieces.append("\n")
+        pieces.append(chunk)
+    header = '"""Extracted by flatten-split."""\nfrom __future__ import annotations\n\n'
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    dest_path.write_text(header + "".join(pieces).rstrip("\n") + "\n", encoding="utf-8")
+    payload["written"] = True
+    return payload

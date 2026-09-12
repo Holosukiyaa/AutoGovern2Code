@@ -11,7 +11,8 @@ from unittest.mock import patch
 import bootstrap  # noqa: F401
 from support import _git, git_project
 from ag2c.cli import main
-from ag2c.flatten import flatten_queue, pure_move_violations
+from ag2c.errors import AG2CError
+from ag2c.flatten import flatten_queue, flatten_split, pure_move_violations
 
 
 def _diff(old: str, new: str, path: str = "src/ag2c/mod.py") -> str:
@@ -48,3 +49,49 @@ class FlattenTests(unittest.TestCase):
         with patch("sys.stdin", io.StringIO(_diff(body, body))), patch("sys.stdout", buf):
             self.assertEqual(0, main(["govern", "flatten-check"]))
         self.assertEqual([], json.loads(buf.getvalue())["violations"])
+
+    def test_split_copies_defs_and_reexports(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = git_project(Path(directory) / "demo")
+            pkg = root / "src" / "ag2c"
+            pkg.mkdir(parents=True)
+            (pkg / "__init__.py").write_text("", encoding="utf-8")
+            (pkg / "mod.py").write_text(
+                "from __future__ import annotations\n\n"
+                "def foo():\n    return 1\n\n"
+                "def bar():\n    return 2\n\n"
+                "def keep():\n    return 3\n",
+                encoding="utf-8",
+            )
+            _git(root, "add", "--all"); _git(root, "commit", "-m", "mod")
+            dry = flatten_split(root, source="src/ag2c/mod.py", dest="src/ag2c/piece.py", names=["foo", "bar"], dry_run=True)
+            self.assertTrue(dry["dry_run"]); self.assertFalse((pkg / "piece.py").exists())
+            flatten_split(root, source="src/ag2c/mod.py", dest="src/ag2c/piece.py", names=["foo", "bar"])
+            dest = (pkg / "piece.py").read_text(encoding="utf-8")
+            src = (pkg / "mod.py").read_text(encoding="utf-8")
+            self.assertIn("def foo():", dest); self.assertIn("return 1", dest)
+            self.assertIn("from .piece import foo, bar", src); self.assertIn("def keep():", src)
+            self.assertNotIn("def foo():", src)
+            _git(root, "add", "--all")
+            diff = _git(root, "diff", "--cached", "--no-ext-diff", "--no-color")
+            self.assertEqual([], pure_move_violations(diff))
+            with self.assertRaises(AG2CError) as raised:
+                flatten_split(root, source="src/ag2c/mod.py", dest="src/ag2c/other.py", names=["missing"])
+            self.assertIn("missing", str(raised.exception))
+            (pkg / "inner.py").write_text(
+                '"""mod doc"""\n@dec\ndef foo():\n    return 1\n\ndef keep():\n    from x import y\n    return 2\n',
+                encoding="utf-8",
+            )
+            flatten_split(root, source="src/ag2c/inner.py", dest="src/ag2c/slice.py", names=["foo"])
+            inner = (pkg / "inner.py").read_text(encoding="utf-8")
+            self.assertTrue(inner.startswith('"""mod doc"""'))
+            self.assertIn("from .slice import foo", inner.split('"""mod doc"""', 1)[-1])
+            self.assertIn("@dec", (pkg / "slice.py").read_text(encoding="utf-8"))
+            self.assertNotIn("@dec", inner)
+            self.assertIn("    from x import y", inner)
+        fake = {"schema": "ag2c.flatten-split.v1", "source": "src/ag2c/mod.py", "dest": "src/ag2c/unused.py", "names": ["keep"], "dry_run": True, "ranges": []}
+        out = io.StringIO()
+        with patch("ag2c.flatten.flatten_split", return_value=fake), patch("sys.stdout", out):
+            self.assertEqual(0, main(["govern", "flatten-split", "--source", "src/ag2c/mod.py", "--dest", "src/ag2c/unused.py", "--name", "keep", "--dry-run"]))
+        payload = json.loads(out.getvalue())
+        self.assertEqual(["keep"], payload["names"]); self.assertTrue(payload["dry_run"])

@@ -50,9 +50,7 @@ class ProxyL0Tests(unittest.TestCase):
         self.assertLess(body.find("pending = record_pending_from_task"), body.find("pending = apply_finish_proxy"))
         P = lambda **k: type("P", (), k)(); pending = {"items": [{"kind": "x"}], "updated_at": "t"}; kinds: list[str] = []
         with mock.patch("ag2c.govern.settle_pending", lambda *a, **k: {"pending": []}), mock.patch("ag2c.ledger.append_event", lambda path, kind, payload=None, **k: kinds.append(kind) or {"event_digest": "x"}):
-            on = tf.apply_finish_proxy(Path("."), type("M", (), {"ledger_path": Path("l")})(), P(proxy={"auto_settle": True}), pending)
-            off = tf.apply_finish_proxy(Path("."), None, P(proxy={"auto_settle": False}), pending); none = tf.apply_finish_proxy(Path("."), None, P(), pending)
-            empty = tf.apply_finish_proxy(Path("."), type("M", (), {"ledger_path": Path("l")})(), P(proxy={"auto_settle": True}), {"items": []})
+            on = tf.apply_finish_proxy(Path("."), type("M", (), {"ledger_path": Path("l")})(), P(proxy={"auto_settle": True}), pending); off = tf.apply_finish_proxy(Path("."), None, P(proxy={"auto_settle": False}), pending); none = tf.apply_finish_proxy(Path("."), None, P(), pending); empty = tf.apply_finish_proxy(Path("."), type("M", (), {"ledger_path": Path("l")})(), P(proxy={"auto_settle": True}), {"items": []})
         self.assertEqual((["proxy-decision", "proxy-decision"], [], pending["items"], pending["items"], []), (kinds, on["items"], off["items"], none["items"], empty["items"]))
 
     def test_finish_proxy_census(self) -> None:
@@ -64,7 +62,10 @@ class ProxyL0Tests(unittest.TestCase):
         with mock.patch("ag2c.govern.settle_pending", lambda *a, **k: {"pending": [{"kind": "census-review-required", "path": "floor.root"}]}), mock.patch("ag2c.household_commands.review_census", lambda *a, **k: {}), mock.patch("ag2c.ledger.append_event", lambda path, kind, payload=None, **k: both.append((payload or {}).get("rule")) or {"event_digest": "x"}):
             tf.apply_finish_proxy(Path("."), M, P(proxy={"auto_settle": True, "auto_census": True}), {"items": [{"kind": "x"}]})
         self.assertEqual(([["floor.root"]], ["census"], [{"kind": "x"}], pending["items"], [], ["settle", "census"]), (seen, kinds, on["items"], off["items"], empty["items"], both))
-
+        claimed: list = []; wrules: list = []; hist = {"warnings": {"a": {"kind": "file-soft-cap", "key": "k1", "count": 1}, "b": {"kind": "over-budget", "key": "k2", "count": 1}, "c": {"kind": "coordinate-reconciliation", "key": "k3", "count": 3}}}
+        with mock.patch("ag2c.checks._load_warning_history", lambda m: hist), mock.patch("ag2c.checks.dismiss_warning", lambda m, key, **k: claimed.append(key)), mock.patch("ag2c.ledger.append_event", lambda path, kind, payload=None, **k: wrules.append((payload or {}).get("rule")) or {"event_digest": "x"}):
+            tf.apply_finish_proxy(Path("."), M, P(proxy={"auto_warning": True}), {"items": []}); tf.apply_finish_proxy(Path("."), None, P(proxy={"auto_warning": False}), {"items": []}); tf.apply_finish_proxy(Path("."), None, P(), {"items": []})
+        self.assertEqual((["k1"], ["warning"]), (claimed, wrules))
 
 
 class VerificationEvidenceTests(unittest.TestCase):

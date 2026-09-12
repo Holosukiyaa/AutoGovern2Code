@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- L0 托管代理：`policy.proxy.auto_warning` 为 true 时，finish 自动认领 warning-history 里 kind∈{file-soft-cap, coordinate-reconciliation} 且 count<3 的条目（走 dismiss_warning），并写 `proxy-decision` `rule=warning`。满 3 次与 over-budget 不认领。缺省关闭。Covered by `ProxyL0Tests.test_finish_proxy_census`。
+
 - L0 托管代理：`policy.proxy.auto_census` 为 true 时，finish 对 pending 里的 `census-review-required` 房间自动 `census --record`（从不 `--all`），并写 `proxy-decision` `rule=census`。与 `auto_settle` 同时打开时先 settle 再 census。缺省关闭。Covered by `ProxyL0Tests.test_finish_proxy_census`。
 
 - 文件树不再自动展开顶层「纯文件堆」（子项全是文件且超过 16 个，如 tests/）；有子目录的顶层（src）仍自动打开。Covered by `test_file_tree_lets_src_open_nested_children`。

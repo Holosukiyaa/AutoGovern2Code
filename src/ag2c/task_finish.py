@@ -58,12 +58,36 @@ def _apply_proxy_census(canonical: Path, manifest, pending: dict[str, Any]) -> d
     return {**pending, "items": [item for item in pending.get("items") or [] if not (item.get("kind") == "census-review-required" and item.get("path") in skip)]}
 
 
+_L0_WARNING_KINDS = frozenset({"file-soft-cap", "coordinate-reconciliation"})
+
+
+def _apply_proxy_warning(canonical: Path, manifest) -> list[str]:
+    from .checks import WARNING_ESCALATION_THRESHOLD, _load_warning_history, dismiss_warning
+    from .ledger import append_event
+
+    claimed: list[str] = []
+    for entry in (_load_warning_history(manifest).get("warnings") or {}).values():
+        if not isinstance(entry, dict):
+            continue
+        kind = str(entry.get("kind") or "")
+        key = str(entry.get("key") or "")
+        if kind not in _L0_WARNING_KINDS or not key or int(entry.get("count") or 0) >= WARNING_ESCALATION_THRESHOLD:
+            continue
+        dismiss_warning(manifest, key, actor="ag2c-proxy-l0", reason="L0 auto-claim benign warning")
+        claimed.append(key)
+    if claimed:
+        append_event(manifest.ledger_path, "proxy-decision", {"rule": "warning", "actor": "ag2c-proxy-l0", "keys": claimed})
+    return claimed
+
+
 def apply_finish_proxy(canonical: Path, manifest, policy, pending: dict[str, Any]) -> dict[str, Any]:
     if _proxy_auto_settle(policy):
         remaining = _apply_proxy_l0(canonical, manifest)
         pending = {**pending, "items": list(remaining["pending"] or [])}
     if _proxy_flag(policy, "auto_census"):
         pending = _apply_proxy_census(canonical, manifest, pending)
+    if _proxy_flag(policy, "auto_warning"):
+        _apply_proxy_warning(canonical, manifest)
     return pending
 
 

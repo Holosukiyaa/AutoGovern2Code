@@ -35,14 +35,9 @@ class CLITests(unittest.TestCase):
         with redirect_stdout(output):
             self.assertEqual(0, main(["skill", "prompt", "--project", "."]))
         text = output.getvalue()
-        self.assertIn("ag2c skill install", text)
-        self.assertIn("ag2c skill version", text)
-        self.assertIn("ag2c guard status", text)
+        for needle in ("ag2c skill install", "ag2c skill version", "ag2c guard status", "ag2c-directory-census", "ag2c-knowledge-authoring", f"version {__version__}", "replace the installed copy if missing or different"):
+            self.assertIn(needle, text)
         self.assertNotIn("docs/skills", text)
-        self.assertIn("ag2c-directory-census", text)
-        self.assertIn("ag2c-knowledge-authoring", text)
-        self.assertIn(f"version {__version__}", text)
-        self.assertIn("replace the installed copy if missing or different", text)
 
     def test_skill_version_prints_packaged_identity(self) -> None:
         output = io.StringIO()
@@ -50,22 +45,15 @@ class CLITests(unittest.TestCase):
             self.assertEqual(0, main(["skill", "version"]))
         payload = json.loads(output.getvalue())
         self.assertEqual(__version__, payload["package"])
-        self.assertEqual(
-            ["ag2c-governed-development", "ag2c-governance-update", "ag2c-directory-census", "ag2c-knowledge-authoring", "ag2c-full-liquidation"],
-            [item["name"] for item in payload["skills"]],
-        )
-        for item in payload["skills"]:
-            self.assertEqual(__version__, item["version"])
-            self.assertTrue(item["digest"])
+        self.assertEqual(["ag2c-governed-development", "ag2c-governance-update", "ag2c-directory-census", "ag2c-knowledge-authoring", "ag2c-full-liquidation"], [item["name"] for item in payload["skills"]])
+        self.assertTrue(all(item["version"] == __version__ and item["digest"] for item in payload["skills"]))
 
 
 class GovernCheckerParserTests(unittest.TestCase):
     def test_checker_command_flag_does_not_clobber_the_subcommand(self) -> None:
         from ag2c.cli import build_parser
 
-        args = build_parser().parse_args(
-            ["govern", "checker", "--id", "check.suite-x", "--command", '["python","-B","tests/suites.py","x"]', "--bind", "knowledge.room", "--actor", "a", "--reason", "r"]
-        )
+        args = build_parser().parse_args(["govern", "checker", "--id", "check.suite-x", "--command", '["python","-B","tests/suites.py","x"]', "--bind", "knowledge.room", "--actor", "a", "--reason", "r"])
         self.assertEqual("govern", args.command)
         self.assertEqual("checker", args.govern_command)
         self.assertEqual('["python","-B","tests/suites.py","x"]', args.checker_command)
@@ -81,39 +69,47 @@ class GovernCheckerParserTests(unittest.TestCase):
 
     def test_cost_report_and_finish_self_report_parse(self) -> None:
         from ag2c.cli import build_parser
-
         cost = build_parser().parse_args(["govern", "cost-report", "--format", "json"])
         self.assertEqual("cost-report", cost.govern_command)
-        finish = build_parser().parse_args(
-            [
-                "task",
-                "finish",
-                "--task",
-                "t",
-                "--message",
-                "m",
-                "--proof",
-                "p",
-                "--sessions",
-                "2",
-                "--estimated-tokens",
-                '{"model":"grok","input":1,"output":2}',
-            ]
-        )
+        finish = build_parser().parse_args(["task", "finish", "--task", "t", "--message", "m", "--proof", "p", "--sessions", "2", "--estimated-tokens", '{"model":"grok","input":1,"output":2}'])
         self.assertEqual(2, finish.sessions)
         self.assertIn("grok", finish.estimated_tokens)
 
 
+class StdioEncodingTests(unittest.TestCase):
+    def test_json_keeps_chinese_reason(self) -> None:
+        from ag2c.cli import _json
+        blob = _json({"reason": "首次演习"})
+        self.assertIn("首次演习", blob)
+        self.assertNotIn("\\u9996", blob)
+
+    def test_windows_stdio_sets_utf8_console_cp(self) -> None:
+        import ctypes
+        from ag2c.cli import _configure_stdio
+        calls: list = []
+        kernel32 = type("K", (), {"SetConsoleOutputCP": lambda self, cp: calls.append(("out", cp)), "SetConsoleCP": lambda self, cp: calls.append(("in", cp))})()
+        with patch("ag2c.cli.sys.platform", "win32"), patch.object(ctypes, "windll", type("W", (), {"kernel32": kernel32})(), create=True):
+            _configure_stdio()
+        self.assertEqual([("out", 65001), ("in", 65001)], calls)
+
+    def test_non_windows_skips_kernel32(self) -> None:
+        import ctypes
+        from ag2c.cli import _configure_stdio
+        calls: list = []
+        kernel32 = type("K", (), {"SetConsoleOutputCP": lambda self, cp: calls.append(("out", cp)), "SetConsoleCP": lambda self, cp: calls.append(("in", cp))})()
+        with patch("ag2c.cli.sys.platform", "linux"), patch.object(ctypes, "windll", type("W", (), {"kernel32": kernel32})(), create=True):
+            _configure_stdio()
+        self.assertEqual([], calls)
+
+
 class ResultGateCliTests(unittest.TestCase):
     def test_task_start_requires_the_portrait(self) -> None:
-        with redirect_stderr(io.StringIO()):
-            with self.assertRaises(SystemExit):
-                main(["task", "start", "--goal", "g", "--path", "app:a.py"])
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            main(["task", "start", "--goal", "g", "--path", "app:a.py"])
 
     def test_task_finish_requires_proof(self) -> None:
-        with redirect_stderr(io.StringIO()):
-            with self.assertRaises(SystemExit):
-                main(["task", "finish", "--task", "t", "--message", "m"])
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            main(["task", "finish", "--task", "t", "--message", "m"])
 
     def test_default_portrait_derives_from_the_goal(self) -> None:
         self.assertIn("修 bug", tasks._default_portrait("修 bug"))

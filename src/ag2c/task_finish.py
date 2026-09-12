@@ -27,9 +27,13 @@ from .util import atomic_json_write, digest_file
 from .task_evidence import _matching_event, _verification_evidence_valid, _start_evidence_valid, _portrait_amendment_chain_valid
 from .tasks import _atomic_json, _auto_drill, _canonical_manifest, _changed_specs, _committed_delta, _load_task, _now, _record_intervention, _require_open_task, _sync_canonical_dirty_notification, _task_path, cost_self_report, describe_delivery, refresh_task, require_trunk, verify_task
 
-def _proxy_auto_settle(policy) -> bool:
+def _proxy_flag(policy, name: str) -> bool:
     blob = getattr(policy, "proxy", None) or {}
-    return isinstance(blob, dict) and blob.get("auto_settle") is True
+    return isinstance(blob, dict) and blob.get(name) is True
+
+
+def _proxy_auto_settle(policy) -> bool:
+    return _proxy_flag(policy, "auto_settle")
 
 
 def _apply_proxy_l0(canonical: Path, manifest) -> dict[str, Any]:
@@ -41,11 +45,26 @@ def _apply_proxy_l0(canonical: Path, manifest) -> dict[str, Any]:
     return settled
 
 
-def apply_finish_proxy(canonical: Path, manifest, policy, pending: dict[str, Any]) -> dict[str, Any]:
-    if not _proxy_auto_settle(policy):
+def _apply_proxy_census(canonical: Path, manifest, pending: dict[str, Any]) -> dict[str, Any]:
+    ids = [str(item.get("path") or "") for item in pending.get("items") or [] if item.get("kind") == "census-review-required" and item.get("path")]
+    if not ids:
         return pending
-    remaining = _apply_proxy_l0(canonical, manifest)
-    return {**pending, "items": list(remaining["pending"] or [])}
+    from .household_commands import review_census
+    from .ledger import append_event
+
+    review_census(canonical, card_ids=ids, all_cards=False, actor="ag2c-proxy-l0", reason="L0 auto-census after finish")
+    append_event(manifest.ledger_path, "proxy-decision", {"rule": "census", "actor": "ag2c-proxy-l0", "rooms": ids})
+    skip = set(ids)
+    return {**pending, "items": [item for item in pending.get("items") or [] if not (item.get("kind") == "census-review-required" and item.get("path") in skip)]}
+
+
+def apply_finish_proxy(canonical: Path, manifest, policy, pending: dict[str, Any]) -> dict[str, Any]:
+    if _proxy_auto_settle(policy):
+        remaining = _apply_proxy_l0(canonical, manifest)
+        pending = {**pending, "items": list(remaining["pending"] or [])}
+    if _proxy_flag(policy, "auto_census"):
+        pending = _apply_proxy_census(canonical, manifest, pending)
+    return pending
 
 
 def _finish_hints(manifest, policy, pending: dict[str, Any]) -> list[str]:

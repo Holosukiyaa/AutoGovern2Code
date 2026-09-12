@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- L0 托管代理：`policy.proxy.auto_census` 为 true 时，finish 对 pending 里的 `census-review-required` 房间自动 `census --record`（从不 `--all`），并写 `proxy-decision` `rule=census`。与 `auto_settle` 同时打开时先 settle 再 census。缺省关闭。Covered by `ProxyL0Tests.test_finish_proxy_census`。
+
 - 文件树不再自动展开顶层「纯文件堆」（子项全是文件且超过 16 个，如 tests/）；有子目录的顶层（src）仍自动打开。Covered by `test_file_tree_lets_src_open_nested_children`。
 
 - CLI `ag2c enroll` / `ag2c setup --project` 入学成功后自动跑 first canary（`run_first_drill=True`）；Python API 默认关，测试夹具不触发。失败不回滚入学。不改 `_auto_drill` 建队制。Covered by `FirstDrillTests`。

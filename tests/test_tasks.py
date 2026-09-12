@@ -30,26 +30,17 @@ def _bare_manifest(root: Path) -> Manifest:
 
 
 class FinishHintTests(unittest.TestCase):
-    def test_pending_items_produce_settle_hint(self) -> None:
+    def test_pending_and_unreviewed_produce_hints(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             manifest, policy = write_project(Path(directory))
-            hints = _finish_hints(manifest, policy, {"items": [{"kind": "stale-knowledge", "path": "knowledge.worker"}]})
-            self.assertTrue(any("govern settle" in hint for hint in hints), hints)
-
-    def test_unreviewed_rooms_produce_census_hint(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            manifest, policy = write_project(Path(directory))
-            hints = _finish_hints(manifest, policy, {"items": []})
-            self.assertTrue(any("govern census --record" in hint for hint in hints), hints)
+            self.assertTrue(any("govern settle" in h for h in _finish_hints(manifest, policy, {"items": [{"kind": "stale-knowledge", "path": "knowledge.worker"}]})))
+            self.assertTrue(any("govern census --record" in h for h in _finish_hints(manifest, policy, {"items": []})))
 
     def test_clean_project_produces_no_hints(self) -> None:
         from ag2c.model import Coverage, Policy
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "state").mkdir()
-            manifest = _bare_manifest(root)
-            policy = Policy(path=root / "policy.json", cards=(), relations=(), contracts=(), checkers=(), coverage=Coverage(level="none", strategy="conservative", managed_by="project", areas=()), household_required=False)
-            self.assertEqual([], _finish_hints(manifest, policy, {"items": []}))
+            root = Path(directory); (root / "state").mkdir()
+            self.assertEqual([], _finish_hints(_bare_manifest(root), Policy(path=root / "policy.json", cards=(), relations=(), contracts=(), checkers=(), coverage=Coverage(level="none", strategy="conservative", managed_by="project", areas=()), household_required=False), {"items": []}))
 
 
 class ProxyL0Tests(unittest.TestCase):
@@ -63,6 +54,17 @@ class ProxyL0Tests(unittest.TestCase):
             off = tf.apply_finish_proxy(Path("."), None, P(proxy={"auto_settle": False}), pending); none = tf.apply_finish_proxy(Path("."), None, P(), pending)
             empty = tf.apply_finish_proxy(Path("."), type("M", (), {"ledger_path": Path("l")})(), P(proxy={"auto_settle": True}), {"items": []})
         self.assertEqual((["proxy-decision", "proxy-decision"], [], pending["items"], pending["items"], []), (kinds, on["items"], off["items"], none["items"], empty["items"]))
+
+    def test_finish_proxy_census(self) -> None:
+        import ag2c.tasks; from ag2c import task_finish as tf  # noqa: F401
+        P = lambda **k: type("P", (), k)(); M = type("M", (), {"ledger_path": Path("l")})()
+        pending = {"items": [{"kind": "census-review-required", "path": "floor.root"}, {"kind": "x"}]}; seen: list = []; kinds: list = []; both: list = []
+        with mock.patch("ag2c.household_commands.review_census", lambda *a, **k: seen.append(list(k.get("card_ids") or [])) or {}), mock.patch("ag2c.ledger.append_event", lambda path, kind, payload=None, **k: kinds.append((payload or {}).get("rule")) or {"event_digest": "x"}):
+            on = tf.apply_finish_proxy(Path("."), M, P(proxy={"auto_census": True}), pending); off = tf.apply_finish_proxy(Path("."), None, P(proxy={"auto_census": False}), pending); empty = tf.apply_finish_proxy(Path("."), None, P(proxy={"auto_census": True}), {"items": []})
+        with mock.patch("ag2c.govern.settle_pending", lambda *a, **k: {"pending": [{"kind": "census-review-required", "path": "floor.root"}]}), mock.patch("ag2c.household_commands.review_census", lambda *a, **k: {}), mock.patch("ag2c.ledger.append_event", lambda path, kind, payload=None, **k: both.append((payload or {}).get("rule")) or {"event_digest": "x"}):
+            tf.apply_finish_proxy(Path("."), M, P(proxy={"auto_settle": True, "auto_census": True}), {"items": [{"kind": "x"}]})
+        self.assertEqual(([["floor.root"]], ["census"], [{"kind": "x"}], pending["items"], [], ["settle", "census"]), (seen, kinds, on["items"], off["items"], empty["items"], both))
+
 
 
 class VerificationEvidenceTests(unittest.TestCase):

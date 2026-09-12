@@ -68,6 +68,27 @@ class ProxyL0Tests(unittest.TestCase):
         self.assertEqual((["k1"], ["warning"]), (claimed, wrules))
 
 
+class TrustBaseTests(unittest.TestCase):
+    def test_ceremony(self) -> None:
+        from ag2c.errors import AG2CError
+        from ag2c import task_finish as tf, task_verify as tv
+        from ag2c.trust_base import require_trust_base_approval as ra, require_trust_base_declaration as rd, write_trust_anchor
+        g, o, s = ["src/ag2c/tasks.py"], ["src/ag2c/cli.py"], {"why": "w", "risk": "r", "rollback": "b", "verify": "v"}
+        rd({}, o); ra({}, o)
+        with self.assertRaises(AG2CError): rd({}, g)
+        with self.assertRaises(AG2CError): ra({}, g)
+        rd({"entry": {"trust_base": {"declared": True, "statement": s}}}, g); ra({"interventions": [{"kind": "trust-base-approved"}]}, g)
+        vsrc = Path(tv.__file__).read_text(encoding="utf-8").partition("def verify_task")[2]
+        fsrc = Path(tf.__file__).read_text(encoding="utf-8").partition("def finish_task")[2]
+        self.assertIn("require_trust_base_declaration", vsrc[: vsrc.find("\ndef ")])
+        self.assertIn("require_trust_base_approval", fsrc[: fsrc.find("\ndef ")])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = git_project(Path(tmp) / "proj"); write_project(root)
+            snap = write_trust_anchor(root, actor="grok", reason="snapshot")
+            self.assertTrue(snap["policy_digest"] and snap["ledger_digest"] and snap["ledger_event_digest"])
+            self.assertEqual(("", "ag2c.trust-anchor.v1"), (snap["signature"], snap["schema"]))
+
+
 class VerificationEvidenceTests(unittest.TestCase):
     """_verification_evidence_valid tolerates payload keys it does not know."""
 
@@ -327,6 +348,7 @@ class GovernanceReconcileTests(AutoRefreshTests):
     def test_verify_passes_when_task_itself_touches_governance_code(self) -> None:
         """领先放行：任务自己改了治理关键文件（canonical 未动）——那正是任务内容本身。"""
         from ag2c.tasks import verify_task
+        from ag2c.trust_base import declare_trust_base
 
         with tempfile.TemporaryDirectory() as tmp:
             root = self._project(tmp)
@@ -335,6 +357,7 @@ class GovernanceReconcileTests(AutoRefreshTests):
             self._touch_task_file(worktree)
             record_census(worktree)
             with mock.patch("ag2c.tasks.GOVERNANCE_CODE_PATHS", ("src/api/service.py",)):
+                declare_trust_base(worktree, reason="r", why="w", risk="r", rollback="b", verify="v")
                 self.assertTrue(verify_task(worktree)["passed"])
             self.assertNotIn("governance-code-behind", self._intervention_kinds(root, task["id"]))
 

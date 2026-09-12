@@ -202,10 +202,23 @@ def main(argv: list[str] | None = None) -> int:
                 print(_json(result))
                 return 0 if result["passed"] else 1
             if args.task_command == "declare":
-                if getattr(args, "full_scan", False):
+                if getattr(args, "trust_base", False):
+                    if getattr(args, "full_scan", False):
+                        raise AG2CError("declare --trust-base and --full-scan are mutually exclusive")
+                    from .trust_base import declare_trust_base
+
+                    print(_json(declare_trust_base(Path.cwd(), reason=args.reason, why=args.why, risk=args.risk, rollback=args.rollback, verify=args.verify_how)))
+                elif getattr(args, "full_scan", False):
                     print(_json(declare_full_scan(Path.cwd(), reason=args.reason)))
                 else:
                     print(_json(declare_front_back(Path.cwd(), reason=args.reason)))
+                return 0
+            if args.task_command == "approve":
+                if not getattr(args, "trust_base", False):
+                    raise AG2CError("task approve requires --trust-base")
+                from .trust_base import approve_trust_base
+
+                print(_json(approve_trust_base(Path.cwd(), actor=args.actor, reason=args.reason)))
                 return 0
             if args.task_command == "amend-portrait":
                 portrait_text = str(args.portrait or "")
@@ -538,6 +551,10 @@ def main(argv: list[str] | None = None) -> int:
                 from .checks import dismiss_warning
 
                 result = dismiss_warning(manifest, args.key, actor=args.actor, reason=args.reason)
+            elif args.govern_command == "trust-anchor":
+                from .trust_base import write_trust_anchor
+
+                result = write_trust_anchor(Path.cwd(), actor=args.actor, reason=args.reason)
             elif args.govern_command == "regulator":
                 from .govern import configure_regulator
 

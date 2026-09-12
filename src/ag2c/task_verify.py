@@ -93,6 +93,9 @@ def verify_task(start: Path, *, _auto_refreshed: bool = False) -> dict[str, Any]
                 + ", ".join(overlap["verification"][:5])
                 + "\nSplit the task (product vs tests), or declare with `ag2c task declare --reason ...` and accept elevated review."
             )
+    from .trust_base import require_trust_base_declaration
+
+    require_trust_base_declaration(task, actual_paths)
     _assert_retirement_diff(canonical, worktree, task, actual_paths)
     policy_digest = digest_file(policy.path)
     manifest_digest = digest_file(manifest.path)

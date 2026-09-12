@@ -209,10 +209,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     task_commands.add_parser("verify")
     task_declare = task_commands.add_parser(
-        "declare", help="中途申报：默认前后台同改（巴林条款）；--full-scan 申报全量验收（验证成本治理）。写入任务记录后 verify 放行并记 intervention"
+        "declare", help="中途申报：默认前后台同改（巴林条款）；--full-scan 全量验收；--trust-base 可信基说明书"
     )
     task_declare.add_argument("--reason", required=True)
     task_declare.add_argument("--full-scan", action="store_true", help="申报全量验收：governance 变化触发全量时需先申报（申请预算语义），申报落账本")
+    task_declare.add_argument("--trust-base", action="store_true", help="5.1 可信基变更说明书：改 GOVERNANCE_CODE_PATHS 时 verify 前必报")
+    task_declare.add_argument("--why", default="")
+    task_declare.add_argument("--risk", default="")
+    task_declare.add_argument("--rollback", default="")
+    task_declare.add_argument("--verify-how", dest="verify_how", default="")
+    task_approve = task_commands.add_parser("approve", help="人工审批位：--trust-base 点头后 finish 放行")
+    task_approve.add_argument("--trust-base", action="store_true")
+    task_approve.add_argument("--actor", required=True)
+    task_approve.add_argument("--reason", required=True)
     task_amend = task_commands.add_parser(
         "amend-portrait",
         help="画像修订：市长指名纠偏时更换已锁画像；lint 后替换并记 intervention（actor/reason/新旧 digest 落账本），verify 时监管可见修订史",
@@ -472,6 +481,10 @@ def build_parser() -> argparse.ArgumentParser:
     dismiss_cmd.add_argument("--actor", required=True)
     dismiss_cmd.add_argument("--reason", required=True)
     dismiss_cmd.add_argument("--format", choices=("text", "json"), default="json")
+    anchor_cmd = govern_commands.add_parser("trust-anchor", help="写离线签名锚：ledger+policy digest 快照，signature 空串待签")
+    anchor_cmd.add_argument("--actor", required=True)
+    anchor_cmd.add_argument("--reason", required=True)
+    anchor_cmd.add_argument("--format", choices=("text", "json"), default="json")
 
     doctor = subparsers.add_parser("doctor", help="check configuration, activation, tools, index, and ledger")
     doctor.add_argument("--repair", action="store_true", help="restore the Skill, Git guard, activation, and index")

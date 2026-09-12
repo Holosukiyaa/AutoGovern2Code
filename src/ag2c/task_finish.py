@@ -187,6 +187,9 @@ def finish_task(
     current_digest = change_digest(worktree, task["source"]["head"])
     if current_digest != task["verifications"][-1]["change_digest"]:
         raise AG2CError("task changed after verification; run `ag2c task verify` again")
+    from .trust_base import require_trust_base_approval
+
+    require_trust_base_approval(task, list(task["verifications"][-1].get("changed_paths") or []))
     if policy.household_required:
         from .households import enforce_households
 

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 5.1 可信基变更仪式：改 `GOVERNANCE_CODE_PATHS` 的任务 verify 前必须 `task declare --trust-base --why --risk --rollback --verify-how`（说明书写入 entry.trust_base）；finish 前必须 `task approve --trust-base --actor --reason`。`govern trust-anchor` 写 unsigned ledger+policy digest 快照到 `state/trust-anchor.json`；缺快照不挡 verify。不改 `GOVERNANCE_CODE_PATHS` 成员。Covered by `TrustBaseTests`。
+
 - HANDOFF-2026-09-11 对齐当前 main：L0 三旗标默认关已落地；MCP-tree / warning-dismiss 账本顺序 / 入学摩擦项标完成；5.1、6.1、抽查回火、Phase 2 口径不变。
 
 - L0 托管代理：`policy.proxy.auto_warning` 为 true 时，finish 自动认领 warning-history 里 kind∈{file-soft-cap, coordinate-reconciliation} 且 count<3 的条目（走 dismiss_warning），并写 `proxy-decision` `rule=warning`。满 3 次与 over-budget 不认领。缺省关闭。Covered by `ProxyL0Tests.test_finish_proxy_census`。

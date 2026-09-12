@@ -658,7 +658,3 @@ class AsyncRehomeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaisesRegex(AG2CError, "requires id"):
                 self.server._call_rehome({"cwd": str(Path(directory)), "id": "", "room": ""})
-
-
-if __name__ == "__main__":
-    unittest.main()

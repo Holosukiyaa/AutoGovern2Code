@@ -193,9 +193,3 @@ class MaturitySummaryTests(unittest.TestCase):
             if card.jurisdiction is not None and card.maturity:
                 maturity_counts[card.maturity] = maturity_counts.get(card.maturity, 0) + 1
         self.assertEqual({"L1": 2, "L2": 1}, maturity_counts)
-
-
-if __name__ == "__main__":
-    unittest.main()
-
-

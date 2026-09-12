@@ -297,7 +297,3 @@ class TargetedCanaryTests(unittest.TestCase):
             self.assertEqual(2, exit_code)
             self.assertEqual("error", result["canary"])
             self.assertIn("src/value.py", result["reason"])
-
-
-if __name__ == "__main__":
-    unittest.main()

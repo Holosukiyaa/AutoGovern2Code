@@ -1498,7 +1498,3 @@ class HiddenConsoleTests(unittest.TestCase):
         started = time.perf_counter()
         self.assertFalse(wait_for_status(DeadApi(), attempts=20, pause=0.05, cancelled=lambda: True))
         self.assertLess(time.perf_counter() - started, 0.2)
-
-
-if __name__ == "__main__":
-    unittest.main()

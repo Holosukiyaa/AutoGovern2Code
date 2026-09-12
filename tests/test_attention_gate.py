@@ -61,7 +61,3 @@ class AttentionGateTests(unittest.TestCase):
             model = dashboard_model(bad, {})
             self.assertEqual(model["attention"]["count"], 0)
             self.assertEqual(model["attention"]["text"], "今天没有需要你决策的事")
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -67,7 +67,3 @@ class GitProjectFixtureTests(unittest.TestCase):
         # otherwise a rename would silently neuter the audit above.
         found = _gate_test_sources()
         self.assertIn("test_checks.py", found)
-
-
-if __name__ == "__main__":
-    unittest.main()

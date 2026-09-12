@@ -51,7 +51,3 @@ class IndexTests(unittest.TestCase):
             connection.commit()
             connection.close()
             self.assertIn("index facts digest mismatch", verify_index(path))
-
-
-if __name__ == "__main__":
-    unittest.main()

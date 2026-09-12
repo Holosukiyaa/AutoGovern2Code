@@ -649,7 +649,3 @@ class DowngradeRatchetTests(unittest.TestCase):
                 [],
                 _record_warnings_and_find_escalated(self.manifest, [warning], count_key=f"task-{i}"),
             )
-
-
-if __name__ == "__main__":
-    unittest.main()

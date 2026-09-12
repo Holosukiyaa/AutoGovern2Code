@@ -583,7 +583,3 @@ class CheckerTests(unittest.TestCase):
                 update_checker(root, checker_id="check.suite-worker", actor="tester", reason="x", command=[])
             with self.assertRaisesRegex(AG2CError, "unsupported checker stage"):
                 update_checker(root, checker_id="check.suite-worker", actor="tester", reason="x", stage="outer-space")
-
-
-if __name__ == "__main__":
-    unittest.main()

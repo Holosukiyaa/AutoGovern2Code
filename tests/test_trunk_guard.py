@@ -165,7 +165,3 @@ class TrunkCliTests(unittest.TestCase):
             self.assertEqual("trunk", payload["kind"])
             self.assertEqual({"from": "main", "to": "develop"}, payload["changes"]["trunk"])
             self.assertEqual("develop", _load_manifest(root).trunk)
-
-
-if __name__ == "__main__":
-    unittest.main()

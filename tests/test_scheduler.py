@@ -180,7 +180,3 @@ class ShadowPlanWiringTests(unittest.TestCase):
                 sorted(item["id"] for item in second["verification"]["checker_results"]),
                 sorted(rerun["would_skip"]),
             )
-
-
-if __name__ == "__main__":
-    unittest.main()

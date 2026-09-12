@@ -66,7 +66,3 @@ class EntrySlicerTests(unittest.TestCase):
             build_index(manifest, policy)
             with self.assertRaisesRegex(SliceError, "goal is advisory"):
                 compile_slice(manifest, policy, goal="Improve the worker")
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -83,7 +83,3 @@ class CrossSliceWarningTests(unittest.TestCase):
         }
         result = _cross_slice_warnings(manifest, slice_data)
         self.assertEqual([], result)
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -336,7 +336,3 @@ class FileHouseholdGateTests(unittest.TestCase):
                 actor="test",
                 reason="directory grain must reject file include",
             )
-
-
-if __name__ == "__main__":
-    unittest.main()

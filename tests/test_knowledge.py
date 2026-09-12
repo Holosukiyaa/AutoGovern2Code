@@ -258,7 +258,3 @@ class LastSourceChangeTests(unittest.TestCase):
             git_spy.assert_called_once()
             self.assertEqual("deadbeef", changes[0]["commit"])
             self.assertEqual("ancient", changes[0]["summary"])
-
-
-if __name__ == "__main__":
-    unittest.main()

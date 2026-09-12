@@ -227,7 +227,3 @@ class McpCensusPayloadTests(unittest.TestCase):
         self.assertIn("households", result)
         self.assertGreaterEqual(len(result["households"]), 1)
         self.assertNotIn("household_count", result)
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -563,7 +563,3 @@ class DrawSmokeTests(unittest.TestCase):
                 os.chdir(previous)
             debris = sorted(p.name for p in Path(directory).glob("*.ini"))
             self.assertEqual(debris, [], f"无头渲染在 cwd 落了 ini 碎屑: {debris}")
-
-
-if __name__ == "__main__":
-    unittest.main()

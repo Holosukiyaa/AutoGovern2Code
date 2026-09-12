@@ -24,7 +24,3 @@ class SuiteMappingTests(unittest.TestCase):
     def test_list_output(self) -> None:
         self.assertEqual(0, suites.main(["suites.py", "fast", "--list"]))
         self.assertEqual(2, suites.main(["suites.py", "nope"]))
-
-
-if __name__ == "__main__":
-    unittest.main()

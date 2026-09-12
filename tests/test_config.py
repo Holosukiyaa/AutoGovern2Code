@@ -101,7 +101,3 @@ class ConfigurationTests(unittest.TestCase):
             path.write_text(json.dumps(value), encoding="utf-8")
             with self.assertRaisesRegex(ConfigurationError, "provides must be a list of non-empty strings"):
                 load_policy(load_manifest(manifest.path))
-
-
-if __name__ == "__main__":
-    unittest.main()

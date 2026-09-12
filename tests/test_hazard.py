@@ -667,7 +667,3 @@ class UngovernedCommitTests(unittest.TestCase):
         self.assertEqual(60, _KIND_WEIGHT["guard-removed"])
         self.assertEqual(45, _KIND_WEIGHT["ungoverned-commit"])
         self.assertGreater(_KIND_WEIGHT["guard-removed"], _KIND_WEIGHT["regulator-absent"])
-
-
-if __name__ == "__main__":
-    unittest.main()

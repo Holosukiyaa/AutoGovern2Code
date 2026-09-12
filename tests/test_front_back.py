@@ -252,7 +252,3 @@ class RegulatorBannerTests(unittest.TestCase):
 
         messages = build_messages("画像", "diff", "机器报告")
         self.assertNotIn("自我阅卷", messages[1]["content"])
-
-
-if __name__ == "__main__":
-    unittest.main()

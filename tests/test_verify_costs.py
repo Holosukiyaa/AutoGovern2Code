@@ -480,7 +480,3 @@ class FullScanDeclarationTests(unittest.TestCase):
 
         manifest = load_manifest(discover_manifest(root), project_root=root)
         return json.loads((manifest.state_dir / "tasks" / f"{task_id}.json").read_text(encoding="utf-8"))
-
-
-if __name__ == "__main__":
-    unittest.main()

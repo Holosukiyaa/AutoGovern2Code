@@ -477,7 +477,3 @@ class AmendCoordinateBindingTests(unittest.TestCase):
             _task_path(root, "t-amend").write_text(json.dumps(record), encoding="utf-8")
             manifest = load_manifest(discover_manifest(root))
             self.assertFalse(_start_evidence_valid(manifest, _record(root)))
-
-
-if __name__ == "__main__":
-    unittest.main()

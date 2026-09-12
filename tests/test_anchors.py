@@ -190,7 +190,3 @@ class CensusWarningTests(unittest.TestCase):
             manifest = load_manifest(root / ".ag2c" / "manifest.json")
             policy = load_policy(manifest)
             self.assertEqual([], provides_anchor_warnings(manifest, policy))
-
-
-if __name__ == "__main__":
-    unittest.main()

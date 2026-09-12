@@ -377,7 +377,3 @@ class RehomeRefusalTests(unittest.TestCase):
                 self.assertIn("unknown knowledge card", str(raised.exception))
             finally:
                 fixture.stop()
-
-
-if __name__ == "__main__":
-    unittest.main()

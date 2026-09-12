@@ -216,7 +216,3 @@ class ReceiptDeltaTests(unittest.TestCase):
             message = f"change\n\n{TASK_TRAILER}: {task['id']}\n{EVIDENCE_TRAILER}: {receipt['receipt_digest']}"
             _commit_all(root, message)
             verify_commit_receipt(root, "HEAD")  # must not raise
-
-
-if __name__ == "__main__":
-    unittest.main()

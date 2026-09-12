@@ -86,7 +86,3 @@ class PortableMoveTests(unittest.TestCase):
                 with patch("ag2c.storage.heal_portable_move") as heal:
                     storage._read_registry()
                     heal.assert_not_called()
-
-
-if __name__ == "__main__":
-    unittest.main()

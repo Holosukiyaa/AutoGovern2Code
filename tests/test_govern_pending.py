@@ -96,7 +96,3 @@ class UnownedAreaSemanticsTests(unittest.TestCase):
             self.assertIn("t58d-assets", unowned)
         with self.subTest(case="floor 显式文件清单 → 有主"):
             self.assertNotIn("t58e.ini", unowned)
-
-
-if __name__ == "__main__":
-    unittest.main()

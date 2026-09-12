@@ -489,7 +489,3 @@ class HazardPushTrayIntegrationTests(unittest.TestCase):
             project_details(root, refresh=True)
             project_details(root, refresh=True)
             self.assertEqual(1, notification_count(project_id))
-
-
-if __name__ == "__main__":
-    unittest.main()

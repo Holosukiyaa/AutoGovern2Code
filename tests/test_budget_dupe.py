@@ -824,7 +824,3 @@ class DuplicateWarningTests(unittest.TestCase):
         funcs1 = [(n.name, len(n.args.args)) for n in ast.walk(tree1) if isinstance(n, ast.FunctionDef)]
         funcs2 = [(n.name, len(n.args.args)) for n in ast.walk(tree2) if isinstance(n, ast.FunctionDef)]
         self.assertNotEqual(funcs1[0], funcs2[0])
-
-
-if __name__ == "__main__":
-    unittest.main()

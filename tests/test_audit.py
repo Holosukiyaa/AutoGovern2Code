@@ -245,7 +245,3 @@ class AiInvisibilityTests(unittest.TestCase):
             policy = _policy(manifest)
             maybe_generate_plan(manifest, policy, now=T0)
             self.assertTrue(str(_state_path(manifest)).startswith(str(manifest.path.parent)))
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -515,7 +515,3 @@ class UsageExtractTests(unittest.TestCase):
 def _reload_policy(root: Path):
     manifest = load_manifest(root / ".ag2c" / "manifest.json", project_root=root)
     return manifest, load_policy(manifest)
-
-
-if __name__ == "__main__":
-    unittest.main()

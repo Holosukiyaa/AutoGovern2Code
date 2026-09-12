@@ -30,7 +30,3 @@ class LedgerTests(unittest.TestCase):
             self.assertTrue(any("digest mismatch" in error for error in errors), errors)
             with self.assertRaisesRegex(LedgerError, "invalid ledger"):
                 ledger_summary(ledger)
-
-
-if __name__ == "__main__":
-    unittest.main()

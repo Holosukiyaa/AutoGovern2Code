@@ -293,7 +293,3 @@ class CanaryEndToEndTests(unittest.TestCase):
             manifest, policy = _canary_project(root)
             shutil.rmtree(root / "tests")
             self.assertEqual(2, _canary(manifest, policy, actor="test", reason="no tests dir"))
-
-
-if __name__ == "__main__":
-    unittest.main()

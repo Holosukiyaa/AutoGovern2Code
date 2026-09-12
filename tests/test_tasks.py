@@ -396,7 +396,3 @@ class GovernanceReconcileTests(AutoRefreshTests):
                     self._diverge_canonical(root, "src/worker/job.py")
                     self.assertTrue(verify_task(worktree)["passed"])
             self.assertIn("governance-code-reconcile-degraded", self._intervention_kinds(root, task["id"]))
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -102,7 +102,3 @@ class OpenTasksShadowTests(unittest.TestCase):
         model = dashboard_model(_details_with_task(_verification()), {})
         self.assertIn("shadow", model["tasks"][0])
         self.assertIn("场景测试未配置", model["tasks"][0]["shadow"])
-
-
-if __name__ == "__main__":
-    unittest.main()

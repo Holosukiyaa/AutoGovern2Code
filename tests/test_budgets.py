@@ -339,7 +339,3 @@ class FileSoftCapTests(unittest.TestCase):
         with mock.patch.object(Path, "read_text", lambda self, *a, **k: (_ for _ in ()).throw(OSError("x")) if self.name == "fat.py" else orig(self, *a, **k)):
             self.assertEqual([], file_soft_cap_warnings(manifest))
         warn = {"kind": SOFTCAP_WARNING_KIND, "key": "k", "detail": "d"}; self.assertNotIn(SOFTCAP_WARNING_KIND, ESCALATABLE_KINDS); self.assertFalse(_escalatable(warn)); self.assertEqual([], _record_warnings_and_find_escalated(manifest, [warn], count_key="a"))
-
-
-if __name__ == "__main__":
-    unittest.main()

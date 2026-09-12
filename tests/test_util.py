@@ -35,7 +35,3 @@ class ReadJsonTests(unittest.TestCase):
             with self.assertRaises(AG2CError) as ctx:
                 read_json(path, what="governance file")
             self.assertIn("governance file must contain an object", str(ctx.exception))
-
-
-if __name__ == "__main__":
-    unittest.main()

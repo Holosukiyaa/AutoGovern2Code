@@ -200,7 +200,3 @@ class DashboardTokenTests(unittest.TestCase):
     def test_missing_token_section_degrades_silently(self) -> None:
         model = dashboard_model({"project": {"name": "demo"}}, {})
         self.assertEqual([], model["token"])
-
-
-if __name__ == "__main__":
-    unittest.main()

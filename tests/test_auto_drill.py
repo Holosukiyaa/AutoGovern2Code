@@ -142,7 +142,3 @@ class AutoDrillTests(unittest.TestCase):
             # 账本缺失的 manifest：read_events 失败 → 静默空纪要
             manifest = bare_manifest(Path(tmp) / "ghost")
             self.assertEqual([], _auto_drill(manifest.project_root))
-
-
-if __name__ == "__main__":
-    unittest.main()

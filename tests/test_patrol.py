@@ -145,7 +145,3 @@ class DashboardPatrolTests(unittest.TestCase):
         model = dashboard_model({}, None)
         self.assertEqual([], model["patrol"])
         self.assertFalse(any("演习" in a["text"] for a in model["anomalies"]))
-
-
-if __name__ == "__main__":
-    unittest.main()

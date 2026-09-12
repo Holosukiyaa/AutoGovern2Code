@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- HANDOFF-2026-09-11 对齐当前 main：L0 三旗标默认关已落地；MCP-tree / warning-dismiss 账本顺序 / 入学摩擦项标完成；5.1、6.1、抽查回火、Phase 2 口径不变。
+
 - L0 托管代理：`policy.proxy.auto_warning` 为 true 时，finish 自动认领 warning-history 里 kind∈{file-soft-cap, coordinate-reconciliation} 且 count<3 的条目（走 dismiss_warning），并写 `proxy-decision` `rule=warning`。满 3 次与 over-budget 不认领。缺省关闭。Covered by `ProxyL0Tests.test_finish_proxy_census`。
 
 - L0 托管代理：`policy.proxy.auto_census` 为 true 时，finish 对 pending 里的 `census-review-required` 房间自动 `census --record`（从不 `--all`），并写 `proxy-decision` `rule=census`。与 `auto_settle` 同时打开时先 settle 再 census。缺省关闭。Covered by `ProxyL0Tests.test_finish_proxy_census`。

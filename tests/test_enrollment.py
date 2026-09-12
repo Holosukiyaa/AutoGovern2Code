@@ -87,31 +87,37 @@ def enrolled_demo():
             fx.stop()
 
 class FirstDrillTests(unittest.TestCase):
-
-    def _enrolled(self, directory: str):
+    def _enrolled(self, directory: str, **kwargs):
         root = git_project(Path(directory) / "demo")
-        result = enroll_project(root, skill_root=Path(directory) / "skills", harnesses=("agents",))
-        return root, result
+        return root, enroll_project(root, skill_root=Path(directory) / "skills", harnesses=("agents",), **kwargs)
 
     def test_enroll_result_offers_first_drill(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _, result = self._enrolled(directory)
-            step = result.get("next_step") or {}
+            step = (self._enrolled(directory)[1].get("next_step") or {})
             self.assertEqual(("first-drill", True), (step.get("action"), bool(step.get("why") and "ag2c canary" in (step.get("command") or ""))))
 
     def test_guard_status_hints_first_drill_until_team_exists(self) -> None:
+        from ag2c.ledger import append_event
         with tempfile.TemporaryDirectory() as directory:
             root, _ = self._enrolled(directory)
             status = activation_status(root)
-            self.assertIsNotNone(status.get("first_drill"))
-            self.assertEqual("first-drill", status["first_drill"]["action"])
-            self.assertFalse(any("drill" in issue or "演习" in issue for issue in status["issues"]))
-            from ag2c.ledger import append_event
-            manifest = load_manifest(discover_manifest(root), project_root=root)
-            append_event(manifest.ledger_path, "canary", {"mode": "gate", "canary": "passed"})
-            status = activation_status(root)
-            self.assertIsNone(status.get("first_drill"))
+            self.assertEqual(("first-drill", False), ((status.get("first_drill") or {}).get("action"), any("drill" in issue or "演习" in issue for issue in status["issues"])))
+            append_event(load_manifest(discover_manifest(root), project_root=root).ledger_path, "canary", {"mode": "gate", "canary": "passed"})
+            self.assertIsNone(activation_status(root).get("first_drill"))
 
+    def test_enroll_default_skips_canary_and_flag_runs_it(self) -> None:
+        from ag2c.enrollment import setup_project
+        with tempfile.TemporaryDirectory() as directory, patch("ag2c.enroll_ops._run_first_drill", return_value={"ran": True, "exit_code": 0}) as drill:
+            self._enrolled(directory)
+            drill.assert_not_called()
+            _, on = self._enrolled(str(Path(directory) / "flagged"), run_first_drill=True)
+            setup_project(git_project(Path(directory) / "via-setup"), skill_root=Path(directory) / "skills-setup", harnesses=("agents",), run_first_drill=True)
+            self.assertEqual((0, 2), (on["first_drill_result"]["exit_code"], drill.call_count))
+
+    def test_enroll_first_drill_failure_keeps_enrollment(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch("ag2c.enroll_ops._run_first_drill", return_value={"ran": False, "error": "boom"}):
+            _, result = self._enrolled(directory, run_first_drill=True)
+            self.assertEqual(("boom", True), (result["first_drill_result"]["error"], bool(result.get("project_id"))))
 
 class EnrollmentTests(unittest.TestCase):
     def test_enroll_allows_a_dirty_worktree(self) -> None:
@@ -123,9 +129,7 @@ class EnrollmentTests(unittest.TestCase):
             dirty = status_entries(root)
             self.assertIn("src/value.py", dirty)
             self.assertIn("notes.txt", dirty)
-
             result = enroll_project(root, skill_root=skills, harnesses=("agents",))
-
             self.assertEqual("demo", result["project_id"])
             self.assertFalse(result["working_tree_changed"])
             self.assertTrue((Path(result["store"]) / "manifest.json").is_file())

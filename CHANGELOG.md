@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- CLI `ag2c enroll` / `ag2c setup --project` 入学成功后自动跑 first canary（`run_first_drill=True`）；Python API 默认关，测试夹具不触发。失败不回滚入学。不改 `_auto_drill` 建队制。Covered by `FirstDrillTests`。
+
 - Windows CLI 控制台改 UTF-8（code page 65001）：canary 等命令的中文 reason/标签不再在 PowerShell 里乱码。Covered by `StdioEncodingTests`。
 
 - L0 托管代理：`policy.proxy.auto_settle` 为 true 时，`finish_task` 在记录 pending 之后自动 settle 并写 `proxy-decision` 账本事件；缺省关闭。不代理 merge/delete/abandon。AG2C 自身 policy 不打开此开关。Covered by `ProxyL0Tests`。

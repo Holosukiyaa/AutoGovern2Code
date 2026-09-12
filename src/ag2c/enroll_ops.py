@@ -119,12 +119,25 @@ def recover_relocated_enrollment(
         },
     }
 
+def _run_first_drill(root: Path) -> dict[str, Any]:
+    import subprocess
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "ag2c", "canary", "--actor", "ag2c-first-drill", "--reason", "首次演习：入学后自动看门禁如何拦住缺陷"],
+            cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900,
+        )
+        return {"ran": True, "exit_code": proc.returncode}
+    except Exception as exc:
+        return {"ran": False, "error": str(exc)}
+
+
 def enroll_project(
     start: Path,
     *,
     project_id: str | None = None,
     skill_root: Path | None = None,
     harnesses: tuple[str, ...] | None = None,
+    run_first_drill: bool = False,
 ) -> dict[str, Any]:
     root = repository_root(start)
     if root != canonical_worktree(root):
@@ -240,6 +253,8 @@ def enroll_project(
     hint = _git_identity_hint(root)
     if hint:
         payload["git_identity"] = hint
+    if run_first_drill:
+        payload["first_drill_result"] = _run_first_drill(root)
     return payload
 
 
@@ -493,6 +508,7 @@ def setup_project(
     project_id: str | None = None,
     skill_root: Path | None = None,
     harnesses: tuple[str, ...] | None = None,
+    run_first_drill: bool = False,
 ) -> dict[str, Any]:
     if project is None:
         skills = install_skills(skill_root, harnesses)
@@ -514,7 +530,7 @@ def setup_project(
     root = repository_root(project)
     binding = resolve_enrollment_binding(root)
     if binding["state"] == BINDING_STALE:
-        result = enroll_project(root, project_id=project_id, skill_root=skill_root, harnesses=harnesses)
+        result = enroll_project(root, project_id=project_id, skill_root=skill_root, harnesses=harnesses, run_first_drill=run_first_drill)
         return {"action": "enrolled", "version": __version__, **result}
     if binding["state"] in {BINDING_HEALTHY, BINDING_RELOCATED}:
         return upgrade_project(root, skill_root=skill_root, harnesses=harnesses)
@@ -526,7 +542,7 @@ def setup_project(
         return upgrade_project(root, skill_root=skill_root, harnesses=harnesses)
     if (root / ".deg" / "enrollment.json").is_file():
         return migrate_project(root, skill_root=skill_root, harnesses=harnesses)
-    result = enroll_project(root, project_id=project_id, skill_root=skill_root, harnesses=harnesses)
+    result = enroll_project(root, project_id=project_id, skill_root=skill_root, harnesses=harnesses, run_first_drill=run_first_drill)
     return {"action": "enrolled", "version": __version__, **result}
 
 def repair_project(

@@ -27,6 +27,7 @@ def main(argv: list[str] | None = None) -> int:
                         project_id=args.project_id,
                         skill_root=args.skill_destination,
                         harnesses=tuple(args.harnesses) if args.harnesses else None,
+                        run_first_drill=True,
                     )
                 )
             )
@@ -40,6 +41,7 @@ def main(argv: list[str] | None = None) -> int:
                         args.path,
                         project_id=args.project_id,
                         harnesses=tuple(args.harnesses) if args.harnesses else None,
+                        run_first_drill=True,
                     )
                 )
             )

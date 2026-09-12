@@ -793,15 +793,10 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertNotIn("未普查", inspected["message"])
 
     def test_file_tree_lets_src_open_nested_children(self) -> None:
+        import ag2c_gui.imgui_tray  # noqa: F401 — complete circular import with imgui_panels
+        from ag2c_gui.imgui_panels import _auto_open_root_dir
         from ag2c_gui.tray_host import file_tree_children
-
-        tree = file_tree_children(
-            [
-                ("README.md", {"kind": "file", "title": "README.md", "path": "app:README.md"}),
-                ("src/ag2c/gitops.py", {"kind": "file", "title": "gitops.py", "path": "app:src/ag2c/gitops.py"}),
-                ("src/ag2c/imgui_tray.py", {"kind": "file", "title": "imgui_tray.py", "path": "app:src/ag2c/imgui_tray.py"}),
-            ]
-        )
+        tree = file_tree_children([("README.md", {"kind": "file", "title": "README.md", "path": "app:README.md"}), ("src/ag2c/gitops.py", {"kind": "file", "title": "gitops.py", "path": "app:src/ag2c/gitops.py"}), ("src/ag2c/imgui_tray.py", {"kind": "file", "title": "imgui_tray.py", "path": "app:src/ag2c/imgui_tray.py"})])
         root_names = [name for name, kind, _prefix, _node in tree[""]]
         self.assertEqual(["src", "README.md"], root_names)
         self.assertEqual("dir", tree[""][0][1])
@@ -809,6 +804,8 @@ class TrayHostHelperTests(unittest.TestCase):
         nested = [name for name, kind, _prefix, _node in tree["src/ag2c"]]
         self.assertEqual(["gitops.py", "imgui_tray.py"], nested)
         self.assertTrue(all(kind == "file" for _name, kind, _prefix, _node in tree["src/ag2c"]))
+        dump = [("f%d.py" % i, "file", "f%d.py" % i, {}) for i in range(17)]
+        self.assertEqual((True, False, True), (_auto_open_root_dir(tree["src"]), _auto_open_root_dir(dump), _auto_open_root_dir(dump[:16])))
 
     def test_file_and_card_focus_are_bidirectional(self) -> None:
         from ag2c_gui.tray_host import claim_label, coverage_scroll_key, files_for_card, focus_card, focus_file, peer_rels

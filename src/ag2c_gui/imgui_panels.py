@@ -499,6 +499,14 @@ def _gui_gate_strip(state: AppState, project: dict[str, Any]) -> None:
                 state.open_ops(kind)
                 _refresh_panel(state, kind, project, details)
 
+_ROOT_FILE_DUMP_LIMIT = 16
+
+
+def _auto_open_root_dir(nested: list) -> bool:
+    """Top-level dirs auto-open unless they are a large file-only dump (tests/)."""
+    return any(kind == "dir" for _name, kind, _prefix, _node in nested) or len(nested) <= _ROOT_FILE_DUMP_LIMIT
+
+
 def _gui_tree(state: AppState) -> None:
     from imgui_bundle import imgui
 
@@ -548,7 +556,7 @@ def _gui_tree(state: AppState) -> None:
             if kind == "dir" and nested:
                 if force_open and prefix in force_open:
                     imgui.set_next_item_open(True)
-                elif depth == 0:
+                elif depth == 0 and _auto_open_root_dir(nested):
                     imgui.set_next_item_open(True, imgui.Cond_.once)
             claim = claim_label(node) if kind == "file" else ""
             visible = f"{name}  {claim}" if claim else name

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 文件树不再自动展开顶层「纯文件堆」（子项全是文件且超过 16 个，如 tests/）；有子目录的顶层（src）仍自动打开。Covered by `test_file_tree_lets_src_open_nested_children`。
+
 - CLI `ag2c enroll` / `ag2c setup --project` 入学成功后自动跑 first canary（`run_first_drill=True`）；Python API 默认关，测试夹具不触发。失败不回滚入学。不改 `_auto_drill` 建队制。Covered by `FirstDrillTests`。
 
 - Windows CLI 控制台改 UTF-8（code page 65001）：canary 等命令的中文 reason/标签不再在 PowerShell 里乱码。Covered by `StdioEncodingTests`。

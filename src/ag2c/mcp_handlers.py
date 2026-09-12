@@ -249,7 +249,7 @@ def _call_start(args: dict[str, Any]) -> Any:
     if coordinates is not None and not isinstance(coordinates, Mapping):
         raise AG2CError("coordinates must be an object of dimension=value")
     return start_task(
-        _cwd(args),
+        _cwd(args, required=True),
         goal=str(args.get("goal") or ""),
         path_specs=paths,
         contract_specs=_string_list(args, "contracts"),
@@ -262,13 +262,13 @@ def _call_start(args: dict[str, Any]) -> Any:
 def _call_task_declare(args: dict[str, Any]) -> Any:
     from .tasks import declare_front_back
 
-    return declare_front_back(_cwd(args), reason=str(args.get("reason") or ""))
+    return declare_front_back(_cwd(args, required=True), reason=str(args.get("reason") or ""))
 
 def _call_task_amend_portrait(args: dict[str, Any]) -> Any:
     from .tasks import amend_portrait
 
     return amend_portrait(
-        _cwd(args),
+        _cwd(args, required=True),
         portrait=str(args.get("portrait") or ""),
         actor=str(args.get("actor") or ""),
         reason=str(args.get("reason") or ""),
@@ -290,7 +290,7 @@ def _call_finish(args: dict[str, Any]) -> Any:
     if sessions is not None and type(sessions) is not int:
         raise AG2CError("sessions must be a non-negative integer")
     return finish_task(
-        _cwd(args),
+        _cwd(args, required=True),
         str(args.get("task") or ""),
         message=str(args.get("message") or ""),
         proof=proof,
@@ -312,12 +312,12 @@ def _call_orient(args: dict[str, Any]) -> Any:
 def _call_refresh(args: dict[str, Any]) -> Any:
     from .tasks import refresh_task
 
-    return refresh_task(_cwd(args), str(args.get("task") or ""))
+    return refresh_task(_cwd(args, required=True), str(args.get("task") or ""))
 
 def _call_abandon(args: dict[str, Any]) -> Any:
     from .tasks import abandon_task
 
-    return abandon_task(_cwd(args), str(args.get("task") or ""), reason=str(args.get("reason") or "mcp abandon"))
+    return abandon_task(_cwd(args, required=True), str(args.get("task") or ""), reason=str(args.get("reason") or "mcp abandon"))
 
 def _call_retrieve(args: dict[str, Any]) -> Any:
     from .govern import retrieve_guidance
@@ -348,7 +348,7 @@ def _call_census(args: dict[str, Any]) -> Any:
     from .households import census_report
     from .household_commands import review_census
 
-    root = _cwd(args)
+    root = _cwd(args, required=bool(args.get("record")))
     if args.get("record"):
         cards = _string_list(args, "card") or _string_list(args, "cards")
         result = review_census(
@@ -402,7 +402,7 @@ def _call_span(args: dict[str, Any]) -> Any:
     from .household_commands import set_household_span
 
     return set_household_span(
-        _cwd(args),
+        _cwd(args, required=True),
         card_id=str(args.get("id") or ""),
         span=str(args.get("tag") or args.get("span") or ""),
         actor=_actor(args),
@@ -413,7 +413,7 @@ def _call_household(args: dict[str, Any]) -> Any:
     from .household_commands import register_household
 
     return register_household(
-        _cwd(args),
+        _cwd(args, required=True),
         card_id=str(args.get("id") or ""),
         title=str(args.get("title") or ""),
         summary=str(args.get("summary") or ""),
@@ -442,9 +442,9 @@ def _call_tighten(args: dict[str, Any]) -> Any:
     from .household_commands import renew_exploring, tighten_household
 
     if args.get("renew"):
-        return renew_exploring(_cwd(args), card_id=str(args.get("id") or ""), actor=_actor(args), reason=str(args.get("reason") or ""))
+        return renew_exploring(_cwd(args, required=True), card_id=str(args.get("id") or ""), actor=_actor(args), reason=str(args.get("reason") or ""))
     return tighten_household(
-        _cwd(args),
+        _cwd(args, required=True),
         card_id=str(args.get("id") or ""),
         grain=str(args.get("grain") or ""),
         meaning=str(args.get("meaning") or ""),
@@ -458,7 +458,7 @@ def _call_apply(args: dict[str, Any]) -> Any:
     from .govern import apply_change
 
     return apply_change(
-        _cwd(args),
+        _cwd(args, required=True),
         action=str(args.get("action") or ""),
         kind="card",
         card_id=str(args.get("id") or ""),
@@ -478,7 +478,7 @@ def _call_apply(args: dict[str, Any]) -> Any:
 def _call_settle(args: dict[str, Any]) -> Any:
     from .govern import settle_pending
 
-    return settle_pending(_cwd(args), actor=_actor(args), reason=str(args.get("reason") or ""))
+    return settle_pending(_cwd(args, required=True), actor=_actor(args), reason=str(args.get("reason") or ""))
 
 def _call_evidence(args: dict[str, Any]) -> Any:
     from .tasks import evidence
@@ -489,7 +489,7 @@ def _call_evidence(args: dict[str, Any]) -> Any:
 def _call_doctor(args: dict[str, Any]) -> Any:
     from .enrollment import repair_project
 
-    repair_project(_cwd(args))
+    repair_project(_cwd(args, required=True))
     return install_mcp_clients()
 
 def _call_skill(args: dict[str, Any]) -> Any:

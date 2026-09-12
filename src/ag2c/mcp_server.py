@@ -188,8 +188,10 @@ def _args(raw: Any) -> dict[str, Any]:
     return dict(raw) if isinstance(raw, Mapping) else {}
 
 
-def _cwd(args: Mapping[str, Any]) -> Path:
+def _cwd(args: Mapping[str, Any], *, required: bool = False) -> Path:
     raw = str(args.get("cwd") or args.get("root") or "").strip()
+    if required and not raw:
+        raise AG2CError("cwd is required; omitting it writes the MCP process project")
     start = Path(raw) if raw else Path.cwd()
     try:
         from .gitops import repository_root
@@ -271,7 +273,7 @@ def _tool(name: str, description: str, properties: dict[str, Any], required: lis
 
 
 def _cwd_prop() -> dict[str, Any]:
-    return {"type": "string", "description": "Git project root. Defaults to the MCP process cwd."}
+    return {"type": "string", "description": "Git project root. Write tools require this; omitting it writes the MCP process project."}
 
 
 _VERIFY_JOBS: dict[str, dict[str, Any]] = {}
@@ -288,7 +290,7 @@ def _call_verify(args: dict[str, Any]) -> Any:
     """
     from .tasks import verify_task
 
-    cwd = _cwd(args).resolve()
+    cwd = _cwd(args, required=True).resolve()
     key = str(cwd)
     with _VERIFY_LOCK:
         job = _VERIFY_JOBS.get(key)
@@ -337,7 +339,7 @@ def _call_rehome(args: dict[str, Any]) -> Any:
     """
     from .rehome import rehome_file_card
 
-    cwd = _cwd(args).resolve()
+    cwd = _cwd(args, required=True).resolve()
     job_id = str(args.get("job") or "").strip()
     if job_id:
         with _REHOME_LOCK:

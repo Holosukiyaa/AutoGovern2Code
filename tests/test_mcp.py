@@ -1,14 +1,11 @@
 from __future__ import annotations
-
 import io
 import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-
 import bootstrap  # noqa: F401
-
 from ag2c.harnesses import PACKAGED_SKILLS
 from ag2c.mcp_server import (
     CONNECT_RESOURCE_URI,
@@ -27,7 +24,6 @@ from ag2c.mcp_server import (
     tool_defs,
 )
 
-
 def _rpc(method: str, params: dict | None = None, req_id: int = 1) -> dict:
     message = {"jsonrpc": "2.0", "id": req_id, "method": method}
     if params is not None:
@@ -36,9 +32,7 @@ def _rpc(method: str, params: dict | None = None, req_id: int = 1) -> dict:
     assert reply is not None
     return reply
 
-
 class LaunchSrcTests(unittest.TestCase):
-    """mcp_launch_spec must never point client configs at a task worktree."""
 
     def _fixture(self, directory: str) -> tuple[Path, Path]:
         from ag2c.enrollment import enroll_project
@@ -115,7 +109,6 @@ class LaunchSrcTests(unittest.TestCase):
             module_file.parent.mkdir(parents=True)
             module_file.write_text("", encoding="utf-8")
             with patch("ag2c.config.discover_manifest", _spy):
-                # 发现失败时回退模块自身 src；关键是发现被尝试了
                 self.assertEqual(module_file.parents[1].resolve(), _launch_src(module_file, Path(directory)))
             self.assertTrue(called)
 
@@ -130,43 +123,53 @@ class ResultGateTests(unittest.TestCase):
     def test_start_without_portrait_is_refused(self) -> None:
         from ag2c.errors import AG2CError
         from ag2c.mcp_server import _call_start
-
-        with self.assertRaises(AG2CError):
-            _call_start({"goal": "x", "paths": ["app:a.py"]})
+        with self.assertRaises(AG2CError) as raised:
+            _call_start({"goal": "x", "paths": ["app:a.py"], "cwd": "."})
+        self.assertIn("portrait", str(raised.exception).lower())
 
     def test_finish_without_proof_is_refused(self) -> None:
         from ag2c.errors import AG2CError
         from ag2c.mcp_server import _call_finish
+        with self.assertRaises(AG2CError) as raised:
+            _call_finish({"task": "t", "message": "m", "cwd": "."})
+        self.assertIn("proof", str(raised.exception).lower())
 
-        with self.assertRaises(AG2CError):
-            _call_finish({"task": "t", "message": "m"})
+    def test_write_without_cwd_is_refused(self) -> None:
+        from ag2c.errors import AG2CError
+        from ag2c.mcp_server import _call_apply, _call_census, _call_settle, _call_start, _cwd
+        self.assertIsInstance(_cwd({"cwd": "."}), Path)
+        with self.assertRaises(AG2CError) as raised:
+            _cwd({}, required=True)
+        self.assertIn("cwd is required", str(raised.exception))
+        for fn, args in (
+            (_call_apply, {"action": "add", "id": "knowledge.x", "reason": "x"}),
+            (_call_start, {"goal": "x", "portrait": "x"}),
+            (_call_census, {"record": True}),
+            (_call_settle, {"reason": "x"}),
+        ):
+            with self.assertRaises(AG2CError) as raised:
+                fn(args)
+            self.assertIn("cwd is required", str(raised.exception))
 
     def test_instructions_carry_the_result_gate_discipline(self) -> None:
         self.assertIn("结果门", MCP_INSTRUCTIONS)
         self.assertIn("自证", MCP_INSTRUCTIONS)
         self.assertIn("随便的答案", MCP_INSTRUCTIONS)
 
-
 class PortraitLintTests(unittest.TestCase):
     GOOD = (
         "Done looks like: 状态条开关点击后抽屉真实出现（机器验证：test_desktop 断言 toggle_dock 翻转 "
         "is_visible；实机：预览实例点击截图）。Out of result: 抽屉内容。无加料。"
     )
-
     def test_good_portrait_passes(self) -> None:
         from ag2c.tasks import lint_portrait
-
         self.assertEqual([], lint_portrait(self.GOOD))
-
     def test_thin_portrait_is_refused(self) -> None:
         from ag2c.tasks import lint_portrait
-
         violations = lint_portrait("修好它")
         self.assertTrue(any(v.startswith("too-thin") for v in violations))
-
     def test_missing_verification_layer_is_refused(self) -> None:
         from ag2c.tasks import lint_portrait
-
         portrait = "Done looks like: 抽屉可以打开关闭，状态条按钮生效，门状态行定位到对应面板，布局保持。"
         violations = lint_portrait(portrait)
         self.assertTrue(any(v.startswith("no-verification-layer") for v in violations))

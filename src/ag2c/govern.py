@@ -1,8 +1,16 @@
 from __future__ import annotations
+from .govern_support import (
+    BOUNDARY_HINTS,
+    PENDING_FILENAME,
+    _atomic_json,
+    _card_include_roots,
+    _floor_for_path,
+    _include_roots_overlap,
+    _jurisdiction_include_roots,
+    _now,
+    _read_json,
+)
 
-import json
-import os
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -14,11 +22,9 @@ from .index import build_index, index_path
 from .knowledge import knowledge_status, sync_knowledge
 from .ledger import append_event
 from .model import Manifest
-from .slicer import compile_slice
-from .util import atomic_json_write, normalize_artifact_path
+from .util import normalize_artifact_path
 
 
-PENDING_FILENAME = "governance-pending.json"
 PENDING_TITLES = {
     "unowned-area": "新目录还没有登记",
     "new-document": "新文档还没有入库",
@@ -45,219 +51,6 @@ PENDING_HINTS = {
     "tighten-or-decompose": "拆出真子集子户口后再收紧",
     "split-proper-subset": "把子户口改成更短的目录 glob",
 }
-DOC_NAMES = ("README.md", "README.zh-CN.md", "README.en.md", "CONTRIBUTING.md", "CHANGELOG.md", "AGENTS.md")
-DOC_DIRS = ("docs", "doc", "handbook")
-BOUNDARY_HINTS = {"api", "routes", "graphql", "proto", "openapi", "handlers", "endpoints"}
-SKIP_DIRS = {".git", "node_modules", "dist", "build", ".next", "__pycache__", ".venv", "venv"}
-MAX_KNOWLEDGE_CARDS = 30
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-_atomic_json = atomic_json_write
-
-
-def _read_json(path: Path) -> dict[str, Any]:
-    from .util import read_json
-
-    return read_json(path, what="governance file")
-
-
-def _slug(value: str) -> str:
-    from .enrollment import _area_slug
-
-    return _area_slug(value.replace("\\", "/").replace("/", "-").replace(".", "-"))
-
-
-def _first_line(path: Path) -> str:
-    try:
-        for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-            text = line.strip().lstrip("#").strip()
-            if text:
-                return text[:180]
-    except OSError:
-        pass
-    return path.name
-
-
-def _card_include_roots(card: dict[str, Any]) -> set[str]:
-    from .households import directory_scope
-
-    roots: set[str] = set()
-    for scope in card.get("scopes") or []:
-        for pattern in scope.get("include") or []:
-            text = str(pattern)
-            if text.endswith("/**") or text == "**":
-                roots.add(directory_scope(text))
-    return roots
-
-
-def _jurisdiction_include_roots(cards: list[Any]) -> set[str]:
-    roots: set[str] = set()
-    for card in cards:
-        if not isinstance(card, dict) or not card.get("jurisdiction"):
-            continue
-        roots.update(_card_include_roots(card))
-    return roots
-
-
-def _include_roots_overlap(left: set[str], right: set[str]) -> bool:
-    from .households import _is_proper_subdir
-
-    for first in left:
-        for second in right:
-            if first == second or _is_proper_subdir(first, second) or _is_proper_subdir(second, first):
-                return True
-    return False
-
-
-def _floor_for_path(cards: list[dict[str, Any]], relative: str) -> str | None:
-    normalized = relative.replace("\\", "/").lstrip("./")
-    best_id = None
-    best_len = -1
-    for card in cards:
-        if card.get("type") != "floor":
-            continue
-        for scope in card.get("scopes") or []:
-            for pattern in scope.get("include") or []:
-                prefix = str(pattern).replace("\\", "/").replace("/**", "").rstrip("*").rstrip("/")
-                if pattern == "**" or normalized == prefix or normalized.startswith(prefix + "/") or prefix in {"", "."}:
-                    if len(prefix) > best_len:
-                        best_id = str(card["id"])
-                        best_len = len(prefix)
-    if best_id:
-        return best_id
-    floors = [str(card["id"]) for card in cards if card.get("type") == "floor"]
-    return floors[0] if floors else None
-
-
-def _skip_part(name: str) -> bool:
-    return name in SKIP_DIRS or name.startswith(".")
-
-
-def _document_paths(root: Path) -> list[str]:
-    found: list[str] = []
-    for path in sorted(root.glob("*.md")):
-        found.append(path.name)
-    for name in DOC_NAMES:
-        if name not in found and (root / name).is_file():
-            found.append(name)
-    for folder in DOC_DIRS:
-        directory = root / folder
-        if not directory.is_dir() or _skip_part(folder):
-            continue
-        for path in sorted(directory.rglob("*.md")):
-            if any(_skip_part(part) for part in path.relative_to(root).parts):
-                continue
-            found.append(path.relative_to(root).as_posix())
-            if len(found) >= MAX_KNOWLEDGE_CARDS:
-                return found
-    return found
-
-
-def _boundary_paths(root: Path) -> list[str]:
-    found: list[str] = []
-    for dirpath, dirnames, _filenames in os.walk(root):
-        dirnames[:] = [name for name in dirnames if not _skip_part(name)]
-        current = Path(dirpath)
-        if current == root or current.name.lower() not in BOUNDARY_HINTS:
-            continue
-        found.append(current.relative_to(root).as_posix())
-        if len(found) >= 12:
-            break
-    for name in ("openapi.yaml", "openapi.yml", "swagger.yaml", "swagger.json"):
-        if (root / name).is_file() and name not in found:
-            found.append(name)
-    return found
-
-
-def compose_baseline_governance(root: Path, project_roots: list[str], checker_ids: list[str]) -> dict[str, Any]:
-    from .enrollment import _baseline_cards
-
-    cards = list(_baseline_cards(root, project_roots, checker_ids))
-    relations: list[dict[str, str]] = []
-    constitution = next((card["id"] for card in cards if card.get("type") == "constitution"), None)
-    for card in cards:
-        if constitution and card.get("type") == "floor":
-            relations.append({"source": constitution, "type": "governs", "target": card["id"]})
-    used = {str(card["id"]) for card in cards}
-    for relative in _document_paths(root):
-        card_id = f"knowledge.{_slug(relative)}"
-        if card_id in used:
-            continue
-        used.add(card_id)
-        title = clip_knowledge_title(Path(relative).name)
-        cards.append(
-            {
-                "id": card_id,
-                "type": "knowledge",
-                "title": title,
-                "summary": _first_line(root / relative) or f"Project knowledge from {relative}",
-                "scopes": [{"target": "app", "include": [relative], "ownership": "reference"}],
-                "references": [relative],
-            }
-        )
-        floor_id = (
-            "floor.root"
-            if Path(relative).parent.as_posix() in {".", ""} and any(card.get("id") == "floor.root" for card in cards)
-            else _floor_for_path(cards, relative)
-        )
-        if floor_id:
-            relations.append({"source": card_id, "type": "explains", "target": floor_id})
-    for relative in _boundary_paths(root):
-        card_id = f"boundary.{_slug(relative)}"
-        if card_id in used:
-            continue
-        used.add(card_id)
-        include = [relative] if (root / relative).is_file() else [f"{relative}/**"]
-        cards.append(
-            {
-                "id": card_id,
-                "type": "boundary",
-                "title": f"{Path(relative).name} interface",
-                "summary": f"Detected public surface at {relative}.",
-                "scopes": [{"target": "app", "include": include, "ownership": "reference"}],
-                "references": include,
-            }
-        )
-        floor_id = _floor_for_path(cards, relative)
-        if floor_id:
-            relations.append({"source": card_id, "type": "related_to", "target": floor_id})
-    for name in [item for item in project_roots if (root / item).is_dir()]:
-        card_id = f"knowledge.{_slug(name)}"
-        if card_id in used:
-            continue
-        floor_id = _floor_for_path(cards, f"{name}/.")
-        if not floor_id:
-            continue
-        used.add(card_id)
-        slug = _slug(name)
-        cards.append(
-            {
-                "id": card_id,
-                "type": "knowledge",
-                "title": f"{name} exploring household",
-                "summary": f"Declared exploring household for the top-level {name} directory. Meaning is none; this does not explain the tree.",
-                "scopes": [{"target": "app", "include": [f"{name}/**"], "ownership": "reference"}],
-                "references": [],
-                "checkers": [],
-                "jurisdiction": {
-                    "capability": slug,
-                    "implementation": f"{slug}.exploring",
-                    "status": "current",
-                    "entrypoints": [],
-                    "grain": "subtree",
-                    "meaning": "none",
-                    "contract": "none",
-                    "decider": "none",
-                    "span": "none",
-                },
-            }
-        )
-        relations.append({"source": card_id, "type": "explains", "target": floor_id})
-    return {"cards": cards, "relations": relations, "contracts": []}
 
 
 def finalize_ingest(manifest: Manifest, *, actor: str, reason: str) -> dict[str, Any]:
@@ -446,22 +239,6 @@ def pending_updates(start: Path, changed_paths: list[str] | None = None) -> dict
     stored = {"updated_at": _now(), "items": unique}
     _atomic_json(manifest.state_dir / PENDING_FILENAME, stored)
     return stored
-
-
-def stored_pending(start: Path) -> dict[str, Any]:
-    try:
-        root = repository_root(start)
-        manifest = load_manifest(discover_manifest(root), project_root=root)
-    except AG2CError:
-        return {"items": []}
-    path = manifest.state_dir / PENDING_FILENAME
-    if not path.is_file():
-        return {"items": []}
-    try:
-        value = _read_json(path)
-    except AG2CError:
-        return {"items": []}
-    return value if isinstance(value.get("items"), list) else {"items": []}
 
 
 def settle_pending(start: Path, *, actor: str, reason: str) -> dict[str, Any]:
@@ -929,142 +706,7 @@ def configure_regulator(
     }
 
 
-def configure_trunk(start: Path, *, branch: str, actor: str, reason: str) -> dict[str, Any]:
-    """登记/变更正主的登记主干分支（manifest project.trunk），进账本。
-
-    start/finish 的 trunk 守卫以此为准。登记的分支必须真实存在——
-    把主干登记成一个不存在的分支等于没有守卫。
-    """
-    actor = actor.strip()
-    reason = reason.strip()
-    branch = branch.strip()
-    if not actor or not reason:
-        raise AG2CError("governance trunk requires --actor and --reason")
-    if not branch:
-        raise AG2CError("governance trunk requires --branch")
-    root = repository_root(start)
-    from .gitops import git
-
-    git(root, "rev-parse", "--verify", f"refs/heads/{branch}")
-    manifest = load_manifest(discover_manifest(root), project_root=root)
-    raw = _read_json(manifest.path)
-    project = raw.setdefault("project", {})
-    previous = str(project.get("trunk") or "")
-    if previous == branch:
-        return {"action": "update", "kind": "trunk", "changes": {}, "actor": actor, "reason": reason}
-    project["trunk"] = branch
-    _atomic_json(manifest.path, raw)
-    try:
-        load_manifest(manifest.path)
-    except ConfigurationError as exc:
-        project["trunk"] = previous
-        _atomic_json(manifest.path, raw)
-        raise AG2CError(f"updated manifest is invalid (rolled back): {exc}") from exc
-    event = append_event(
-        manifest.ledger_path,
-        "governance-applied",
-        {
-            "action": "update",
-            "kind": "trunk",
-            "id": "trunk",
-            "changes": {"trunk": {"from": previous, "to": branch}},
-            "actor": actor,
-            "reason": reason,
-        },
-    )
-    return {
-        "action": "update",
-        "kind": "trunk",
-        "changes": {"trunk": {"from": previous, "to": branch}},
-        "actor": actor,
-        "reason": reason,
-        "ledger_event_digest": event["event_digest"],
-    }
-
-
-def retrieve_guidance(start: Path, *, path_specs: list[str], contract_specs: list[str] | None = None, goal: str = "", all_mode: bool = False) -> dict[str, Any]:
-    root = repository_root(start)
-    manifest = load_manifest(discover_manifest(root), project_root=root)
-    policy = load_policy(manifest)
-    entry = compile_slice(
-        manifest,
-        policy,
-        path_specs=path_specs,
-        contract_specs=list(contract_specs or []),
-        goal=goal,
-        all_mode=all_mode,
-    )
-    pending_path = manifest.state_dir / PENDING_FILENAME
-    pending = _read_json(pending_path) if pending_path.is_file() else {"items": []}
-    from .households import census_report, household_guidance, households_covering_path
-    from .slicer import parse_path_spec
-
-    households = []
-    implementations = []
-    try:
-        report = census_report(manifest, policy)
-        guidance = household_guidance(report)
-        implementations = list(report.get("implementations") or [])
-        selected = {str(card["id"]) for card in entry.get("cards") or []}
-        matched_ids: set[str] = set()
-        for spec in path_specs:
-            try:
-                target, path = parse_path_spec(spec, manifest)
-            except Exception:
-                continue
-            matched_ids.update(item["id"] for item in households_covering_path(report, target, path))
-        households = [
-            item
-            for item in guidance
-            if all_mode or item["id"] in selected or item["id"] in matched_ids
-        ]
-    except AG2CError:
-        pass
-    from ag2c_gui.graph import knowledge_lineage_index
-
-    card_dicts = [
-        {
-            "id": card.card_id,
-            "type": card.card_type,
-            "title": card.title,
-            "summary": card.summary,
-            "scopes": [
-                {"include": list(scope.includes), "exclude": list(scope.excludes), "target": scope.target_id}
-                for scope in card.scopes
-            ],
-            "references": list(card.references),
-            "jurisdiction": card.jurisdiction,
-        }
-        for card in policy.cards
-        if card.card_type == "knowledge"
-    ]
-    lineage_ids = {str(card["id"]) for card in entry.get("cards") or []}
-    lineage_ids.update(item["id"] for item in households)
-    reuse_menu = [
-        {"id": card.card_id, "title": card.title, "provides": list(card.provides)}
-        for card in policy.cards
-        if card.card_id in lineage_ids and card.provides
-    ]
-    conventions = [
-        {"id": card.card_id, "title": card.title, "conventions": card.conventions}
-        for card in policy.cards
-        if card.card_id in lineage_ids and card.conventions
-    ]
-    return {
-        "route": entry["route"],
-        "knowledge": entry.get("knowledge") or [],
-        "cards": [
-            {"id": card["id"], "type": card["type"], "title": card["title"], "summary": card["summary"]}
-            for card in entry.get("cards") or []
-        ],
-        "households": households,
-        "lineage": knowledge_lineage_index(card_dicts, selected_ids=lineage_ids),
-        "implementations": implementations,
-        "pending": pending.get("items") or [],
-        "reuse_menu": reuse_menu,
-        "conventions": conventions,
-    }
-
-
 def record_pending_from_task(canonical: Path, changed_paths: list[str]) -> dict[str, Any]:
     return pending_updates(canonical, changed_paths)
+
+from .govern_ingest import _document_paths, compose_baseline_governance, configure_trunk, retrieve_guidance, stored_pending

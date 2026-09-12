@@ -569,6 +569,9 @@ def main(argv: list[str] | None = None) -> int:
                     auto_settle={"on": True, "off": False}.get(args.auto_settle),
                     auto_census={"on": True, "off": False}.get(args.auto_census),
                     auto_warning={"on": True, "off": False}.get(args.auto_warning),
+                    grant=bool(args.grant),
+                    rule_id=str(args.rule_id or ""),
+                    rule_flag=str(args.flag or ""),
                 )
             elif args.govern_command == "regulator":
                 from .govern import configure_regulator

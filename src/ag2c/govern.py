@@ -706,6 +706,9 @@ def configure_regulator(
     }
 
 
+_PROXY_FLAGS = frozenset({"auto_settle", "auto_census", "auto_warning"})
+
+
 def configure_proxy(
     start: Path,
     *,
@@ -714,13 +717,16 @@ def configure_proxy(
     auto_settle: bool | None = None,
     auto_census: bool | None = None,
     auto_warning: bool | None = None,
+    grant: bool = False,
+    rule_id: str = "",
+    rule_flag: str = "",
 ) -> dict[str, Any]:
-    """Set L0 proxy flags without hand-editing policy.json. Does not auto-merge."""
+    """Set L0 proxy flags or grant an L1 named rule. Does not auto-merge."""
     actor, reason = actor.strip(), reason.strip()
     if not actor or not reason:
         raise AG2CError("governance proxy requires --actor and --reason")
-    if auto_settle is None and auto_census is None and auto_warning is None:
-        raise AG2CError("nothing to change; pass --auto-settle, --auto-census, or --auto-warning")
+    if auto_settle is None and auto_census is None and auto_warning is None and not grant:
+        raise AG2CError("nothing to change; pass --auto-settle, --auto-census, --auto-warning, or --grant")
     root = repository_root(start)
     manifest = load_manifest(discover_manifest(root), project_root=root)
     raw = _read_json(manifest.policy_path)
@@ -731,6 +737,20 @@ def configure_proxy(
         if value is not None:
             target[key] = value
             changes[key] = value
+    grant_blob: dict[str, str] | None = None
+    if grant:
+        rid, rflag = rule_id.strip(), rule_flag.strip()
+        if not rid or rflag not in _PROXY_FLAGS:
+            raise AG2CError("grant requires --rule-id and --flag auto_settle|auto_census|auto_warning")
+        rules = [item for item in (target.get("rules") or []) if isinstance(item, dict)]
+        if any(str(item.get("id") or "") == rid for item in rules):
+            raise AG2CError(f"proxy rule already granted: {rid}")
+        grant_blob = {"id": rid, "flag": rflag}
+        rules.append(grant_blob)
+        target["rules"] = rules
+        target[rflag] = True
+        changes["grant"] = grant_blob
+        changes[rflag] = True
     raw["proxy"] = target
     before = manifest.policy_path.read_text(encoding="utf-8")
     _atomic_json(manifest.policy_path, raw)
@@ -742,11 +762,14 @@ def configure_proxy(
     build_index(manifest, policy, index_path(manifest))
     event = append_event(
         manifest.ledger_path,
-        "governance-applied",
-        {"action": "update", "kind": "proxy", "id": "proxy", "changes": changes, "actor": actor, "reason": reason},
+        "proxy-grant" if grant else "governance-applied",
+        {"action": "update", "kind": "proxy", "id": "proxy", "changes": changes, "actor": actor, "reason": reason, **({"grant": grant_blob} if grant_blob else {})},
     )
     pending_updates(root)
-    return {"action": "update", "kind": "proxy", "changes": changes, "actor": actor, "reason": reason, "ledger_event_digest": event["event_digest"]}
+    result = {"action": "update", "kind": "proxy", "changes": changes, "actor": actor, "reason": reason, "ledger_event_digest": event["event_digest"]}
+    if grant_blob:
+        result["grant"] = grant_blob
+    return result
 
 
 def record_pending_from_task(canonical: Path, changed_paths: list[str]) -> dict[str, Any]:

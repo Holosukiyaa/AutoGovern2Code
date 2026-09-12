@@ -36,24 +36,42 @@ def _proxy_auto_settle(policy) -> bool:
     return _proxy_flag(policy, "auto_settle")
 
 
-def _apply_proxy_l0(canonical: Path, manifest) -> dict[str, Any]:
-    from .govern import settle_pending
+def _proxy_rule_id(policy, flag: str) -> str:
+    blob = getattr(policy, "proxy", None) or {}
+    if not isinstance(blob, dict):
+        return ""
+    for item in blob.get("rules") or []:
+        if isinstance(item, dict) and str(item.get("flag") or "") == flag and str(item.get("id") or "").strip():
+            return str(item["id"]).strip()
+    return ""
+
+
+def _proxy_decision(manifest, policy, rule: str, flag: str, extra: dict[str, Any] | None = None) -> None:
     from .ledger import append_event
 
+    payload: dict[str, Any] = {"rule": rule, "actor": "ag2c-proxy-l0", **(extra or {})}
+    rule_id = _proxy_rule_id(policy, flag)
+    if rule_id:
+        payload["rule_id"] = rule_id
+    append_event(manifest.ledger_path, "proxy-decision", payload)
+
+
+def _apply_proxy_l0(canonical: Path, manifest, policy) -> dict[str, Any]:
+    from .govern import settle_pending
+
     settled = settle_pending(canonical, actor="ag2c-proxy-l0", reason="L0 auto-settle after finish")
-    append_event(manifest.ledger_path, "proxy-decision", {"rule": "settle", "actor": "ag2c-proxy-l0"})
+    _proxy_decision(manifest, policy, "settle", "auto_settle")
     return settled
 
 
-def _apply_proxy_census(canonical: Path, manifest, pending: dict[str, Any]) -> dict[str, Any]:
+def _apply_proxy_census(canonical: Path, manifest, policy, pending: dict[str, Any]) -> dict[str, Any]:
     ids = [str(item.get("path") or "") for item in pending.get("items") or [] if item.get("kind") == "census-review-required" and item.get("path")]
     if not ids:
         return pending
     from .household_commands import review_census
-    from .ledger import append_event
 
     review_census(canonical, card_ids=ids, all_cards=False, actor="ag2c-proxy-l0", reason="L0 auto-census after finish")
-    append_event(manifest.ledger_path, "proxy-decision", {"rule": "census", "actor": "ag2c-proxy-l0", "rooms": ids})
+    _proxy_decision(manifest, policy, "census", "auto_census", {"rooms": ids})
     skip = set(ids)
     return {**pending, "items": [item for item in pending.get("items") or [] if not (item.get("kind") == "census-review-required" and item.get("path") in skip)]}
 
@@ -61,9 +79,8 @@ def _apply_proxy_census(canonical: Path, manifest, pending: dict[str, Any]) -> d
 _L0_WARNING_KINDS = frozenset({"file-soft-cap", "coordinate-reconciliation"})
 
 
-def _apply_proxy_warning(canonical: Path, manifest) -> list[str]:
+def _apply_proxy_warning(canonical: Path, manifest, policy) -> list[str]:
     from .checks import WARNING_ESCALATION_THRESHOLD, _load_warning_history, dismiss_warning
-    from .ledger import append_event
 
     claimed: list[str] = []
     for entry in (_load_warning_history(manifest).get("warnings") or {}).values():
@@ -76,18 +93,18 @@ def _apply_proxy_warning(canonical: Path, manifest) -> list[str]:
         dismiss_warning(manifest, key, actor="ag2c-proxy-l0", reason="L0 auto-claim benign warning")
         claimed.append(key)
     if claimed:
-        append_event(manifest.ledger_path, "proxy-decision", {"rule": "warning", "actor": "ag2c-proxy-l0", "keys": claimed})
+        _proxy_decision(manifest, policy, "warning", "auto_warning", {"keys": claimed})
     return claimed
 
 
 def apply_finish_proxy(canonical: Path, manifest, policy, pending: dict[str, Any]) -> dict[str, Any]:
     if _proxy_auto_settle(policy):
-        remaining = _apply_proxy_l0(canonical, manifest)
+        remaining = _apply_proxy_l0(canonical, manifest, policy)
         pending = {**pending, "items": list(remaining["pending"] or [])}
     if _proxy_flag(policy, "auto_census"):
-        pending = _apply_proxy_census(canonical, manifest, pending)
+        pending = _apply_proxy_census(canonical, manifest, policy, pending)
     if _proxy_flag(policy, "auto_warning"):
-        _apply_proxy_warning(canonical, manifest)
+        _apply_proxy_warning(canonical, manifest, policy)
     return pending
 
 

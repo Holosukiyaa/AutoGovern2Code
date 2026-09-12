@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- L1 具名代理规则：`ag2c govern proxy --rule-id --flag --grant --actor --reason` 写入 `policy.proxy.rules` 并落 `proxy-grant`；finish 的 `proxy-decision` 在匹配旗标时带 `rule_id`。无规则时 L0 行为不变。不代理 merge。Covered by `ProxyL0Tests.test_grant_proxy_rule`。
+
 - L0 托管旗标可通过 `ag2c govern proxy --auto-settle/--auto-census/--auto-warning on|off --actor --reason` 写入 `policy.proxy`，不手改 JSON，不代理 merge。AG2C 自身已用该命令打开三旗标。Covered by `ProxyL0Tests.test_configure_proxy`。
 
 - 6.1 政策沙盘：`ag2c govern sandbox --scenario l2-to-l3` 只读重放账本，报告 AG2K L2→L3 分拣的 would_block / would_false_positive（careful = 有 task-completed 引用且无 verification-failed；naive 任意引用会误伤失败卡）。不写 policy、不追加账本。Covered by `SandboxTests`。

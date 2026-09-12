@@ -79,6 +79,28 @@ class ProxyL0Tests(unittest.TestCase):
             raw = json.loads((root / ".ag2c" / "policy.json").read_text(encoding="utf-8"))
             self.assertTrue(raw["proxy"]["auto_settle"] and raw["proxy"]["auto_census"] and raw["proxy"]["auto_warning"])
 
+    def test_grant_proxy_rule(self) -> None:
+        from ag2c.errors import AG2CError
+        from ag2c.govern import configure_proxy
+        from ag2c import task_finish as tf
+        with tempfile.TemporaryDirectory() as tmp:
+            root = git_project(Path(tmp) / "proj"); write_project(root)
+            with self.assertRaises(AG2CError): configure_proxy(root, actor="a", reason="r", grant=True)
+            out = configure_proxy(root, actor="grok", reason="授", grant=True, rule_id="l0-settle", rule_flag="auto_settle")
+            self.assertEqual({"id": "l0-settle", "flag": "auto_settle"}, out["grant"])
+            raw = json.loads((root / ".ag2c" / "policy.json").read_text(encoding="utf-8"))
+            self.assertEqual([{"id": "l0-settle", "flag": "auto_settle"}], raw["proxy"]["rules"])
+            self.assertTrue(raw["proxy"]["auto_settle"])
+            with self.assertRaises(AG2CError): configure_proxy(root, actor="a", reason="r", grant=True, rule_id="l0-settle", rule_flag="auto_settle")
+        payloads: list = []
+        P = lambda **k: type("P", (), k)()
+        with mock.patch("ag2c.govern.settle_pending", lambda *a, **k: {"pending": []}), mock.patch("ag2c.ledger.append_event", lambda path, kind, payload=None, **k: payloads.append(payload or {}) or {"event_digest": "x"}):
+            tf.apply_finish_proxy(Path("."), type("M", (), {"ledger_path": Path("l")})(), P(proxy={"auto_settle": True}), {"items": []})
+            tf.apply_finish_proxy(Path("."), type("M", (), {"ledger_path": Path("l")})(), P(proxy={"auto_settle": True, "rules": [{"id": "l0-settle", "flag": "auto_settle"}]}), {"items": []})
+        self.assertNotIn("rule_id", payloads[0])
+        self.assertEqual("settle", payloads[0]["rule"])
+        self.assertEqual("l0-settle", payloads[1]["rule_id"])
+
 
 class TrustBaseTests(unittest.TestCase):
     def test_ceremony(self) -> None:

@@ -406,6 +406,7 @@ class TrayHostSourceTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         ui = (root / "src" / "ag2c_gui" / "imgui_tray.py").read_text(encoding="utf-8")
         host = (root / "src" / "ag2c_gui" / "tray_host.py").read_text(encoding="utf-8")
+        host += "\n" + (root / "src" / "ag2c_gui" / "tray_inspect.py").read_text(encoding="utf-8")
         caption = (root / "src" / "ag2c_gui" / "tray_caption_win32.py").read_text(encoding="utf-8")
         management = (root / "src" / "ag2c" / "management.py").read_text(encoding="utf-8")
         tasks = (root / "src" / "ag2c" / "tasks.py").read_text(encoding="utf-8")

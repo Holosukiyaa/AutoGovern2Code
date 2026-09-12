@@ -706,6 +706,49 @@ def configure_regulator(
     }
 
 
+def configure_proxy(
+    start: Path,
+    *,
+    actor: str,
+    reason: str,
+    auto_settle: bool | None = None,
+    auto_census: bool | None = None,
+    auto_warning: bool | None = None,
+) -> dict[str, Any]:
+    """Set L0 proxy flags without hand-editing policy.json. Does not auto-merge."""
+    actor, reason = actor.strip(), reason.strip()
+    if not actor or not reason:
+        raise AG2CError("governance proxy requires --actor and --reason")
+    if auto_settle is None and auto_census is None and auto_warning is None:
+        raise AG2CError("nothing to change; pass --auto-settle, --auto-census, or --auto-warning")
+    root = repository_root(start)
+    manifest = load_manifest(discover_manifest(root), project_root=root)
+    raw = _read_json(manifest.policy_path)
+    current = raw.get("proxy")
+    target = dict(current) if isinstance(current, dict) else {}
+    changes: dict[str, Any] = {}
+    for key, value in (("auto_settle", auto_settle), ("auto_census", auto_census), ("auto_warning", auto_warning)):
+        if value is not None:
+            target[key] = value
+            changes[key] = value
+    raw["proxy"] = target
+    before = manifest.policy_path.read_text(encoding="utf-8")
+    _atomic_json(manifest.policy_path, raw)
+    try:
+        policy = load_policy(manifest)
+    except ConfigurationError as exc:
+        manifest.policy_path.write_text(before, encoding="utf-8")
+        raise AG2CError(f"updated policy is invalid (rolled back): {exc}") from exc
+    build_index(manifest, policy, index_path(manifest))
+    event = append_event(
+        manifest.ledger_path,
+        "governance-applied",
+        {"action": "update", "kind": "proxy", "id": "proxy", "changes": changes, "actor": actor, "reason": reason},
+    )
+    pending_updates(root)
+    return {"action": "update", "kind": "proxy", "changes": changes, "actor": actor, "reason": reason, "ledger_event_digest": event["event_digest"]}
+
+
 def record_pending_from_task(canonical: Path, changed_paths: list[str]) -> dict[str, Any]:
     return pending_updates(canonical, changed_paths)
 

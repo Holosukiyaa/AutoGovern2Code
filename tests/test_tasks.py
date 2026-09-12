@@ -67,6 +67,18 @@ class ProxyL0Tests(unittest.TestCase):
             tf.apply_finish_proxy(Path("."), M, P(proxy={"auto_warning": True}), {"items": []}); tf.apply_finish_proxy(Path("."), None, P(proxy={"auto_warning": False}), {"items": []}); tf.apply_finish_proxy(Path("."), None, P(), {"items": []})
         self.assertEqual((["k1"], ["warning"]), (claimed, wrules))
 
+    def test_configure_proxy(self) -> None:
+        from ag2c.errors import AG2CError
+        from ag2c.govern import configure_proxy
+        with tempfile.TemporaryDirectory() as tmp:
+            root = git_project(Path(tmp) / "proj"); write_project(root)
+            with self.assertRaises(AG2CError): configure_proxy(root, actor="a", reason="r")
+            with self.assertRaises(AG2CError): configure_proxy(root, actor="", reason="r", auto_settle=True)
+            out = configure_proxy(root, actor="grok", reason="on", auto_settle=True, auto_census=True, auto_warning=True)
+            self.assertEqual({"auto_settle": True, "auto_census": True, "auto_warning": True}, out["changes"])
+            raw = json.loads((root / ".ag2c" / "policy.json").read_text(encoding="utf-8"))
+            self.assertTrue(raw["proxy"]["auto_settle"] and raw["proxy"]["auto_census"] and raw["proxy"]["auto_warning"])
+
 
 class TrustBaseTests(unittest.TestCase):
     def test_ceremony(self) -> None:

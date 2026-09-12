@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- L0 托管旗标可通过 `ag2c govern proxy --auto-settle/--auto-census/--auto-warning on|off --actor --reason` 写入 `policy.proxy`，不手改 JSON，不代理 merge。AG2C 自身已用该命令打开三旗标。Covered by `ProxyL0Tests.test_configure_proxy`。
+
 - 6.1 政策沙盘：`ag2c govern sandbox --scenario l2-to-l3` 只读重放账本，报告 AG2K L2→L3 分拣的 would_block / would_false_positive（careful = 有 task-completed 引用且无 verification-failed；naive 任意引用会误伤失败卡）。不写 policy、不追加账本。Covered by `SandboxTests`。
 
 - 5.1 可信基变更仪式：改 `GOVERNANCE_CODE_PATHS` 的任务 verify 前必须 `task declare --trust-base --why --risk --rollback --verify-how`（说明书写入 entry.trust_base）；finish 前必须 `task approve --trust-base --actor --reason`。`govern trust-anchor` 写 unsigned ledger+policy digest 快照到 `state/trust-anchor.json`；缺快照不挡 verify。不改 `GOVERNANCE_CODE_PATHS` 成员。Covered by `TrustBaseTests`。

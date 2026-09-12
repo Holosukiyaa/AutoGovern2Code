@@ -559,6 +559,17 @@ def main(argv: list[str] | None = None) -> int:
                 from .trust_base import write_trust_anchor
 
                 result = write_trust_anchor(Path.cwd(), actor=args.actor, reason=args.reason)
+            elif args.govern_command == "proxy":
+                from .govern import configure_proxy
+
+                result = configure_proxy(
+                    Path.cwd(),
+                    actor=args.actor,
+                    reason=args.reason,
+                    auto_settle={"on": True, "off": False}.get(args.auto_settle),
+                    auto_census={"on": True, "off": False}.get(args.auto_census),
+                    auto_warning={"on": True, "off": False}.get(args.auto_warning),
+                )
             elif args.govern_command == "regulator":
                 from .govern import configure_regulator
 

@@ -485,6 +485,9 @@ def build_parser() -> argparse.ArgumentParser:
     anchor_cmd.add_argument("--actor", required=True)
     anchor_cmd.add_argument("--reason", required=True)
     anchor_cmd.add_argument("--format", choices=("text", "json"), default="json")
+    sandbox_cmd = govern_commands.add_parser("sandbox", help="只读政策沙盘：重放候选规则，不写 policy、不追加账本")
+    sandbox_cmd.add_argument("--scenario", required=True, help="l2-to-l3：AG2K L2→L3 分拣标准")
+    sandbox_cmd.add_argument("--format", choices=("text", "json"), default="json")
 
     doctor = subparsers.add_parser("doctor", help="check configuration, activation, tools, index, and ledger")
     doctor.add_argument("--repair", action="store_true", help="restore the Skill, Git guard, activation, and index")

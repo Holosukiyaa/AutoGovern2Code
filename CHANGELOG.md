@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 6.1 政策沙盘：`ag2c govern sandbox --scenario l2-to-l3` 只读重放账本，报告 AG2K L2→L3 分拣的 would_block / would_false_positive（careful = 有 task-completed 引用且无 verification-failed；naive 任意引用会误伤失败卡）。不写 policy、不追加账本。Covered by `SandboxTests`。
+
 - 5.1 可信基变更仪式：改 `GOVERNANCE_CODE_PATHS` 的任务 verify 前必须 `task declare --trust-base --why --risk --rollback --verify-how`（说明书写入 entry.trust_base）；finish 前必须 `task approve --trust-base --actor --reason`。`govern trust-anchor` 写 unsigned ledger+policy digest 快照到 `state/trust-anchor.json`；缺快照不挡 verify。不改 `GOVERNANCE_CODE_PATHS` 成员。Covered by `TrustBaseTests`。
 
 - HANDOFF-2026-09-11 对齐当前 main：L0 三旗标默认关已落地；MCP-tree / warning-dismiss 账本顺序 / 入学摩擦项标完成；5.1、6.1、抽查回火、Phase 2 口径不变。

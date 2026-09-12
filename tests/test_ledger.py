@@ -30,3 +30,22 @@ class LedgerTests(unittest.TestCase):
             self.assertTrue(any("digest mismatch" in error for error in errors), errors)
             with self.assertRaisesRegex(LedgerError, "invalid ledger"):
                 ledger_summary(ledger)
+
+
+class SandboxTests(unittest.TestCase):
+    def test_l2_to_l3_replay(self) -> None:
+        from ag2c.errors import AG2CError
+        from ag2c.sandbox import sandbox_replay
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "ledger.jsonl"
+            empty = sandbox_replay(ledger, scenario="l2-to-l3")
+            self.assertEqual(([], [], "ag2c.sandbox.v1", "l2-to-l3"), (empty["would_block"], empty["would_false_positive"], empty["schema"], empty["scenario"]))
+            append_event(ledger, "task-completed", {"cards": ["knowledge.good"]})
+            append_event(ledger, "verification-failed", {"cards": ["knowledge.bad"]})
+            report = sandbox_replay(ledger, scenario="l2-to-l3")
+            self.assertEqual(["knowledge.bad"], report["would_block"])
+            self.assertEqual(["knowledge.bad"], report["would_false_positive"])
+            self.assertEqual(["knowledge.good"], report["eligible"])
+            self.assertTrue(report["read_only"])
+            with self.assertRaises(AG2CError):
+                sandbox_replay(ledger, scenario="nope")

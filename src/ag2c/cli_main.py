@@ -551,6 +551,10 @@ def main(argv: list[str] | None = None) -> int:
                 from .checks import dismiss_warning
 
                 result = dismiss_warning(manifest, args.key, actor=args.actor, reason=args.reason)
+            elif args.govern_command == "sandbox":
+                from .sandbox import run_sandbox
+
+                result = run_sandbox(Path.cwd(), scenario=args.scenario)
             elif args.govern_command == "trust-anchor":
                 from .trust_base import write_trust_anchor
 

@@ -25,10 +25,8 @@ from ag2c.households import census_report, design_summary_for_file
 
 
 def _enrollment_pack() -> Path:
-    stamp = Path(__file__).stat().st_mtime_ns
-    pack = Path(tempfile.gettempdir()) / f"ag2c-enroll-pack-{stamp}"
-    ready = pack / ".ready"
-    lock = Path(str(pack) + ".lock")
+    pack = Path(tempfile.gettempdir()) / f"ag2c-enroll-pack-{Path(__file__).stat().st_mtime_ns}"
+    ready, lock = pack / ".ready", Path(str(pack) + ".lock")
     while not ready.exists():
         try:
             lock.mkdir()
@@ -37,14 +35,12 @@ def _enrollment_pack() -> Path:
             continue
         try:
             if not ready.exists():
-                if pack.exists():
-                    shutil.rmtree(pack, True)
+                shutil.rmtree(pack, True) if pack.exists() else None
                 pack.mkdir(parents=True)
-                root = git_project(pack / "demo")
                 env = patch.dict(os.environ, {"AG2C_DATA_ROOT": str(pack / "ag2c-data")}, clear=False)
                 env.start()
                 try:
-                    enroll_project(root, skill_root=pack / "skills", harnesses=("agents",))
+                    enroll_project(git_project(pack / "demo"), skill_root=pack / "skills", harnesses=("agents",))
                 finally:
                     env.stop()
                 ready.write_text("ok", encoding="utf-8")
@@ -54,7 +50,6 @@ def _enrollment_pack() -> Path:
             except OSError:
                 pass
     return pack
-
 
 class EnrollmentFixture:
     def __init__(self, base: Path) -> None:
@@ -82,7 +77,6 @@ class EnrollmentFixture:
     def stop(self) -> None:
         self._env.stop()
 
-
 @contextmanager
 def enrolled_demo():
     with tempfile.TemporaryDirectory() as directory:
@@ -92,9 +86,7 @@ def enrolled_demo():
         finally:
             fx.stop()
 
-
 class FirstDrillTests(unittest.TestCase):
-    """新手首演：enroll 后主动提议消防演习——先见价值，再付税。"""
 
     def _enrolled(self, directory: str):
         root = git_project(Path(directory) / "demo")
@@ -113,17 +105,14 @@ class FirstDrillTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root, _ = self._enrolled(directory)
             status = activation_status(root)
-            self.assertIsNotNone(status.get("first_drill"))  # 未建队：有提示
+            self.assertIsNotNone(status.get("first_drill"))
             self.assertEqual("first-drill", status["first_drill"]["action"])
-            # 提示是 onboarding 引导，不是故障
             self.assertFalse(any("drill" in issue or "演习" in issue for issue in status["issues"]))
-
             from ag2c.ledger import append_event
-
             manifest = load_manifest(discover_manifest(root), project_root=root)
             append_event(manifest.ledger_path, "canary", {"mode": "gate", "canary": "passed"})
             status = activation_status(root)
-            self.assertIsNone(status.get("first_drill"))  # 建队后：提示消失
+            self.assertIsNone(status.get("first_drill"))
 
 
 class EnrollmentTests(unittest.TestCase):
@@ -144,6 +133,20 @@ class EnrollmentTests(unittest.TestCase):
             self.assertTrue((Path(result["store"]) / "manifest.json").is_file())
             self.assertTrue(status_entries(root))
             self.assertTrue(str(git(root, "config", "--get", "ag2c.manifest")).strip())
+            self.assertNotIn("git_identity", result)
+
+    def test_enroll_hints_when_git_identity_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = git_project(Path(directory) / "demo")
+            git(root, "config", "--local", "--unset-all", "user.name", check=False)
+            git(root, "config", "--local", "--unset-all", "user.email", check=False)
+            blank = Path(directory) / "blank-home"; blank.mkdir()
+            env = {"HOME": str(blank), "USERPROFILE": str(blank), "GIT_CONFIG_GLOBAL": str(blank / "g"), "GIT_CONFIG_SYSTEM": str(blank / "s"), "AG2C_DATA_ROOT": str(Path(directory) / "ag2c-data")}
+            with patch.dict(os.environ, env, clear=False):
+                result = enroll_project(root, skill_root=Path(directory) / "skills", harnesses=("agents",))
+            self.assertEqual(("demo", "set-git-identity"), (result["project_id"], result["git_identity"]["action"]))
+            self.assertIn("user.name", result["git_identity"]["missing"])
+            self.assertFalse(str(git(root, "config", "--local", "--get", "user.name", check=False)).strip())
 
     def test_activate_wraps_every_previous_git_hook(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

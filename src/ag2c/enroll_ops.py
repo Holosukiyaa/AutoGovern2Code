@@ -219,7 +219,7 @@ def enroll_project(
         if store.is_dir():
             shutil.rmtree(store)
         raise
-    return {
+    payload = {
         "project_id": project_id,
         "root": str(root),
         "project_key": registration["key"],
@@ -231,6 +231,25 @@ def enroll_project(
         "recovery": recovery,
         "next_step": _first_drill_step(),
     }
+    hint = _git_identity_hint(root)
+    if hint:
+        payload["git_identity"] = hint
+    return payload
+
+
+def _git_identity_hint(root: Path) -> dict[str, Any] | None:
+    name = str(git(root, "config", "--get", "user.name", check=False) or "").strip()
+    email = str(git(root, "config", "--get", "user.email", check=False) or "").strip()
+    if name and email:
+        return None
+    missing = [key for key, value in (("user.name", name), ("user.email", email)) if not value]
+    return {
+        "action": "set-git-identity",
+        "missing": missing,
+        "command": 'git config user.name "<name>"; git config user.email "<email>"',
+        "why": "task finish commits locally; Git refuses commits without user.name and user.email",
+    }
+
 
 def _externalize_project(
     root: Path,

@@ -8,38 +8,17 @@ from pathlib import Path
 # 冒烟集门槛：单模块实测 <=2.5s（2026-09-10 实测，见 t50 账本）。更重的模块
 # 下沉到 tasks / governance 房间套件——src/ag2c 或 tests 变动时照跑，不丢覆盖。
 FAST = [
-    "test_attention_gate",
-    "test_auto_drill",
-    "test_token",
-    "test_util",
-    "test_audit",
-    "test_budget_dupe",
-    "test_cli",
-    "test_config",
-    "test_dep_hint",
-    "test_fixture_fidelity",
-    "test_floor_ladder",
-    "test_govern_pending",
-    "test_graph",
-    "test_green_shadow",
-    "test_harnesses",
-    "test_index",
-    "test_ledger",
-    "test_notify",
-    "test_patrol",
-    "test_slicer",
-    "test_suites",
+    "test_attention_gate", "test_auto_drill", "test_token", "test_util", "test_audit",
+    "test_budget_dupe", "test_cli", "test_config", "test_dep_hint", "test_fixture_fidelity",
+    "test_floor_ladder", "test_govern_pending", "test_graph", "test_green_shadow", "test_harnesses",
+    "test_index", "test_ledger", "test_notify", "test_patrol", "test_slicer", "test_suites",
 ]
 
 #: 任务生命周期门禁：从 fast 下沉的重模块（test_tasks 56s / test_trunk_guard
 #: 12s / test_front_back 10s），绑定 src/ag2c 与 tests 房间。
 TASKS_SUITE = [
-    "test_tasks",
-    "test_trunk_guard",
-    "test_front_back",
-    "test_portrait_amend",
-    "test_scheduler",
-    "test_coordinates",
+    "test_tasks", "test_trunk_guard", "test_front_back",
+    "test_portrait_amend", "test_scheduler", "test_coordinates",
 ]
 
 #: 治理机制：从 fast 下沉的重模块（变异/监管/MCP/证据锚/日落/知识/预算），
@@ -48,19 +27,10 @@ TASKS_SUITE = [
 #: test_hazard 于 2026-09-11 下沉：4.4 的 git 夹具测试（GuardHeartbeat/
 #: UngovernedCommit）把模块养到实测 11.1s，超冒烟集门槛 4 倍。
 GOVERNANCE_SUITE = [
-    "test_mutation",
-    "test_mcp",
-    "test_review",
-    "test_anchors",
-    "test_sunset",
-    "test_knowledge",
-    "test_census_hardening",
-    "test_budgets",
-    "test_verify_costs",
-    "test_hazard",
+    "test_mutation", "test_mcp", "test_review", "test_anchors", "test_sunset",
+    "test_knowledge", "test_census_hardening", "test_budgets", "test_verify_costs", "test_hazard",
     # t59：文件粒度户口 + 删除门，实测 10.8s（git 夹具 + 普查），超冒烟集门槛下沉。
-    "test_file_grain",
-    "test_flatten",
+    "test_file_grain", "test_flatten",
 ]
 
 SUITES = {

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- tests 房间减重：`agf_enums_snapshot.json` 收成单行（测试只 `json.loads`，不比文本格式）；`suites.py` 套件名单保序挤行。不删 `def test_`、不 skip、不抬 15500。实测 15576→15494。
+
 - L1 具名代理规则：`ag2c govern proxy --rule-id --flag --grant --actor --reason` 写入 `policy.proxy.rules` 并落 `proxy-grant`；finish 的 `proxy-decision` 在匹配旗标时带 `rule_id`。无规则时 L0 行为不变。不代理 merge。Covered by `ProxyL0Tests.test_grant_proxy_rule`。
 
 - L0 托管旗标可通过 `ag2c govern proxy --auto-settle/--auto-census/--auto-warning on|off --actor --reason` 写入 `policy.proxy`，不手改 JSON，不代理 merge。AG2C 自身已用该命令打开三旗标。Covered by `ProxyL0Tests.test_configure_proxy`。

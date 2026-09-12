@@ -33,36 +33,36 @@ class FinishHintTests(unittest.TestCase):
     def test_pending_items_produce_settle_hint(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             manifest, policy = write_project(Path(directory))
-            pending = {"items": [{"kind": "stale-knowledge", "path": "knowledge.worker"}]}
-            hints = _finish_hints(manifest, policy, pending)
+            hints = _finish_hints(manifest, policy, {"items": [{"kind": "stale-knowledge", "path": "knowledge.worker"}]})
             self.assertTrue(any("govern settle" in hint for hint in hints), hints)
 
     def test_unreviewed_rooms_produce_census_hint(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             manifest, policy = write_project(Path(directory))
-            # No census records at all: every room reports freshness "never".
             hints = _finish_hints(manifest, policy, {"items": []})
             self.assertTrue(any("govern census --record" in hint for hint in hints), hints)
 
     def test_clean_project_produces_no_hints(self) -> None:
         from ag2c.model import Coverage, Policy
-
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "state").mkdir()
             manifest = _bare_manifest(root)
-            # No targets -> no households -> nothing stale; empty pending.
-            policy = Policy(
-                path=root / "policy.json",
-                cards=(),
-                relations=(),
-                contracts=(),
-                checkers=(),
-                coverage=Coverage(level="none", strategy="conservative", managed_by="project", areas=()),
-                household_required=False,
-            )
-            hints = _finish_hints(manifest, policy, {"items": []})
-            self.assertEqual([], hints)
+            policy = Policy(path=root / "policy.json", cards=(), relations=(), contracts=(), checkers=(), coverage=Coverage(level="none", strategy="conservative", managed_by="project", areas=()), household_required=False)
+            self.assertEqual([], _finish_hints(manifest, policy, {"items": []}))
+
+
+class ProxyL0Tests(unittest.TestCase):
+    def test_finish_proxy_order(self) -> None:
+        import ag2c.tasks; from ag2c import task_finish as tf  # noqa: F401
+        body = Path(tf.__file__).read_text(encoding="utf-8").partition("def finish_task")[2]
+        self.assertLess(body.find("pending = record_pending_from_task"), body.find("pending = apply_finish_proxy"))
+        P = lambda **k: type("P", (), k)(); pending = {"items": [{"kind": "x"}], "updated_at": "t"}; kinds: list[str] = []
+        with mock.patch("ag2c.govern.settle_pending", lambda *a, **k: {"pending": []}), mock.patch("ag2c.ledger.append_event", lambda path, kind, payload=None, **k: kinds.append(kind) or {"event_digest": "x"}):
+            on = tf.apply_finish_proxy(Path("."), type("M", (), {"ledger_path": Path("l")})(), P(proxy={"auto_settle": True}), pending)
+            off = tf.apply_finish_proxy(Path("."), None, P(proxy={"auto_settle": False}), pending); none = tf.apply_finish_proxy(Path("."), None, P(), pending)
+            empty = tf.apply_finish_proxy(Path("."), type("M", (), {"ledger_path": Path("l")})(), P(proxy={"auto_settle": True}), {"items": []})
+        self.assertEqual((["proxy-decision", "proxy-decision"], [], pending["items"], pending["items"], []), (kinds, on["items"], off["items"], none["items"], empty["items"]))
 
 
 class VerificationEvidenceTests(unittest.TestCase):

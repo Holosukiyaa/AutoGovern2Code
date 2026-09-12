@@ -129,6 +129,7 @@ class Policy:
     household_required: bool = False
     regulator: RegulatorConfig | None = None
     checker_parallelism: int = 1
+    proxy: dict | None = None
 
     def card(self, card_id: str) -> Card:
         return next(card for card in self.cards if card.card_id == card_id)

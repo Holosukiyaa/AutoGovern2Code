@@ -27,6 +27,27 @@ from .util import atomic_json_write, digest_file
 from .task_evidence import _matching_event, _verification_evidence_valid, _start_evidence_valid, _portrait_amendment_chain_valid
 from .tasks import _atomic_json, _auto_drill, _canonical_manifest, _changed_specs, _committed_delta, _load_task, _now, _record_intervention, _require_open_task, _sync_canonical_dirty_notification, _task_path, cost_self_report, describe_delivery, refresh_task, require_trunk, verify_task
 
+def _proxy_auto_settle(policy) -> bool:
+    blob = getattr(policy, "proxy", None) or {}
+    return isinstance(blob, dict) and blob.get("auto_settle") is True
+
+
+def _apply_proxy_l0(canonical: Path, manifest) -> dict[str, Any]:
+    from .govern import settle_pending
+    from .ledger import append_event
+
+    settled = settle_pending(canonical, actor="ag2c-proxy-l0", reason="L0 auto-settle after finish")
+    append_event(manifest.ledger_path, "proxy-decision", {"rule": "settle", "actor": "ag2c-proxy-l0"})
+    return settled
+
+
+def apply_finish_proxy(canonical: Path, manifest, policy, pending: dict[str, Any]) -> dict[str, Any]:
+    if not _proxy_auto_settle(policy):
+        return pending
+    remaining = _apply_proxy_l0(canonical, manifest)
+    return {**pending, "items": list(remaining["pending"] or [])}
+
+
 def _finish_hints(manifest, policy, pending: dict[str, Any]) -> list[str]:
     """Actionable closing chores after a merge: settle pending items, re-review stale rooms.
 
@@ -204,6 +225,7 @@ def finish_task(
     from .govern import record_pending_from_task
 
     pending = record_pending_from_task(canonical, list(task["verifications"][-1].get("changed_paths") or []))
+    pending = apply_finish_proxy(canonical, manifest, policy, pending)
     task["governance_pending"] = pending
     task["hints"] = _finish_hints(manifest, policy, pending)
     drill_notes = _auto_drill(canonical)

@@ -354,7 +354,14 @@ def load_policy(manifest: Manifest) -> Policy:
     checker_parallelism = raw.get("checker_parallelism", 1)
     if not isinstance(checker_parallelism, int) or isinstance(checker_parallelism, bool) or checker_parallelism < 1:
         raise ConfigurationError("checker_parallelism must be a positive integer")
-    return Policy(manifest.policy_path, tuple(cards), tuple(relations), tuple(contracts), tuple(checkers), coverage, household_required, regulator, checker_parallelism)
+    proxy_raw = raw.get("proxy")
+    if proxy_raw is None:
+        proxy = None
+    elif not isinstance(proxy_raw, dict):
+        raise ConfigurationError("policy.proxy must be an object")
+    else:
+        proxy = dict(proxy_raw)
+    return Policy(manifest.policy_path, tuple(cards), tuple(relations), tuple(contracts), tuple(checkers), coverage, household_required, regulator, checker_parallelism, proxy)
 
 
 def _regulator_config(value: Any) -> RegulatorConfig | None:

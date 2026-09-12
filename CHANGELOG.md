@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- L0 托管代理：`policy.proxy.auto_settle` 为 true 时，`finish_task` 在记录 pending 之后自动 settle 并写 `proxy-decision` 账本事件；缺省关闭。不代理 merge/delete/abandon。AG2C 自身 policy 不打开此开关。Covered by `ProxyL0Tests`。
+
 - enrollment/rehome 套件减重：`test_enrollment` household/span/apply 例复用会话入学 pack，不删用例；rehome 拒绝例跳过重复 activate。不抬 15500。
 
 - 拆分原语：`govern flatten-split --source --dest --name` 抽出顶层符号到同目录新模块，源文件门面再导出；`--dry-run` 不写盘。Covered by `test_flatten.py`。

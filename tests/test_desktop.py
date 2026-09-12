@@ -456,7 +456,8 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("if migrations:", ui)
         self.assertIn("status = project_list_item(root)", management)
         self.assertIn("_CENSUS_CACHE", households)
-        evidence_src = tasks[tasks.find("def evidence(") : tasks.find("def evidence(") + 1800]
+        report = (root / "src" / "ag2c" / "task_report.py").read_text(encoding="utf-8")
+        evidence_src = report[report.find("def evidence(") : report.find("def evidence(") + 1800]
         self.assertIn("if verify_local:", evidence_src)
         self.assertLess(evidence_src.find("if verify_local:"), evidence_src.find("census_report"))
         self.assertNotIn("已控制", ui)

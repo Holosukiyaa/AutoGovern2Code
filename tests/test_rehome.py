@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,7 +12,7 @@ import bootstrap  # noqa: F401
 from support import git_project
 
 from ag2c.config import discover_manifest, load_manifest
-from ag2c.enrollment import enroll_project
+from ag2c.enrollment import activate_project, enroll_project
 from ag2c.errors import AG2CError
 from ag2c.gitops import git
 from ag2c.govern import _read_json, apply_change
@@ -79,35 +81,52 @@ class RewriteTests(unittest.TestCase):
             self.assertEqual([], rewrite_module_imports(root, "src.pkg.a", "src.pkg.a"))
 
 
-class RehomeFixture:
-    def __init__(self, base: Path) -> None:
-        self.base = base
-        self.root = git_project(base / "demo")
-        self.data = base / "ag2c-data"
-        self._env = patch.dict(os.environ, {"AG2C_DATA_ROOT": str(self.data)}, clear=False)
-        self._env.start()
-        enroll_project(self.root, skill_root=base / "skills", harnesses=("agents",))
-        pkg = self.root / "src" / "pkg"
+def _rewrite_abs_paths(tree: Path, mapping: list[tuple[str, str]]) -> None:
+    """Retarget absolute enrollment paths after copying a process-local pack."""
+    for file in tree.rglob("*"):
+        if not file.is_file() or "__pycache__" in file.parts or file.suffix == ".pyc":
+            continue
+        try:
+            text = file.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        new = text
+        for old, dest in mapping:
+            if old in new:
+                new = new.replace(old, dest)
+            old_slash = old.replace("\\", "/")
+            dest_slash = dest.replace("\\", "/")
+            if old_slash != old and old_slash in new:
+                new = new.replace(old_slash, dest_slash)
+        if new != text:
+            file.write_text(new, encoding="utf-8")
+
+
+def _populate_rehome_pack(base: Path) -> None:
+    root = git_project(base / "demo")
+    data = base / "ag2c-data"
+    env = patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False)
+    env.start()
+    try:
+        enroll_project(root, skill_root=base / "skills", harnesses=("agents",))
+        pkg = root / "src" / "pkg"
         (pkg / "sub").mkdir(parents=True)
         (pkg / "__init__.py").write_text("", encoding="utf-8")
         (pkg / "sub" / "__init__.py").write_text("", encoding="utf-8")
         (pkg / "a.py").write_text("VALUE_A = 'alpha'\n", encoding="utf-8")
         (pkg / "b.py").write_text("from src.pkg.a import VALUE_A\n\nVALUE_B = VALUE_A + '-beta'\n", encoding="utf-8")
         (pkg / "sub" / "c.py").write_text("VALUE_C = 'gamma'\n", encoding="utf-8")
-        (self.root / "tests" / "test_pkg.py").write_text(
+        (root / "tests" / "test_pkg.py").write_text(
             "import unittest\nfrom src.pkg.b import VALUE_B\n\n"
             "class PkgTests(unittest.TestCase):\n"
             "    def test_chain(self):\n"
             "        self.assertEqual(VALUE_B, 'alpha-beta')\n",
             encoding="utf-8",
         )
-        git(self.root, "add", "--all")
-        # The enrolled guard hooks canonical commits; fixture setup bypasses it.
-        git(self.root, "commit", "--no-verify", "-m", "pkg fixture")
-        # Child household first: a named folder room is refused while a direct
-        # child directory stays unclaimed.
+        git(root, "add", "--all")
+        git(root, "commit", "--no-verify", "-m", "pkg fixture")
         register_household(
-            self.root,
+            root,
             card_id="knowledge.pkg-sub",
             title="pkg/sub",
             summary="pkg sub room",
@@ -123,7 +142,7 @@ class RehomeFixture:
             reason=REASON,
         )
         register_household(
-            self.root,
+            root,
             card_id="knowledge.pkg",
             title="pkg",
             summary="pkg room",
@@ -139,7 +158,7 @@ class RehomeFixture:
             reason=REASON,
         )
         apply_change(
-            self.root,
+            root,
             action="add",
             kind="card",
             card_id="knowledge.pkg-a",
@@ -150,7 +169,66 @@ class RehomeFixture:
             actor=ACTOR,
             reason=REASON,
         )
-        review_census(self.root, card_ids=["knowledge.pkg", "knowledge.pkg-sub"], all_cards=False, actor=ACTOR, reason=REASON)
+        review_census(root, card_ids=["knowledge.pkg", "knowledge.pkg-sub"], all_cards=False, actor=ACTOR, reason=REASON)
+    finally:
+        env.stop()
+
+
+def _rehome_pack() -> Path:
+    """One enrolled pack per pytest controller, shared by xdist workers."""
+    stamp = Path(__file__).stat().st_mtime_ns
+    pack = Path(tempfile.gettempdir()) / f"ag2c-rehome-pack-{stamp}"
+    ready = pack / ".ready"
+    lock = Path(str(pack) + ".lock")
+    while not ready.exists():
+        try:
+            lock.mkdir()
+        except FileExistsError:
+            import time
+
+            time.sleep(0.05)
+            continue
+        try:
+            if not ready.exists():
+                if pack.exists():
+                    shutil.rmtree(pack, True)
+                pack.mkdir(parents=True)
+                _populate_rehome_pack(pack)
+                ready.write_text("ok", encoding="utf-8")
+        finally:
+            try:
+                lock.rmdir()
+            except OSError:
+                pass
+    return pack
+
+
+class RehomeFixture:
+    def __init__(self, base: Path) -> None:
+        self.base = base
+        pack = _rehome_pack()
+        shutil.copytree(pack, base, dirs_exist_ok=True)
+        self.root = (base / "demo").resolve()
+        self.data = (base / "ag2c-data").resolve()
+        _rewrite_abs_paths(
+            base,
+            [
+                (str((pack / "demo").resolve()), str(self.root)),
+                (str((pack / "ag2c-data").resolve()), str(self.data)),
+            ],
+        )
+        self._env = patch.dict(os.environ, {"AG2C_DATA_ROOT": str(self.data)}, clear=False)
+        self._env.start()
+        manifests = [path for path in self.data.rglob("manifest.json") if path.is_file()]
+        if len(manifests) != 1:
+            raise RuntimeError(f"rehome pack copy expected one manifest, found {manifests}")
+        git(self.root, "config", "ag2c.manifest", str(manifests[0]))
+        payload = json.loads(manifests[0].read_text(encoding="utf-8"))
+        payload["project_root"] = str(self.root)
+        if "path" in payload:
+            payload["path"] = str(manifests[0])
+        manifests[0].write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        activate_project(self.root, skill_root=self.base / "skills", harnesses=("agents",))
 
     def stop(self) -> None:
         self._env.stop()

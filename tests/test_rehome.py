@@ -84,7 +84,7 @@ class RewriteTests(unittest.TestCase):
 def _rewrite_abs_paths(tree: Path, mapping: list[tuple[str, str]]) -> None:
     """Retarget absolute enrollment paths after copying a process-local pack."""
     for file in tree.rglob("*"):
-        if not file.is_file() or "__pycache__" in file.parts or file.suffix == ".pyc":
+        if not file.is_file() or "__pycache__" in file.parts or file.suffix in {".pyc", ".sqlite"}:
             continue
         try:
             text = file.read_text(encoding="utf-8")
@@ -204,7 +204,7 @@ def _rehome_pack() -> Path:
 
 
 class RehomeFixture:
-    def __init__(self, base: Path) -> None:
+    def __init__(self, base: Path, *, activate: bool = True) -> None:
         self.base = base
         pack = _rehome_pack()
         shutil.copytree(pack, base, dirs_exist_ok=True)
@@ -228,7 +228,8 @@ class RehomeFixture:
         if "path" in payload:
             payload["path"] = str(manifests[0])
         manifests[0].write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        activate_project(self.root, skill_root=self.base / "skills", harnesses=("agents",))
+        if activate:
+            activate_project(self.root, skill_root=self.base / "skills", harnesses=("agents",))
 
     def stop(self) -> None:
         self._env.stop()
@@ -307,7 +308,7 @@ class RehomePipelineTests(unittest.TestCase):
 
 class RehomeRefusalTests(unittest.TestCase):
     def _fixture(self, directory: str) -> RehomeFixture:
-        return RehomeFixture(Path(directory))
+        return RehomeFixture(Path(directory), activate=False)
 
     def test_refuses_non_python_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- enrollment/rehome 套件减重：`test_enrollment` household/span/apply 例复用会话入学 pack，不删用例；rehome 拒绝例跳过重复 activate。不抬 15500。
+
 - 拆分原语：`govern flatten-split --source --dest --name` 抽出顶层符号到同目录新模块，源文件门面再导出；`--dry-run` 不写盘。Covered by `test_flatten.py`。
 
 - tests 房间减重：去掉 `test_*.py` 末尾 `unittest.main()` 样板（套件仍走 `tests/suites.py`），不删用例、不抬 15500。

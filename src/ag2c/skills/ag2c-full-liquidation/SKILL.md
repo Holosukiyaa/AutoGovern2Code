@@ -1,6 +1,6 @@
 ---
 name: ag2c-full-liquidation
-version: 0.10.0
+version: 0.11.0
 description: Full liquidation (全量清算) of a governed project whose knowledge base and tree have drifted — wipe stale cards, re-census into proper rooms, author room cards then per-file cards for core rooms, write an evidence-backed audit document, and queue prioritized cleanup tasks. Use ONLY when the user explicitly asks for 全量清算 / full liquidation / 重建知识库. Never trigger proactively, never chain into it from ag2c-directory-census or ag2c-knowledge-authoring, and never start before the user has approved the assessment and every destructive decision.
 ---
 

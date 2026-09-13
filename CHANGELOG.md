@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.11.0 - 2026-09-13
+
 - 市长桌默认托管：首页只留看/否/授，不再切回「需要你处理」。否只列人必须点的（分叉、待合并、抽查、未授的过期/普查）；授了的机械项进看。状态栏一行，去掉 fps/窗耗时。Covered by `CustodyModelTests`。
 
 - GUI 全量缓存：项目详情加载时预计算每张卡/每个文件的 focus，点击只查表；状态栏 fps 与抽屉按钮分行，不再叠在右下角。Covered by `test_file_and_card_focus_are_bidirectional`。

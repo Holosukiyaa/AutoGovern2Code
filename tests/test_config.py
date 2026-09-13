@@ -8,10 +8,11 @@ import bootstrap
 
 from ag2c.acceptance import assess_verification_growth, coverage_view
 from ag2c.config import load_manifest, load_policy
-from ag2c.errors import ConfigurationError
+from ag2c.errors import AG2CError, ConfigurationError
+from ag2c.seed import assess_seed, sow
 from ag2c.util import path_matches
 
-from support import write_project
+from support import record_census, write_project
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -188,3 +189,161 @@ class VerificationGrowthTests(unittest.TestCase):
             self.assertEqual("room-bound-distinct", growth["reason"])
             self.assertIn("check.suite-worker", growth["room_bound_distinct"])
             self.assertEqual("sliced", coverage_view(policy)["verification_growth"])
+
+
+class SeedLifecycleTests(unittest.TestCase):
+    def test_blob_with_cards_is_mapped_not_a_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _manifest, policy = write_project(Path(directory))
+            status = assess_seed(policy)
+            self.assertEqual("mapped", status["phase"])
+            self.assertEqual("none", status["sower"])
+            self.assertFalse(status["trusted"])
+            self.assertEqual("structured", status["map_level"])
+
+    def test_no_product_tests_on_baseline_is_planted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, _ = write_project(root)
+            path = root / ".ag2c" / "policy.json"
+            value = json.loads(path.read_text(encoding="utf-8"))
+            coverage = value.setdefault("coverage", {"strategy": "conservative", "managed_by": "human", "areas": []})
+            coverage["level"] = "baseline"
+            diff = ["git", "diff", "--check"]
+            for checker in value["checkers"]:
+                checker["command"] = list(diff)
+            path.write_text(json.dumps(value), encoding="utf-8")
+            policy = load_policy(load_manifest(manifest.path))
+            status = assess_seed(policy)
+            self.assertEqual("planted", status["phase"])
+            self.assertFalse(status["trusted"])
+
+    def test_project_suites_py_is_foreign_and_untrusted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, _ = write_project(root, gated=True)
+            path = root / ".ag2c" / "policy.json"
+            value = json.loads(path.read_text(encoding="utf-8"))
+            value["checkers"].append(
+                {
+                    "id": "check.suite-api",
+                    "stage": "floor",
+                    "target": "app",
+                    "command": [sys.executable, "-B", "tests/suites.py", "api"],
+                    "cwd": ".",
+                    "timeout": 180,
+                }
+            )
+            for card in value["cards"]:
+                if card["id"] == "knowledge.worker":
+                    card["checkers"] = ["check.suite-api"]
+            path.write_text(json.dumps(value), encoding="utf-8")
+            policy = load_policy(load_manifest(manifest.path))
+            status = assess_seed(policy)
+            self.assertEqual("foreign", status["sower"])
+            self.assertFalse(status["trusted"])
+            self.assertIn(status["phase"], {"growing", "sliced"})
+
+    def test_ag2c_seed_run_checker_is_ag2c_sower(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, _ = write_project(root, gated=True)
+            path = root / ".ag2c" / "policy.json"
+            value = json.loads(path.read_text(encoding="utf-8"))
+            value["checkers"].append(
+                {
+                    "id": "check.suite-api",
+                    "stage": "floor",
+                    "target": "app",
+                    "command": ["python", "-B", "-m", "ag2c", "seed", "run", "--suite", "api"],
+                    "cwd": ".",
+                    "timeout": 180,
+                }
+            )
+            for card in value["cards"]:
+                if card["id"] == "knowledge.worker":
+                    card["checkers"] = ["check.suite-api"]
+            path.write_text(json.dumps(value), encoding="utf-8")
+            policy = load_policy(load_manifest(manifest.path))
+            status = assess_seed(policy)
+            self.assertEqual("ag2c", status["sower"])
+            self.assertEqual("sliced", status["phase"])
+            self.assertTrue(status["trusted"])
+
+    def test_host_src_ag2c_is_host_sower(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, policy = write_project(root)
+            (root / "src" / "ag2c").mkdir()
+            (root / "src" / "ag2c" / "__init__.py").write_text("", encoding="utf-8")
+            status = assess_seed(policy, project_root=root)
+            self.assertEqual("host", status["sower"])
+            self.assertFalse(status["trusted"])
+
+    def test_sow_refuses_host_and_does_not_write_suites_py(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root)
+            (root / "src" / "ag2c").mkdir()
+            (root / "src" / "ag2c" / "__init__.py").write_text("", encoding="utf-8")
+            record_census(root)
+            with self.assertRaisesRegex(AG2CError, "host organism is not sown"):
+                sow(root, actor="tester", reason="should refuse")
+            self.assertFalse((root / "tests" / "suites.py").exists())
+
+    def test_sow_creates_ag2c_seed_run_checker(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, _ = write_project(root, gated=True)
+            api = root / "scripts" / "tests" / "api"
+            api.mkdir(parents=True)
+            (api / "test_seeded.py").write_text(
+                "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n",
+                encoding="utf-8",
+            )
+            path = root / ".ag2c" / "policy.json"
+            value = json.loads(path.read_text(encoding="utf-8"))
+            value["cards"].append(
+                {
+                    "id": "floor.tests",
+                    "type": "floor",
+                    "title": "tests",
+                    "summary": "Owns tests.",
+                    "scopes": [{"target": "app", "include": ["scripts/tests/**"], "ownership": "primary"}],
+                    "checkers": ["check.floor"],
+                }
+            )
+            value["cards"].append(
+                {
+                    "id": "knowledge.scripts-tests-api",
+                    "type": "knowledge",
+                    "title": "API tests",
+                    "summary": "API tests.",
+                    "scopes": [{"target": "app", "include": ["scripts/tests/api/**"], "ownership": "reference"}],
+                    "checkers": [],
+                    "jurisdiction": {
+                        "capability": "api",
+                        "implementation": "tests.api",
+                        "status": "current",
+                        "entrypoints": [],
+                        "grain": "subtree",
+                        "meaning": "named",
+                        "contract": "none",
+                        "decider": "none",
+                        "span": "folder",
+                    },
+                }
+            )
+            path.write_text(json.dumps(value), encoding="utf-8")
+            record_census(root)
+            result = sow(root, actor="tester", reason="plant api suite")
+            self.assertFalse((root / "tests" / "suites.py").exists())
+            self.assertIn("check.suite-api", result["created"])
+            policy = load_policy(load_manifest(manifest.path))
+            status = assess_seed(policy, project_root=root)
+            self.assertEqual("ag2c", status["sower"])
+            commands = [checker.command for checker in policy.checkers if checker.checker_id == "check.suite-api"]
+            self.assertEqual(1, len(commands))
+            self.assertIn("seed", commands[0])
+            self.assertIn("run", commands[0])
+            self.assertIn("api", commands[0])

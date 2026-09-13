@@ -203,7 +203,7 @@ def evidence(
                 "cleanup": task.get("cleanup"),
             }
         )
-    coverage = coverage_view(policy)
+    coverage = coverage_view(policy, project_root=manifest.project_root)
     return {
         "project": manifest.project_id,
         "managed": status["managed"],

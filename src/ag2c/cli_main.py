@@ -653,17 +653,40 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"{result['action']} {result['id']}")
             return 0
         if args.command == "coverage":
-            value = coverage_view(policy)
+            value = coverage_view(policy, project_root=manifest.project_root)
             if args.format == "json":
                 print(_json(value))
             else:
-                print(f"Coverage level: {value['level']}")
+                seed = value.get("seed") or {}
+                print(f"Seed: {seed.get('phase')} / sower {seed.get('sower')} / trusted {'yes' if seed.get('trusted') else 'no'}")
+                print(f"Map: {value['level']}")
                 print(f"Verification growth: {value['verification_growth']}")
                 print(f"Detected areas: {value['area_count']}")
                 print(f"Trusted checks: {value['checker_count']}")
                 print(f"Public contracts: {value['contract_count']}")
                 print(f"Unknown entries: {value['strategy']} expansion")
             return 0
+        if args.command == "seed":
+            from .seed import assess_seed, format_seed_status, run_suite, sow
+
+            if args.seed_command == "status":
+                status = assess_seed(policy, project_root=manifest.project_root)
+                if args.format == "json":
+                    print(_json(status))
+                else:
+                    print(format_seed_status(status))
+                return 0
+            if args.seed_command == "sow":
+                result = sow(Path.cwd(), actor=args.actor, reason=args.reason)
+                if args.format == "text":
+                    print(format_seed_status(result["seed"]))
+                    print(f"Created: {', '.join(result['created']) or 'none'}")
+                else:
+                    print(_json(result))
+                return 0
+            if args.seed_command == "run":
+                return run_suite(manifest.project_root, args.suite)
+            raise AG2CError("unknown seed command")
         if args.command == "index":
             path = index_path(manifest)
             if args.index_command == "build":

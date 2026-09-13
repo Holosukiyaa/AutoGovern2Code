@@ -264,8 +264,19 @@ def build_parser() -> argparse.ArgumentParser:
     evidence.add_argument("--task")
     evidence.add_argument("--format", choices=("text", "json"), default="text")
 
-    coverage = subparsers.add_parser("coverage", help="show the current conservative governance coverage")
+    coverage = subparsers.add_parser("coverage", help="show seed lifecycle and the conservative coverage map")
     coverage.add_argument("--format", choices=("text", "json"), default="text")
+
+    seed = subparsers.add_parser("seed", help="AG2C-owned seeding: status, sow room suites, run a sown suite")
+    seed_commands = seed.add_subparsers(dest="seed_command", required=True)
+    seed_status = seed_commands.add_parser("status", help="observe seed phase, sower, and trusted")
+    seed_status.add_argument("--format", choices=("text", "json"), default="text")
+    seed_sow = seed_commands.add_parser("sow", help="plant room-suite checkers that run through ag2c seed run")
+    seed_sow.add_argument("--actor", required=True)
+    seed_sow.add_argument("--reason", required=True)
+    seed_sow.add_argument("--format", choices=("text", "json"), default="json")
+    seed_run = seed_commands.add_parser("run", help="run one discovered test group (scripts/tests/<name> or tests/<name>)")
+    seed_run.add_argument("--suite", required=True)
 
     ci = subparsers.add_parser("ci", help="verify local AG2C evidence and optionally rerun trusted checks")
     ci_commands = ci.add_subparsers(dest="ci_command", required=True)
@@ -660,13 +671,17 @@ def _print_evidence(report: dict[str, Any]) -> None:
     print(f"AutoGovern2Code evidence: {report['project']}")
     print(f"Governance: {'active' if report['managed'] else 'needs repair'}")
     print(f"Evidence chain: {'valid' if report['ledger_valid'] else 'invalid'}")
+    seed = coverage.get("seed") if isinstance(coverage.get("seed"), dict) else {}
+    if seed:
+        trusted = "yes" if seed.get("trusted") else "no"
+        print(f"Seed: {seed.get('phase')} / sower {seed.get('sower')} / trusted {trusted}")
+        if seed.get("summary"):
+            print(seed["summary"])
     print(
-        f"Coverage: {coverage['level']} / {coverage['area_count']} areas / "
+        f"Map: {coverage['level']} / {coverage['area_count']} areas / "
         f"{coverage['checker_count']} trusted checks / {coverage['strategy']} fallback / "
         f"verification {coverage.get('verification_growth') or 'unsplit'}"
     )
-    if coverage.get("verification_growth_summary"):
-        print(f"Verification growth: {coverage['verification_growth']} — {coverage['verification_growth_summary']}")
     if not report["tasks"]:
         print("No governed tasks have been recorded yet.")
         return

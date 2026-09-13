@@ -208,13 +208,19 @@ class OrientNextTests(unittest.TestCase):
                 "checker_count": 3,
                 "strategy": "conservative",
                 "verification_growth": "unsplit",
-                "verification_growth_summary": "card map may be structured; product tests are still one blob",
+                "seed": {
+                    "phase": "mapped",
+                    "sower": "none",
+                    "trusted": False,
+                    "summary": "rooms/cards exist; product tests are still one blob",
+                },
             },
             "tasks": [],
         }
         with redirect_stdout(output):
             _print_evidence(report)
         text = output.getvalue()
-        self.assertIn("Coverage: structured / 2 areas / 3 trusted checks / conservative fallback / verification unsplit", text)
-        self.assertIn("Verification growth: unsplit — card map may be structured; product tests are still one blob", text)
+        self.assertIn("Seed: mapped / sower none / trusted no", text)
+        self.assertIn("Map: structured / 2 areas / 3 trusted checks / conservative fallback / verification unsplit", text)
+        self.assertNotIn("Coverage: structured", text)
         self.assertIn("No governed tasks have been recorded yet.", text)

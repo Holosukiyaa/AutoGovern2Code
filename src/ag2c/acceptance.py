@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from .model import Checker, Policy
@@ -74,8 +75,11 @@ def assess_verification_growth(policy: Policy) -> dict[str, Any]:
     }
 
 
-def coverage_view(policy: Policy) -> dict[str, Any]:
+def coverage_view(policy: Policy, *, project_root: Path | None = None) -> dict[str, Any]:
+    from .seed import assess_seed
+
     growth = assess_verification_growth(policy)
+    seed = assess_seed(policy, project_root=project_root)
     return {
         "level": policy.coverage.level,
         "strategy": policy.coverage.strategy,
@@ -87,6 +91,7 @@ def coverage_view(policy: Policy) -> dict[str, Any]:
         "verification_growth": growth["status"],
         "verification_growth_summary": growth["summary"],
         "verification_growth_reason": growth["reason"],
+        "seed": seed,
     }
 
 

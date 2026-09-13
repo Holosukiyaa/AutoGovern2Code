@@ -36,12 +36,16 @@ New enrollment detects tracked top-level areas and native tests, writes a conser
 
 Legacy `.deg` and `.ag2c` projects are externalized transactionally. Existing evidence is archived in the project store, AG2C-managed instruction blocks are removed, and the tracked governance directories are deleted in one maintenance commit. Rollback restores files, staging, and hook configuration if the commit fails.
 
-## Coverage maturity
+## Coverage map vs seed lifecycle
+
+`policy.coverage.level` is only the **map**:
 
 - `baseline`: generated conservative ownership for detected project areas; unknown paths broaden routing and checks.
-- `structured`: maintainer-authored responsibilities, relationships, public contracts, and scenarios.
+- `structured`: rooms/cards exist. This is not a grown tree and is not trusted seeding.
 
-`ag2c upgrade` may refresh only a baseline marked `managed_by: ag2c`. It does not replace a maintainer-owned structured Policy.
+Public maturity is the **seed lifecycle** (`ag2c seed status`): `planted` → `mapped` → `growing` → `sliced`. `sower` is `none` | `ag2c` | `foreign` | `host`. `trusted` is true only when AG2C itself sowed (`ag2c seed run` checkers) and the phase is sliced. A per-project `tests/suites.py` is `foreign`. The AG2C host repo is `host` (grew in place, not sown).
+
+`ag2c upgrade` may refresh only a baseline marked `managed_by: ag2c`. It does not replace a maintainer-owned structured Policy. `ag2c seed sow` writes room-suite checkers into Policy; it does not write a suites.py into the project.
 
 ## Task state and correction evidence
 

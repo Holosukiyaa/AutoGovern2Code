@@ -388,15 +388,16 @@ class HeroBlockTests(unittest.TestCase):
 
 
 class CustodyModelTests(unittest.TestCase):
-    def test_empty_ungranted_granted(self) -> None:
+    def test_empty_desk_and_human_veto(self) -> None:
         empty = custody_model(None)
-        self.assertTrue(empty["empty"]); self.assertEqual("未托管", empty["headline"])
-        off = custody_model({"project": {"name": "p"}, "proxy": {}})
-        self.assertFalse(off["empty"]); self.assertFalse(off["granted"])
-        on = custody_model({"project": {"name": "p"}, "proxy": {"auto_settle": True, "recent": [{"rule": "settle"}]}, "audit": {"pending": [{"id": "a1", "question": "q"}]}})
-        self.assertEqual("托管中", on["headline"])
-        self.assertEqual(["settle"], [w["rule"] for w in on["watch"]])
-        self.assertEqual(["a1"], [v["id"] for v in on["veto"]]); self.assertIn("永不代理", on["irreversible"])
+        self.assertTrue(empty["empty"]); self.assertEqual("先选择一个项目", empty["headline"])
+        quiet = custody_model({"project": {"name": "p"}, "proxy": {"auto_settle": True}})
+        self.assertEqual("刚才没有要你点的", quiet["headline"]); self.assertFalse(quiet["veto"])
+        granted = custody_model({"project": {"name": "p"}, "proxy": {"auto_settle": True, "auto_census": True, "recent": [{"rule": "settle"}]}, "pending": {"items": [{"kind": "stale-knowledge", "title": "过期卡", "path": "k1"}, {"kind": "census-review-required", "title": "普查", "path": "room"}]}, "worktrees": [{"id": "t1", "state": "open", "worktree": {"lifecycle": "verified-unmerged"}}, {"id": "t2", "state": "open", "worktree": {"diverged": True}}]})
+        self.assertEqual(["settle"], [w["rule"] for w in granted["watch"]])
+        self.assertEqual(["merge", "diverged"], [v["kind"] for v in granted["veto"]]); self.assertIn("永不代理", granted["irreversible"])
+        held = custody_model({"project": {"name": "p"}, "proxy": {}, "pending": {"items": [{"kind": "stale-knowledge", "title": "过期卡", "path": "k1"}]}})
+        self.assertEqual(["stale-knowledge"], [v["kind"] for v in held["veto"]])
 
 
 class SectionPromptTests(unittest.TestCase):

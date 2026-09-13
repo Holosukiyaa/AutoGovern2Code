@@ -4,8 +4,7 @@ import os
 import time
 from pathlib import Path
 from typing import Any
-from .custody import apply_custody_clicks, custody_model, draw_custody, home_custody_open
-from .dashboard import dashboard_model, draw_dashboard
+from .custody import apply_custody_clicks, custody_model, draw_custody
 from .tray_host import FILTERS, PRODUCT_LABELS, WORKTREE_LIFE_LABELS, card_list_label, claim_label, files_for_card, inspect_fields, issue_label, mcp_entry_text, project_gate_rows, state_label, string_list, text
 from .imgui_tray import AppState, GATE_BUTTON_LABELS, _OPS_TABS, _SELECTED_ACTIVE_COLOR, _SELECTED_HOVER_COLOR, _TOAST_TTL_S, _TOAST_WIDTH, _WARN_COLOR, _activate_owner, _audit_log_path, _cached_all_rows, _cached_coverage, _cached_tree, _choose_project, _clip_label, _copy_mcp_entry, _focus_card, _focus_path, _load_details, _open_folder, _post, _refresh, _refresh_panel, _selectable, audit, node_key, widget_id
 
@@ -24,35 +23,11 @@ def _short_time(iso: str) -> str:
     return moment.astimezone().strftime("%m-%d %H:%M")
 
 def _gui_dashboard(state: AppState) -> None:
-    """模式一·首页：默认需要你处理；托管按钮切到看/否/授。"""
+    """市长桌：看 / 否 / 授。旧决策队列不再占首页。"""
     with state.lock:
         details = state.details
         guard = dict(state.guard)
-    if home_custody_open(state):
-        apply_custody_clicks(state, draw_custody(custody_model(details)))
-        return
-    model = dashboard_model(details, guard)
-    draw_dashboard(model)
-    _gui_audit_pending(state, model)
-
-def _gui_audit_pending(state: AppState, model: dict[str, Any]) -> None:
-    """随机抽查待办：条目只出现在这个用户侧界面；确认走桌面端，不经 MCP。"""
-    from imgui_bundle import imgui
-
-    audit_info = model.get("audit") if isinstance(model.get("audit"), dict) else {}
-    pending = audit_info.get("pending") or []
-    if not pending:
-        return
-    imgui.separator()
-    imgui.text_colored((1.0, 0.6, 0.2, 1.0), "随机抽查（人工核对后确认）")
-    for item in pending:
-        imgui.bullet_text(f"{text(item, 'id')} — {text(item, 'question')}")
-    if imgui.small_button("已抽查"):
-        with state.lock:
-            project = state.details.get("project") if isinstance(state.details, dict) else {}
-        audit(state, "已抽查", "首页", text(project, "root"))
-        state.run_job(lambda: _post(state, "api/project/audit-ack", text(project, "root")))
-        _refresh(state)
+    apply_custody_clicks(state, draw_custody(custody_model(details, guard)))
 
 def _gui_splash(state: AppState) -> None:
     """Full-window animated splash while loading; replaces per-pane progress bars."""
@@ -136,12 +111,6 @@ def _status_bar(state: AppState) -> None:
             audit(state, ("打开" if now else "关闭") + label, "状态栏", "")
         if index < len(drawer_labels) - 1:
             imgui.same_line()
-    io = imgui.get_io()
-    parts = [f"{key} {state.frame_ms[key]:.1f}" for key in ("首页", "文件树", "详情", "知识卡片", "DWM") if key in state.frame_ms]
-    meter = f"{float(getattr(io, 'framerate', 0.0) or 0.0):.0f} fps  {float(getattr(io, 'delta_time', 0.0) or 0.0) * 1000.0:.1f} ms"
-    if parts:
-        meter += "  ·  " + "  ".join(parts)
-    imgui.text_disabled(meter)
 
 def _gui_overlays(state: AppState) -> None:
     """Splash + toast notifications float above the dock layout."""

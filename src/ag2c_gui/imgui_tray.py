@@ -12,7 +12,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from .dashboard import dashboard_model, draw_dashboard
 from .tray_host import (
     FILTERS,
     PRODUCT_LABELS,
@@ -109,7 +108,7 @@ class AppState:
         self.toasts: list[dict[str, Any]] = []
         self._notified_ids: set[str] = set()
         self._notify_project_id = ""
-        self.custody_open = False
+
 
     def _live_dock_window(self, label: str) -> Any | None:
         """The C++-side DockableWindow, not the Python original.
@@ -795,5 +794,5 @@ def _open_folder(state: AppState, root: str) -> None:
     finally:
         state._dialog_lock = False
 
-from .imgui_panels import _gui_dashboard, _gui_audit_pending, _gui_splash, _status_bar, _gui_overlays, _gui_toasts, _audit_body, _gate_panel_content, _records_panel_content, _work_panel_content, _gui_ops, _gui_inspector, _gui_project_bar, _gui_gate_strip, _gui_tree, _gui_cards, _gui_inspect
+from .imgui_panels import _gui_dashboard, _gui_splash, _status_bar, _gui_overlays, _gui_toasts, _audit_body, _gate_panel_content, _records_panel_content, _work_panel_content, _gui_ops, _gui_inspector, _gui_project_bar, _gui_gate_strip, _gui_tree, _gui_cards, _gui_inspect
 from .imgui_runtime import main, _start_backend, _load_projects, _maybe_auto_refresh, _poll_digest, _poll_notifications, _add_project, _shutdown

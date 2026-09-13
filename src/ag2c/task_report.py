@@ -10,7 +10,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from .acceptance import assess_product
+from .acceptance import assess_product, coverage_view
 from .checks import PROCESS_CHECK_STATUSES, run_checks
 from .config import discover_manifest, load_manifest, load_policy
 from .enrollment import activation_status
@@ -203,15 +203,7 @@ def evidence(
                 "cleanup": task.get("cleanup"),
             }
         )
-    coverage = {
-        "level": policy.coverage.level,
-        "strategy": policy.coverage.strategy,
-        "managed_by": policy.coverage.managed_by,
-        "areas": list(policy.coverage.areas),
-        "area_count": len([card for card in policy.cards if card.card_type == "floor"]),
-        "checker_count": len(policy.checkers),
-        "contract_count": len(policy.contracts),
-    }
+    coverage = coverage_view(policy)
     return {
         "project": manifest.project_id,
         "managed": status["managed"],

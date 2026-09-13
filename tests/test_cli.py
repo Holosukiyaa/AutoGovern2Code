@@ -193,3 +193,28 @@ class OrientNextTests(unittest.TestCase):
         action = self._next("in-progress", has_changes=True)
         self.assertEqual("ag2c_task_verify", action["tool"])
         self.assertEqual("C:/worktrees/task-1", action["args"]["cwd"])
+
+    def test_evidence_coverage_line_names_verification_growth(self) -> None:
+        from ag2c.cli import _print_evidence
+
+        output = io.StringIO()
+        report = {
+            "project": "demo",
+            "managed": True,
+            "ledger_valid": True,
+            "coverage": {
+                "level": "structured",
+                "area_count": 2,
+                "checker_count": 3,
+                "strategy": "conservative",
+                "verification_growth": "unsplit",
+                "verification_growth_summary": "card map may be structured; product tests are still one blob",
+            },
+            "tasks": [],
+        }
+        with redirect_stdout(output):
+            _print_evidence(report)
+        text = output.getvalue()
+        self.assertIn("Coverage: structured / 2 areas / 3 trusted checks / conservative fallback / verification unsplit", text)
+        self.assertIn("Verification growth: unsplit — card map may be structured; product tests are still one blob", text)
+        self.assertIn("No governed tasks have been recorded yet.", text)

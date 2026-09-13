@@ -10,6 +10,7 @@ from .index import build_index, findings, index_path, summary, verify_freshness
 from .ledger import ledger_summary, verify_ledger
 from .knowledge import knowledge_status, sync_knowledge
 from .render import render_slice_markdown
+from .acceptance import coverage_view
 from .cli import _canary, _configure_stdio, _doctor, _json, _loaded, _print_evidence, _slice_from_args, _write_output, build_parser
 
 def main(argv: list[str] | None = None) -> int:
@@ -652,19 +653,12 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"{result['action']} {result['id']}")
             return 0
         if args.command == "coverage":
-            value = {
-                "level": policy.coverage.level,
-                "strategy": policy.coverage.strategy,
-                "managed_by": policy.coverage.managed_by,
-                "areas": list(policy.coverage.areas),
-                "area_count": len([card for card in policy.cards if card.card_type == "floor"]),
-                "checker_count": len(policy.checkers),
-                "contract_count": len(policy.contracts),
-            }
+            value = coverage_view(policy)
             if args.format == "json":
                 print(_json(value))
             else:
                 print(f"Coverage level: {value['level']}")
+                print(f"Verification growth: {value['verification_growth']}")
                 print(f"Detected areas: {value['area_count']}")
                 print(f"Trusted checks: {value['checker_count']}")
                 print(f"Public contracts: {value['contract_count']}")

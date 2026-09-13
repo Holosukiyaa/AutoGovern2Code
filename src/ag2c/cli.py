@@ -662,8 +662,11 @@ def _print_evidence(report: dict[str, Any]) -> None:
     print(f"Evidence chain: {'valid' if report['ledger_valid'] else 'invalid'}")
     print(
         f"Coverage: {coverage['level']} / {coverage['area_count']} areas / "
-        f"{coverage['checker_count']} trusted checks / {coverage['strategy']} fallback"
+        f"{coverage['checker_count']} trusted checks / {coverage['strategy']} fallback / "
+        f"verification {coverage.get('verification_growth') or 'unsplit'}"
     )
+    if coverage.get("verification_growth_summary"):
+        print(f"Verification growth: {coverage['verification_growth']} — {coverage['verification_growth_summary']}")
     if not report["tasks"]:
         print("No governed tasks have been recorded yet.")
         return

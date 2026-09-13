@@ -4,6 +4,7 @@ import os
 import time
 from pathlib import Path
 from typing import Any
+from .custody import apply_custody_clicks, custody_model, draw_custody, home_custody_open
 from .dashboard import dashboard_model, draw_dashboard
 from .tray_host import FILTERS, PRODUCT_LABELS, WORKTREE_LIFE_LABELS, card_list_label, claim_label, files_for_card, inspect_fields, issue_label, mcp_entry_text, project_gate_rows, state_label, string_list, text
 from .imgui_tray import AppState, GATE_BUTTON_LABELS, _OPS_TABS, _SELECTED_ACTIVE_COLOR, _SELECTED_HOVER_COLOR, _TOAST_TTL_S, _TOAST_WIDTH, _WARN_COLOR, _activate_owner, _audit_log_path, _cached_all_rows, _cached_coverage, _cached_tree, _choose_project, _clip_label, _copy_mcp_entry, _focus_card, _focus_path, _load_details, _open_folder, _post, _refresh, _refresh_panel, _selectable, audit, node_key, widget_id
@@ -23,10 +24,13 @@ def _short_time(iso: str) -> str:
     return moment.astimezone().strftime("%m-%d %H:%M")
 
 def _gui_dashboard(state: AppState) -> None:
-    """模式一·首页：当前任务 + 异常清单 + 健康度。装配在 dashboard.py（纯函数）。"""
+    """模式一·首页：默认需要你处理；托管按钮切到看/否/授。"""
     with state.lock:
         details = state.details
         guard = dict(state.guard)
+    if home_custody_open(state):
+        apply_custody_clicks(state, draw_custody(custody_model(details)))
+        return
     model = dashboard_model(details, guard)
     draw_dashboard(model)
     _gui_audit_pending(state, model)

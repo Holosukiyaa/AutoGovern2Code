@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 首页单独「托管」按钮：切到看/否/授，不是「需要你处理」，也不是停止治理。L0 三旗标只出现在授。Covered by `CustodyModelTests`。
+
 - tests 房间减重：`agf_enums_snapshot.json` 收成单行（测试只 `json.loads`，不比文本格式）；`suites.py` 套件名单保序挤行。不删 `def test_`、不 skip、不抬 15500。实测 15576→15494。
 
 - L1 具名代理规则：`ag2c govern proxy --rule-id --flag --grant --actor --reason` 写入 `policy.proxy.rules` 并落 `proxy-grant`；finish 的 `proxy-decision` 在匹配旗标时带 `rule_id`。无规则时 L0 行为不变。不代理 merge。Covered by `ProxyL0Tests.test_grant_proxy_rule`。

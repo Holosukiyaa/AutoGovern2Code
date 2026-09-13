@@ -108,6 +108,7 @@ class AppState:
         self.toasts: list[dict[str, Any]] = []
         self._notified_ids: set[str] = set()
         self._notify_project_id = ""
+        self.custody_open = False
 
     def _live_dock_window(self, label: str) -> Any | None:
         """The C++-side DockableWindow, not the Python original.

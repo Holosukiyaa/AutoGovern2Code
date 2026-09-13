@@ -11,6 +11,7 @@ from clipboard_guard import (
     ClipboardLock,
     require_clipboard,
 )
+from ag2c_gui.custody import custody_model
 from ag2c_gui.dashboard import (
     DANGER,
     DECISION,
@@ -384,6 +385,18 @@ class HeroBlockTests(unittest.TestCase):
 
     def test_hero_font_scale_is_significantly_larger(self):
         self.assertGreaterEqual(HERO_FONT_SCALE, 1.5)
+
+
+class CustodyModelTests(unittest.TestCase):
+    def test_empty_ungranted_granted(self) -> None:
+        empty = custody_model(None)
+        self.assertTrue(empty["empty"]); self.assertEqual("未托管", empty["headline"])
+        off = custody_model({"project": {"name": "p"}, "proxy": {}})
+        self.assertFalse(off["empty"]); self.assertFalse(off["granted"])
+        on = custody_model({"project": {"name": "p"}, "proxy": {"auto_settle": True, "recent": [{"rule": "settle"}]}, "audit": {"pending": [{"id": "a1", "question": "q"}]}})
+        self.assertEqual("托管中", on["headline"])
+        self.assertEqual(["settle"], [w["rule"] for w in on["watch"]])
+        self.assertEqual(["a1"], [v["id"] for v in on["veto"]]); self.assertIn("永不代理", on["irreversible"])
 
 
 class SectionPromptTests(unittest.TestCase):

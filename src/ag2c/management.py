@@ -367,6 +367,7 @@ def project_details(path: Path, *, refresh: bool = False) -> dict[str, Any]:
     _overlay_patrol_status(root, result)
     _overlay_hazard_status(root, result)
     _overlay_token_status(root, result)
+    _overlay_proxy_status(root, result)
     return result
 
 
@@ -451,6 +452,52 @@ def _overlay_audit_status(root: Path, result: dict[str, Any]) -> None:
     路径会触发生成——verify / run_checks 不读取、不展示抽查计划。"""
     _overlay_status(root, result, key="audit", produce=_audit_overlay,
                     fallback_factory=lambda: {"pending": [], "due": False, "days_since": None})
+
+
+def _proxy_overlay(manifest) -> dict[str, Any]:
+    policy = load_policy(manifest)
+    blob = getattr(policy, "proxy", None) or {}
+    if not isinstance(blob, dict):
+        blob = {}
+    recent: list[dict[str, str]] = []
+    try:
+        from .ledger import read_events
+
+        for event in reversed(read_events(manifest.ledger_path)):
+            if event.get("event_type") != "proxy-decision":
+                continue
+            payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+            recent.append({
+                "rule": str(payload.get("rule") or ""),
+                "occurred_at": str(event.get("occurred_at") or ""),
+            })
+            if len(recent) >= 12:
+                break
+    except Exception:
+        recent = []
+    return {
+        "auto_settle": blob.get("auto_settle") is True,
+        "auto_census": blob.get("auto_census") is True,
+        "auto_warning": blob.get("auto_warning") is True,
+        "rules": [item for item in (blob.get("rules") or []) if isinstance(item, dict)],
+        "recent": recent,
+    }
+
+
+def _overlay_proxy_status(root: Path, result: dict[str, Any]) -> None:
+    _overlay_status(
+        root,
+        result,
+        key="proxy",
+        produce=_proxy_overlay,
+        fallback_factory=lambda: {
+            "auto_settle": False,
+            "auto_census": False,
+            "auto_warning": False,
+            "rules": [],
+            "recent": [],
+        },
+    )
 
 
 def _compute_project_details(root: Path) -> dict[str, Any]:

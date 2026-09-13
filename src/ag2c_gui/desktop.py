@@ -181,6 +181,26 @@ class DesktopHandler(BaseHTTPRequestHandler):
                 manifest = load_manifest(discover_manifest(root), project_root=root)
                 self._json(HTTPStatus.OK, {"acknowledged": acknowledge(manifest, actor="tray")})
                 return
+            if path == "/api/project/proxy":
+                from ag2c.govern import configure_proxy
+
+                flag = body.get("flag")
+                if flag not in {"auto_settle", "auto_census", "auto_warning"}:
+                    raise AG2CError("flag must be auto_settle, auto_census, or auto_warning")
+                on = bool(body.get("on"))
+                reason = body.get("reason")
+                self._json(
+                    HTTPStatus.OK,
+                    configure_proxy(
+                        self._request_path(body),
+                        actor="tray",
+                        reason=str(reason).strip() if isinstance(reason, str) and reason.strip() else "mayor 授 from 托管",
+                        auto_settle=on if flag == "auto_settle" else None,
+                        auto_census=on if flag == "auto_census" else None,
+                        auto_warning=on if flag == "auto_warning" else None,
+                    ),
+                )
+                return
             if path == "/api/projects/remove":
                 self._json(HTTPStatus.OK, stop_managing(self._request_path(body)))
                 return

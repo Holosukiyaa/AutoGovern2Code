@@ -129,15 +129,12 @@ class EnrollmentTests(unittest.TestCase):
             dirty = status_entries(root)
             self.assertIn("src/value.py", dirty)
             self.assertIn("notes.txt", dirty)
-            result = enroll_project(root, skill_root=skills, harnesses=("agents",))
-            self.assertEqual("demo", result["project_id"])
-            self.assertFalse(result["working_tree_changed"])
-            self.assertTrue((Path(result["store"]) / "manifest.json").is_file())
-            self.assertTrue(status_entries(root))
-            self.assertTrue(str(git(root, "config", "--get", "ag2c.manifest")).strip())
-            self.assertNotIn("git_identity", result)
-            policy = json.loads((Path(result["store"]) / "policy.json").read_text(encoding="utf-8"))
-            self.assertEqual(("not-configured", False), (result["regulator"]["status"], "regulator" in policy))
+            with patch.dict(os.environ, {"DEEPSEEK_API_KEY": ""}, clear=False):
+                result = enroll_project(root, skill_root=skills, harnesses=("agents",))
+            store = Path(result["store"]); policy = json.loads((store / "policy.json").read_text(encoding="utf-8")); reg = policy["regulator"]
+            self.assertEqual(("demo", False, True, True, True, True), (result["project_id"], result["working_tree_changed"], store.joinpath("manifest.json").is_file(), bool(status_entries(root)), bool(str(git(root, "config", "--get", "ag2c.manifest")).strip()), "git_identity" not in result))
+            self.assertEqual(("configured", False, True, "https://api.deepseek.com/v1", "deepseek-v4-flash", "DEEPSEEK_API_KEY", True, False, False), (result["regulator"]["status"], result["regulator"]["finish_allowed"], reg["enabled"], reg["endpoint"], reg["model"], reg["api_key_env"], reg["strict"], "worker_model" in reg, "proxy" in policy))
+            self.assertNotIn("do not inherit", result["regulator"]["why"])
 
     def test_enroll_hints_when_git_identity_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

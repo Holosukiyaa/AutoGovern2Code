@@ -1,6 +1,7 @@
 """Extracted by flatten-split."""
 from __future__ import annotations
 import json
+import os
 import re
 import shutil
 import sys
@@ -195,6 +196,13 @@ def enroll_project(
         "relations": ingested["relations"],
         "contracts": ingested["contracts"],
         "checkers": checkers,
+        "regulator": {
+            "enabled": True,
+            "endpoint": "https://api.deepseek.com/v1",
+            "model": "deepseek-v4-flash",
+            "api_key_env": "DEEPSEEK_API_KEY",
+            "strict": True,
+        },
     }
     enrollment = {
         "schema": ENROLLMENT_SCHEMA,
@@ -244,10 +252,9 @@ def enroll_project(
         "recovery": recovery,
         "next_step": _first_drill_step(),
         "regulator": {
-            "status": "not-configured",
-            "finish_allowed": True,
-            "command": "ag2c govern regulator --enable on --endpoint <url> --model <model> --actor <you> --reason <why>",
-            "why": "new projects do not inherit AG2C's strict regulator; finish still works; configure explicitly for semantic review",
+            "status": "configured",
+            "finish_allowed": bool(os.environ.get("DEEPSEEK_API_KEY", "").strip()),
+            "why": "new projects inherit AG2C's strict DeepSeek regulator",
         },
     }
     hint = _git_identity_hint(root)

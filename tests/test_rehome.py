@@ -108,7 +108,9 @@ def _populate_rehome_pack(base: Path) -> None:
     env = patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False)
     env.start()
     try:
-        enroll_project(root, skill_root=base / "skills", harnesses=("agents",))
+        enrolled = enroll_project(root, skill_root=base / "skills", harnesses=("agents",))
+        policy_path = Path(enrolled["store"]) / "policy.json"
+        blob = json.loads(policy_path.read_text(encoding="utf-8")); blob["regulator"].update({"enabled": False, "strict": False}); policy_path.write_text(json.dumps(blob, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         pkg = root / "src" / "pkg"
         (pkg / "sub").mkdir(parents=True)
         (pkg / "__init__.py").write_text("", encoding="utf-8")

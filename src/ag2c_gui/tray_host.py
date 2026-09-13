@@ -740,4 +740,4 @@ def stop_desktop_server(api: DesktopApi | None, process) -> None:
             except Exception:
                 pass
 
-from .tray_inspect import inspect_fields, empty_inspect, inspect_file, inspect_card, _exact_file_card, focus_file, focus_card, coverage_rows, file_tree_children, coverage_scroll_key, project_gate_rows, file_owned_by_card, design_summary_for_file, _file_card_summary
+from .tray_inspect import inspect_fields, empty_inspect, inspect_file, inspect_card, _exact_file_card, focus_file, focus_card, build_row_cache, coverage_rows, file_tree_children, coverage_scroll_key, project_gate_rows, file_owned_by_card, design_summary_for_file, _file_card_summary

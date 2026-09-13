@@ -27,9 +27,9 @@ from .tray_host import (
     coverage_rows,
     empty_inspect,
     file_tree_children,
-    files_for_card,
     focus_card,
     focus_file,
+    build_row_cache,
     inspect_fields,
     preferred_project_root,
     is_portable,
@@ -92,6 +92,7 @@ class AppState:
         self.rows_from: object | None = None
         self.all_files: list[tuple[str, dict[str, Any]]] = []
         self.all_cards: list[dict[str, Any]] = []
+        self.row_cache: dict[str, Any] = {}
         self.card_file_counts: dict[str, int] = {}
         self.cov_key: tuple[int, str, str] | None = None
         self.cov_files: list[tuple[str, dict[str, Any]]] = []
@@ -605,29 +606,31 @@ def _all_rows(details: dict[str, Any] | None) -> tuple[list[tuple[str, dict[str,
     return files, cards
 
 
+def _apply_row_cache(state: AppState, details: dict[str, Any], files, cards, cache: dict[str, Any]) -> None:
+    cache["details"] = details
+    state.row_cache = cache
+    state.rows_from = details
+    state.all_files = files
+    state.all_cards = cards
+    state.card_file_counts = dict(cache.get("counts") or {})
+    state.cov_key = None
+    state.file_tree = None
+
+
 def _cached_all_rows(state: AppState, details: dict[str, Any] | None) -> tuple[list[tuple[str, dict[str, Any]]], list[dict[str, Any]]]:
     if details is None:
         state.rows_from = None
+        state.row_cache = {}
         return [], []
     if state.rows_from is details:
         return state.all_files, state.all_cards
     files, cards = _all_rows(details)
-    counts: dict[str, int] = {}
-    for card in cards:
-        key = node_key(card, text(card, "title"))
-        counts[key] = len(files_for_card(files, card))
-    state.rows_from = details
-    state.all_files = files
-    state.all_cards = cards
-    state.card_file_counts = counts
-    state.cov_key = None
-    state.file_tree = None
+    cache = state.row_cache if state.row_cache.get("details") is details else build_row_cache(files, cards)
+    _apply_row_cache(state, details, files, cards, cache)
     return files, cards
 
 
-def _cached_coverage(
-    state: AppState, details: dict[str, Any] | None, search: str, flag: str
-) -> tuple[list[tuple[str, dict[str, Any]]], list[dict[str, Any]]]:
+def _cached_coverage(state: AppState, details: dict[str, Any] | None, search: str, flag: str) -> tuple[list[tuple[str, dict[str, Any]]], list[dict[str, Any]]]:
     files, cards = _cached_all_rows(state, details)
     if not search and not flag:
         return files, cards
@@ -651,14 +654,10 @@ def _cached_tree(state: AppState, files: list[tuple[str, dict[str, Any]]]):
 
 
 def _focus_action(state: AppState, target: str, *, where: str, verb: str, miss: str, locate) -> None:
-    """点击聚焦共用控制流：audit → lock → locate → apply_focus / 未命中 audit。
-
-    合并自 _focus_path 与 _activate_owner 的双份拷贝（危房名单拆迁，
-    2026-09-10）；locate 接收 (files, cards) 返回焦点或 None。
-    """
+    """audit → lock → locate(files, cards) → apply_focus / 未命中。"""
     audit(state, verb, where, target)
     with state.lock:
-        files, cards = _all_rows(state.details)
+        files, cards = _cached_all_rows(state, state.details)
         focused = locate(files, cards)
         if focused is not None:
             state.apply_focus(focused)
@@ -668,13 +667,15 @@ def _focus_action(state: AppState, target: str, *, where: str, verb: str, miss: 
 
 def _focus_path(state: AppState, rel: str, *, where: str = "文件树") -> None:
     _focus_action(state, rel, where=where, verb="点击文件", miss="未命中文件",
-                  locate=lambda files, cards: focus_file(files, cards, rel))
+                  locate=lambda files, cards: (state.row_cache.get("file") or {}).get(rel) or focus_file(files, cards, rel))
 
 
 def _activate_owner(state: AppState, owner: str, *, where: str = "详情") -> None:
     def _locate(files, cards):
         card = card_for_owner(cards, owner)
-        return focus_card(files, card) if card is not None else None
+        if card is None:
+            return None
+        return (state.row_cache.get("card") or {}).get(row_key(card, text(card, "title"))) or focus_card(files, card)
 
     _focus_action(state, owner, where=where, verb="点击知识卡", miss="未命中知识卡", locate=_locate)
 
@@ -682,12 +683,14 @@ def _activate_owner(state: AppState, owner: str, *, where: str = "详情") -> No
 def _focus_card(state: AppState, card: dict[str, Any], *, where: str = "知识卡片") -> None:
     title = text(card, "title") or text(card, "id")
     audit(state, "点击知识卡", where, title)
+    key = row_key(card, title)
     with state.lock:
         previous_key = state.selected_card_key
-        files, _cards = _all_rows(state.details)
-        state.apply_focus(focus_card(files, card))
-        # Selecting a card summons the inspector drawer; a repeated click on the
-        # same card does not reopen it after the user closed it.
+        focused = (state.row_cache.get("card") or {}).get(key)
+        if focused is None:
+            files, _cards = _cached_all_rows(state, state.details)
+            focused = focus_card(files, card)
+        state.apply_focus(focused)
         if state.selected_card_key and state.selected_card_key != previous_key:
             state.set_dock_visible("检查器", True)
 
@@ -762,8 +765,11 @@ def _load_details(state: AppState, root: str, *, refresh: bool = False) -> None:
     if state.api is None:
         return
     payload = state.api.request("POST", "api/project/details", {"path": root, "refresh": refresh})
+    files, cards = _all_rows(payload)
+    cache = build_row_cache(files, cards)
     with state.lock:
         state.details = payload
+        _apply_row_cache(state, payload, files, cards, cache)
         state.error = ""
         state.clear_focus()
         graph = payload.get("graph") if isinstance(payload.get("graph"), dict) else {}

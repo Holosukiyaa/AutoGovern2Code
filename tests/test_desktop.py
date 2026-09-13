@@ -902,20 +902,16 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertEqual(set(), empty_focus["highlight_paths"])
         self.assertEqual("", empty_focus["scroll_file_key"])
         self.assertEqual("这张卡还没有落到文件树上的代码文件", empty_focus["inspect"]["message"])
-        self.assertEqual(
-            "prototypes/demo-free-layout",
-            coverage_scroll_key(
-                [
-                    ("prototypes/demo-free-layout/app.tsx", {}),
-                    ("prototypes/demo-free-layout/src/editor.tsx", {}),
-                    ("services/foo.ts", {}),
-                ],
-                {
-                    "prototypes/demo-free-layout/app.tsx",
-                    "prototypes/demo-free-layout/src/editor.tsx",
-                },
-            ),
-        )
+        from ag2c_gui.imgui_tray import AppState, _focus_card
+        from ag2c_gui.tray_inspect import build_row_cache
+        cache = build_row_cache(files, cards)
+        self.assertEqual({"card": {}, "file": {}, "counts": {}}, build_row_cache([], []))
+        self.assertEqual(from_card, cache["card"][card["id"]])
+        held = AppState([]); held.row_cache = cache
+        with patch("ag2c_gui.tray_inspect.files_for_card") as ff, patch("ag2c_gui.tray_inspect.coverage_rows") as cr:
+            _focus_card(held, card); ff.assert_not_called(); cr.assert_not_called()
+        self.assertEqual(from_card["selected_card_key"], held.selected_card_key)
+        self.assertEqual("prototypes/demo-free-layout", coverage_scroll_key([("prototypes/demo-free-layout/app.tsx", {}), ("prototypes/demo-free-layout/src/editor.tsx", {}), ("services/foo.ts", {})], {"prototypes/demo-free-layout/app.tsx", "prototypes/demo-free-layout/src/editor.tsx"}))
 
     def test_file_tree_click_uses_file_card_not_the_parent_room(self) -> None:
         from ag2c_gui.tray_host import focus_card, focus_file
@@ -1420,8 +1416,8 @@ class TrayGateTests(unittest.TestCase):
     def test_audit_overlay_is_not_a_dock_and_newest_is_reversed_in_gui_source(self) -> None:
         ui = _imgui_sources()
         self.assertIn("reversed(state.audit_lines)", ui)
-        self.assertIn('small_button("清空")', ui)
-        self.assertIn('small_button("打开日志文件")', ui)
+        self.assertIn('small_button("清空")', ui); self.assertIn('small_button("打开日志文件")', ui)
+        self.assertNotIn("avail_meter", ui)
         self.assertIn("还没有操作。点击文件或知识卡后会出现在这里。", ui)
         self.assertIn('audit(state, "点击目录", "文件树", prefix)', ui)
         windows_block = ui[ui.index("def _windows"): ui.index("def _gui_splash")]

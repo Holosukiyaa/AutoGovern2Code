@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- GUI 全量缓存：项目详情加载时预计算每张卡/每个文件的 focus，点击只查表；状态栏 fps 与抽屉按钮分行，不再叠在右下角。Covered by `test_file_and_card_focus_are_bidirectional`。
+
 - 首页单独「托管」按钮：切到看/否/授，不是「需要你处理」，也不是停止治理。L0 三旗标只出现在授。Covered by `CustodyModelTests`。
 
 - tests 房间减重：`agf_enums_snapshot.json` 收成单行（测试只 `json.loads`，不比文本格式）；`suites.py` 套件名单保序挤行。不删 `def test_`、不 skip、不抬 15500。实测 15576→15494。

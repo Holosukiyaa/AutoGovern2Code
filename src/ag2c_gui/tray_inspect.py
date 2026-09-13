@@ -295,6 +295,28 @@ def focus_card(
         "scroll_file_key": coverage_scroll_key(files, highlight),
     }
 
+
+def build_row_cache(
+    files: list[tuple[str, dict[str, Any]]],
+    cards: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Full click cache: inspect/focus for every card and file, built once off the GUI thread."""
+    by_card: dict[str, dict[str, Any]] = {}
+    counts: dict[str, int] = {}
+    for card in cards:
+        title = text(card, "title")
+        key = row_key(card, title)
+        focused = focus_card(files, card)
+        by_card[key] = focused
+        counts[key] = len(focused.get("highlight_paths") or [])
+    by_file: dict[str, dict[str, Any]] = {}
+    for path, _node in files:
+        focused = focus_file(files, cards, path)
+        if focused is not None:
+            by_file[path] = focused
+    return {"card": by_card, "file": by_file, "counts": counts}
+
+
 def coverage_rows(details: dict[str, Any] | None, query: str, flag: str) -> tuple[list[tuple[str, dict[str, Any]]], list[dict[str, Any]], str]:
     files: list[tuple[str, dict[str, Any]]] = []
     cards: list[dict[str, Any]] = []

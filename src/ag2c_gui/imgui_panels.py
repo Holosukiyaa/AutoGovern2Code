@@ -119,28 +119,11 @@ def _status_bar(state: AppState) -> None:
         spin = "|/-\\"[int(imgui.get_time() * 8) % 4]
         prefix = f"{spin} 扫描中 · "
     imgui.text(prefix + status)
-    io = imgui.get_io()
-    fps = float(getattr(io, "framerate", 0.0) or 0.0)
-    dt = float(getattr(io, "delta_time", 0.0) or 0.0) * 1000.0
-    parts = []
-    for key in ("首页", "文件树", "详情", "知识卡片", "DWM"):
-        ms = state.frame_ms.get(key)
-        if ms is not None:
-            parts.append(f"{key} {ms:.1f}")
-    meter = f"{fps:.0f} fps  {dt:.1f} ms"
-    if parts:
-        meter += "  ·  " + "  ".join(parts)
     drawer_labels = ("文件树", "检查器", "运维")
-    btn_w = sum(float(imgui.calc_text_size(label).x) + 18.0 for label in drawer_labels) + 8.0 * (len(drawer_labels) - 1)
-    meter_w = float(imgui.calc_text_size(meter).x)
+    btn_w = sum(float(imgui.calc_text_size(label).x) + 18.0 for label in drawer_labels) + 16.0
     width = float(imgui.get_window_width())
-    avail_meter = width - meter_w - 16.0
-    avail_btn = avail_meter - btn_w - 10.0
-    if avail_btn > float(imgui.get_cursor_pos_x()) + 24.0:
-        imgui.same_line(avail_btn)
-    else:
-        imgui.same_line()
-    for label in drawer_labels:
+    imgui.same_line(max(8.0, width - btn_w))
+    for index, label in enumerate(drawer_labels):
         visible = state.dock_visible(label)
         if visible:
             imgui.push_style_color(imgui.Col_.button, (0.28, 0.50, 0.78, 0.70))
@@ -151,11 +134,13 @@ def _status_bar(state: AppState) -> None:
         if clicked:
             now = state.toggle_dock(label)
             audit(state, ("打开" if now else "关闭") + label, "状态栏", "")
-        imgui.same_line()
-    if avail_meter > float(imgui.get_cursor_pos_x()) + 8.0:
-        imgui.same_line(avail_meter)
-    else:
-        imgui.same_line()
+        if index < len(drawer_labels) - 1:
+            imgui.same_line()
+    io = imgui.get_io()
+    parts = [f"{key} {state.frame_ms[key]:.1f}" for key in ("首页", "文件树", "详情", "知识卡片", "DWM") if key in state.frame_ms]
+    meter = f"{float(getattr(io, 'framerate', 0.0) or 0.0):.0f} fps  {float(getattr(io, 'delta_time', 0.0) or 0.0) * 1000.0:.1f} ms"
+    if parts:
+        meter += "  ·  " + "  ".join(parts)
     imgui.text_disabled(meter)
 
 def _gui_overlays(state: AppState) -> None:

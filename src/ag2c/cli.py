@@ -411,6 +411,8 @@ def build_parser() -> argparse.ArgumentParser:
     verify_budget.add_argument("--actor", default="")
     verify_budget.add_argument("--reason", default="")
     verify_budget.add_argument("--format", choices=("text", "json"), default="text")
+    verify_timing = govern_commands.add_parser("verify-timing", help="各检查脚本耗时：最低/最高/平均/方差，标出过长或不稳（只读）")
+    verify_timing.add_argument("--format", choices=("text", "json"), default="text")
     span = govern_commands.add_parser("span", help="set a directory room's coverage tag: 未打标, 整夹一张, or 一文件一张")
     span.add_argument("--id", required=True)
     span.add_argument("--tag", required=True, help="未打标 / 整夹一张 / 一文件一张")

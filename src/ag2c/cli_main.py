@@ -456,6 +456,18 @@ def main(argv: list[str] | None = None) -> int:
                     f"交付后修复 {fx['post_delivery_fixes']}"
                 )
                 return 0
+            elif args.govern_command == "verify-timing":
+                from .config import discover_manifest, load_manifest
+                from .verify_costs import checker_timing_report, format_timing_text
+
+                root = Path.cwd()
+                manifest = load_manifest(discover_manifest(root), project_root=root)
+                report = checker_timing_report(manifest)
+                if args.format == "json":
+                    print(_json(report))
+                    return 0
+                print(format_timing_text(report))
+                return 0
             elif args.govern_command == "verify-budget":
                 from .config import discover_manifest, load_manifest, load_policy
                 from .verify_costs import recalibrate_verify_budgets

@@ -18,8 +18,11 @@ from ag2c.verify_costs import (
     VERIFY_BUDGETS_SCHEMA,
     VERIFY_HEADROOM,
     checker_duration_history,
+    checker_timing_report,
+    duration_stats,
     effective_budget_seconds,
     effective_timeout_seconds,
+    format_timing_text,
     load_verify_budgets,
     measured_seconds,
     recalibrate_verify_budgets,
@@ -464,3 +467,39 @@ class FullScanDeclarationTests(unittest.TestCase):
 
         manifest = load_manifest(discover_manifest(root), project_root=root)
         return json.loads((manifest.state_dir / "tasks" / f"{task_id}.json").read_text(encoding="utf-8"))
+
+
+class TimingReportTests(unittest.TestCase):
+    def test_duration_stats_sample_variance(self) -> None:
+        stats = duration_stats([10.0, 12.0, 14.0])
+        self.assertEqual(3, stats["n"])
+        self.assertEqual(10.0, stats["min"])
+        self.assertEqual(14.0, stats["max"])
+        self.assertEqual(12.0, stats["mean"])
+        self.assertEqual(4.0, stats["variance"])
+        empty = duration_stats([])
+        self.assertEqual(0, empty["n"])
+        self.assertEqual(0.0, empty["variance"])
+
+    def test_report_flags_slow_and_unstable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = _manifest(Path(tmp))
+            _record_run(manifest, {"check.fast": 10.0, "check.other": 10.0, "check.slow": 100.0})
+            _record_run(manifest, {"check.fast": 10.0, "check.other": 10.0, "check.slow": 10.0})
+            _record_run(manifest, {"check.fast": 10.0, "check.other": 10.0, "check.slow": 100.0})
+            report = checker_timing_report(manifest)
+            by_id = {row["checker"]: row for row in report["checkers"]}
+            self.assertIn("过长", by_id["check.slow"]["flags"])
+            self.assertIn("不稳", by_id["check.slow"]["flags"])
+            self.assertEqual([], by_id["check.fast"]["flags"])
+            self.assertTrue(any(item["checker"] == "check.slow" for item in report["outliers"]))
+            text = format_timing_text(report)
+            self.assertIn("check.slow", text)
+            self.assertIn("异常", text)
+            self.assertIn("时长衡量效率", report["note"])
+
+    def test_empty_history_is_plain(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            report = checker_timing_report(_manifest(Path(tmp)))
+            self.assertEqual([], report["checkers"])
+            self.assertIn("没有耗时历史", format_timing_text(report))

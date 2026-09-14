@@ -95,6 +95,96 @@ def checker_duration_history(manifest: Manifest) -> dict[str, list[float]]:
     return history
 
 
+SLOW_MEAN_FACTOR = 2.0
+UNSTABLE_CV = 0.4
+
+
+def duration_stats(history: list[float]) -> dict[str, float | int]:
+    """Sample stats for one checker: n/min/max/mean/variance. Empty history is zeros."""
+    values = [float(item) for item in history if item > 0]
+    if not values:
+        return {"n": 0, "min": 0.0, "max": 0.0, "mean": 0.0, "variance": 0.0}
+    n = len(values)
+    mean = sum(values) / n
+    variance = 0.0
+    if n >= 2:
+        variance = sum((item - mean) ** 2 for item in values) / (n - 1)
+    return {
+        "n": n,
+        "min": min(values),
+        "max": max(values),
+        "mean": mean,
+        "variance": variance,
+    }
+
+
+def checker_timing_report(manifest: Manifest) -> dict[str, Any]:
+    """Read-only efficiency table from ledger history. Does not score assertion quality."""
+    history = checker_duration_history(manifest)
+    rows: list[dict[str, Any]] = []
+    for checker_id in sorted(history):
+        stats = duration_stats(history[checker_id])
+        if int(stats["n"]) <= 0:
+            continue
+        rows.append({"checker": checker_id, **stats, "flags": []})
+    means = [float(row["mean"]) for row in rows]
+    pack_mean = (sum(means) / len(means)) if means else 0.0
+    outliers: list[dict[str, str]] = []
+    for row in rows:
+        flags: list[str] = []
+        mean = float(row["mean"])
+        n = int(row["n"])
+        variance = float(row["variance"])
+        if pack_mean > 0 and mean >= pack_mean * SLOW_MEAN_FACTOR:
+            flags.append("过长")
+        stddev = math.sqrt(variance) if variance > 0 else 0.0
+        if n >= 3 and mean > 0 and (stddev / mean) >= UNSTABLE_CV:
+            flags.append("不稳")
+        row["flags"] = flags
+        if flags:
+            outliers.append(
+                {
+                    "checker": str(row["checker"]),
+                    "flags": ",".join(flags),
+                    "mean": f"{mean:.1f}",
+                    "detail": (
+                        f"均值 {mean:.1f}s，全体均值 {pack_mean:.1f}s，"
+                        f"变异系数 {(stddev / mean) if mean else 0:.2f}"
+                    ),
+                }
+            )
+    return {
+        "schema": "ag2c.verify-timing.v1",
+        "pack_mean": round(pack_mean, 3),
+        "note": "时长衡量效率与稳定，不衡量断言能不能抓住缺陷",
+        "checkers": rows,
+        "outliers": outliers,
+    }
+
+
+def format_timing_text(report: dict[str, Any]) -> str:
+    rows = report.get("checkers") or []
+    if not rows:
+        return "没有耗时历史（账本里还没有 check-run 记录）。"
+    lines = [
+        "检查脚本耗时（秒）：次数 / 最低 / 最高 / 平均 / 方差",
+        f"全体平均 {float(report.get('pack_mean') or 0):.1f}s。{report.get('note') or ''}",
+    ]
+    for row in rows:
+        flags = row.get("flags") or []
+        mark = f"  {' '.join(flags)}" if flags else ""
+        lines.append(
+            f"{row['checker']}: n={row['n']} min={row['min']:.1f} max={row['max']:.1f} "
+            f"mean={row['mean']:.1f} var={row['variance']:.2f}{mark}"
+        )
+    outliers = report.get("outliers") or []
+    if outliers:
+        lines.append("异常：")
+        for item in outliers:
+            lines.append(f"- {item['checker']}: {item['flags']}（{item['detail']}）")
+    return "\n".join(lines)
+
+
 def measured_seconds(history: list[float]) -> float:
     """实测基准：最近 HISTORY_WINDOW 次观察的最大值（噪声上界，防误报）。"""
     recent = [value for value in history if value > 0][-HISTORY_WINDOW:]

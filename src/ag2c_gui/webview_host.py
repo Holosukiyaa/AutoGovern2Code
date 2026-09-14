@@ -49,6 +49,13 @@ UI_INDEX_HTML = """<!DOCTYPE html>
 <section id="record"><h2>记录</h2><ul></ul></section>
 </main>
 <aside id="inspect"><h2>检查器</h2><p id="inspect-title">点文件树或知识卡</p><dl id="inspect-fields"></dl></aside>
+<footer id="ops">
+<button data-tab="audit">操作日志</button>
+<button data-tab="worktrees">施工</button>
+<button data-tab="records">实际记录</button>
+<button data-tab="gate">AI 入口</button>
+<pre id="ops-body"></pre>
+</footer>
 <script src="/ui/app.js"></script>
 </body>
 </html>
@@ -63,7 +70,8 @@ UI_LAYOUT_CSS = """:root {
   --fg: #ececec;
 }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 15px/1.45 sans-serif; }
-body { display: grid; grid-template: "bar bar bar" auto "tree home inspect" 1fr / 22% 1fr 28%; }
+body { display: grid; grid-template: "bar bar bar" auto "tree home inspect" 1fr "ops ops ops" minmax(8rem, 28%) / 22% 1fr 28%; }
+#ops { grid-area: ops; border-top: 1px solid #333; padding: 0.4rem 0.75rem; overflow: auto; }
 #bar { grid-area: bar; padding: 0.5rem 1rem; }
 #tree { grid-area: tree; overflow: auto; border-right: 1px solid #333; padding: 0.5rem; }
 #home { grid-area: home; overflow: auto; }
@@ -153,6 +161,9 @@ window.ag2cFetchDashboard = function () {
       if (typeof window.ag2cFetchTree === "function") {
         window.ag2cFetchTree();
       }
+      if (typeof window.ag2cFetchOps === "function") {
+        window.ag2cFetchOps("audit");
+      }
     })
     .catch(function (err) {
       window.__AG2C_DASHBOARD_ERROR = String(err);
@@ -210,6 +221,32 @@ window.ag2cFetchTree = function () {
       fillInspect(payload.inspect);
     });
 };
+window.ag2cFetchOps = function (tab) {
+  var body = document.getElementById("ops-body");
+  fetch("/api/project/ops", {
+    method: "POST",
+    headers: Object.assign({ "Content-Type": "application/json" }, headers()),
+    credentials: "omit",
+    body: JSON.stringify(Object.assign(projectBody(), { tab: tab || "audit" }))
+  })
+    .then(function (res) { return res.ok ? res.json() : {}; })
+    .then(function (payload) {
+      window.__AG2C_OPS = payload;
+      if (!body) return;
+      if (payload.tab === "audit") {
+        body.textContent = (payload.lines && payload.lines.length) ? payload.lines.slice().reverse().join("\\n") : "还没有操作。";
+      } else if (payload.tab === "gate") {
+        body.textContent = payload.prompt || "";
+      } else if (payload.tab === "records") {
+        body.textContent = JSON.stringify(payload.journal || [], null, 2);
+      } else if (payload.tab === "worktrees") {
+        body.textContent = JSON.stringify(payload.worktrees || [], null, 2);
+      }
+    });
+};
+document.querySelectorAll("#ops button").forEach(function (btn) {
+  btn.onclick = function () { window.ag2cFetchOps(btn.getAttribute("data-tab")); };
+});
 if (window.__AG2C_TOKEN) {
   window.ag2cFetchStatus();
   window.ag2cFetchDashboard();

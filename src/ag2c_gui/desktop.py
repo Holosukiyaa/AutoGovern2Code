@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import uuid
 from collections.abc import Callable
@@ -218,6 +219,54 @@ class DesktopHandler(BaseHTTPRequestHandler):
                         if rel.replace("\\", "/") == wanted:
                             payload = inspect_file(node, files, cards)
                             break
+                self._json(HTTPStatus.OK, payload)
+                return
+            if path == "/api/project/ops":
+                from .tray_host import mcp_entry_text, mcp_health_snapshot, text
+
+                tab = str(body.get("tab") or "audit")
+                payload: dict = {"tab": tab}
+                if tab == "audit":
+                    log = Path(os.environ.get("AG2C_AUDIT_LOG") or Path(os.environ.get("TEMP", ".") or ".") / "ag2c-audit.log")
+                    lines: list[str] = []
+                    if log.is_file():
+                        lines = [item.rstrip("\n") for item in log.read_text(encoding="utf-8", errors="replace").splitlines()[-200:]]
+                    payload["lines"] = lines
+                    self._json(HTTPStatus.OK, payload)
+                    return
+                details = None
+                project: dict = {}
+                if str(body.get("path") or "").strip():
+                    root = self._request_path(body)
+                    details = project_details(root, refresh=bool(body.get("refresh")))
+                    project = next((row for row in managed_projects() if text(row, "root") == str(root)), {}) or {}
+                if tab == "gate":
+                    health = mcp_health_snapshot(
+                        handshake=bool(body.get("handshake")),
+                        cwd=text(project, "root") or None,
+                        managed=bool(project.get("delivery_enforced")) if "delivery_enforced" in project else None,
+                    )
+                    payload["prompt"] = mcp_entry_text()
+                    payload["mcp_health"] = health
+                    payload["status"] = str(health.get("label") or "")
+                elif tab == "records":
+                    journal: list = []
+                    try:
+                        from ag2c.journal import list_journals
+
+                        if project:
+                            journal = [item for item in reversed(list_journals(Path(text(project, "root")))) if isinstance(item, dict)]
+                    except Exception:
+                        journal = []
+                    payload["journal"] = journal
+                    payload["completed_tasks"] = int(project.get("completed_tasks") or 0)
+                    payload["product"] = project.get("product")
+                elif tab == "worktrees":
+                    worktrees = [item for item in ((details or {}).get("worktrees") or []) if isinstance(item, dict)]
+                    payload["worktrees"] = worktrees
+                    payload["open_tasks"] = int(project.get("open_tasks") or 0)
+                else:
+                    raise AG2CError("tab must be audit, gate, records, or worktrees")
                 self._json(HTTPStatus.OK, payload)
                 return
             if path == "/api/project/digest":

@@ -53,7 +53,7 @@ class DesktopHandler(BaseHTTPRequestHandler):
     def _authorized(self) -> bool:
         return self.headers.get("X-AG2C-Token", "") == self.server.token
 
-    def _headers(self, status: int, content_type: str, length: int) -> None:
+    def _headers(self, status: int, content_type: str, length: int, *, csp: str | None = None) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(length))
@@ -61,7 +61,7 @@ class DesktopHandler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+        self.send_header("Content-Security-Policy", csp or "default-src 'none'; frame-ancestors 'none'")
         self.send_header("X-AG2C-Desktop", f"desktop/{__version__}")
         self.end_headers()
 
@@ -111,6 +111,14 @@ class DesktopHandler(BaseHTTPRequestHandler):
                     "capabilities": ["native-ui", "project-details", "knowledge-graph"],
                 },
             )
+            return
+        from .webview_host import UI_CSP, ui_page
+
+        page = ui_page(path)
+        if page is not None:
+            content_type, body = page
+            self._headers(HTTPStatus.OK, content_type, len(body), csp=UI_CSP)
+            self.wfile.write(body)
             return
         if not self._authorized():
             if path.startswith("/api/"):

@@ -10,6 +10,7 @@ This directory is the maintainer-facing doc set. If you only want to **use** AG2
 - [GOVERNANCE-PACK.md](GOVERNANCE-PACK.md) — **主指导：** 外挂治理包（卡片+checkers+检测脚本）与可选反向开发；GUI 不是主题。
 - [SELF-GOVERNANCE-FRICTION.md](SELF-GOVERNANCE-FRICTION.md) — 自管摩擦清单（预算锁、全量税、测试房绑全家等），可逐条消；不是外管大洞。
 - [PROXY-GOVERNANCE.md](PROXY-GOVERNANCE.md) — 代理人治理：从 25 分钟的脚本说起（梯子成本不变量、调度器六职责、授权矩阵四档、三层注意力与抽查校准）。
-- [GUI-RETIREMENT.md](GUI-RETIREMENT.md) — 次要：砍托盘驾驶舱、改走 MCP + 解惑 Skill（主线见 GOVERNANCE-PACK.md）。
+- [GUI-WEBVIEW2.md](GUI-WEBVIEW2.md) — 窗口皮肤：Hello ImGui → WebView2，保留首页/树/检查器/运维布局。
+- [GUI-RETIREMENT.md](GUI-RETIREMENT.md) — 次要：ImGui 退役；继任壳见 GUI-WEBVIEW2.md（主线见 GOVERNANCE-PACK.md）。
 
 Reading copies of the packaged agent skills no longer live in the repo; the source of truth is `src/ag2c/skills/`, served to MCP clients as instructions and `ag2c://skill/<name>` resources, and installed for other agents with `ag2c skill install`.

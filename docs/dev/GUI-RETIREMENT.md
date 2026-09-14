@@ -1,6 +1,6 @@
 # 治理解惑入口：砍托盘 GUI，改走 MCP + Skill
 
-> **次要。** 主指导是 [GOVERNANCE-PACK.md](GOVERNANCE-PACK.md)（治理包 + 反向开发）。本文只处理窗口皮肤；未完成治理包 P1/P2 前，不把砍 GUI 当主线。
+> **次要。** 主指导是 [GOVERNANCE-PACK.md](GOVERNANCE-PACK.md)。窗口继任方案是 [GUI-WEBVIEW2.md](GUI-WEBVIEW2.md)（砍 ImGui，换成 WebView2 真窗口，布局照搬）。本文其余「解惑走 MCP+Skill」仍有效；不要理解成「从此没有窗」。
 > 地位：实施前给市长看的 GUI 退役说明，**本文件落地不等于已经砍掉 GUI**。
 > 依据：市长代理之后驾驶舱可有可无；有问题走 Git；人问「现在怎样」由 MCP 供数、Skill 让 AI 画给人看。
 > 作者：grok，2026-09-14。未过市长点头前，不删 `src/ag2c_gui`。

@@ -104,7 +104,7 @@ AG2C 自己：立法（卡片+checkers）已在门外档案；`tests/` 留在仓
 
 1. **治理包形态：** `pack/exams/` 可放检测脚本，sow 绑 `pack/run_exam.py`；用户仓库测试夹仍用 unittest discover。卸包随 store 删除（本刀不改 uninstall 命令）。
 2. **sow 纠偏：** 原生命令与包内考卷均已落地。
-3. **flatten 对外模板：** 队列不得写死 `src/ag2c`；对工地里的用户源码排队。
+3. **flatten 对外模板：** `flatten-queue --under` 已对准任意目录；账单（搬家 vs 行为）尚未做人话输出。
 4. **账单：** 工地 vs 正本，用人话区分搬家 / 新考卷 / 行为改动。
 5. **真项目量一回效果**（治理包挂上、可选拆一刀、卸掉后产品仍跑）。
 

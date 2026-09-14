@@ -446,9 +446,10 @@ def build_parser() -> argparse.ArgumentParser:
     baseline_cmd.add_argument("--format", choices=("text", "json"), default="json")
     flatten_queue_cmd = govern_commands.add_parser(
         "flatten-queue",
-        help="反向开发队列：src/ag2c 文件按热度×肥胖度（行数×提交数）排序",
+        help="反向开发队列：按热度×肥胖度排序；默认 src/ag2c，--under 对准任意工地目录",
     )
     flatten_queue_cmd.add_argument("--format", choices=("text", "json"), default="json")
+    flatten_queue_cmd.add_argument("--under", default="", help="相对仓库根的目录，如 src/app；默认 src/ag2c")
     flatten_check_cmd = govern_commands.add_parser(
         "flatten-check",
         help="纯搬运门：stdin 统一 diff，新增非豁免行必须来自删除行",

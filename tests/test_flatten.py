@@ -95,3 +95,40 @@ class FlattenTests(unittest.TestCase):
             self.assertEqual(0, main(["govern", "flatten-split", "--source", "src/ag2c/mod.py", "--dest", "src/ag2c/unused.py", "--name", "keep", "--dry-run"]))
         payload = json.loads(out.getvalue())
         self.assertEqual(["keep"], payload["names"]); self.assertTrue(payload["dry_run"])
+
+    def test_queue_under_foreign_tree_without_src_ag2c(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = git_project(Path(directory) / "demo")
+            pkg = root / "src" / "app"
+            pkg.mkdir(parents=True)
+            (pkg / "thin.py").write_text("x = 1\n" * 10, encoding="utf-8")
+            (pkg / "fat.py").write_text("x = 1\n" * 900, encoding="utf-8")
+            _git(root, "add", "--all")
+            _git(root, "commit", "-m", "add")
+            (pkg / "fat.py").write_text("x = 1\n" * 900 + "# heat\n", encoding="utf-8")
+            _git(root, "add", "--all")
+            _git(root, "commit", "-m", "touch")
+            self.assertEqual([], flatten_queue(root))
+            self.assertEqual([], flatten_queue(root, under="src/missing"))
+            items = flatten_queue(root, under="src/app")
+            paths = [item["path"] for item in items]
+            self.assertLess(paths.index("src/app/fat.py"), paths.index("src/app/thin.py"))
+
+    def test_cli_flatten_queue_under(self) -> None:
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            self.assertEqual(0, main(["govern", "flatten-queue", "--under", "tests", "--format", "json"]))
+        payload = json.loads(buf.getvalue())
+        self.assertTrue(payload["items"])
+        self.assertTrue(all(str(item["path"]).startswith("tests/") for item in payload["items"]))
+        self.assertFalse(any(str(item["path"]).startswith("src/ag2c/") for item in payload["items"]))
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            self.assertEqual(0, main(["govern", "flatten-queue", "--under", "src/missing-nope", "--format", "json"]))
+        self.assertEqual([], json.loads(buf.getvalue())["items"])
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            self.assertEqual(0, main(["govern", "flatten-queue", "--format", "json"]))
+        default_items = json.loads(buf.getvalue())["items"]
+        self.assertTrue(default_items)
+        self.assertTrue(all(str(item["path"]).startswith("src/ag2c/") for item in default_items))

@@ -100,10 +100,23 @@ def _commit_count(root: Path, rel: str) -> int:
         return 0
 
 
-def flatten_queue(root: Path) -> list[dict[str, Any]]:
-    """src/ag2c Python files ranked by lines * git-commit-count."""
+def flatten_queue(root: Path, *, under: str | None = None) -> list[dict[str, Any]]:
+    """Python files under ``under`` ranked by lines * git-commit-count.
+
+    Default ``under`` is src/ag2c when that folder exists (AG2C-self). Pass a
+    relative directory to rank a foreign worktree.
+    """
     root = root.resolve()
-    base = root / SOFTCAP_ROOT
+    relative = (under or "").replace("\\", "/").strip().strip("/")
+    if relative in {".."} or relative.startswith("../"):
+        raise AG2CError("flatten-queue --under must be inside the repository")
+    if not relative:
+        relative = SOFTCAP_ROOT.as_posix()
+    base = (root / relative).resolve()
+    try:
+        base.relative_to(root)
+    except ValueError as exc:
+        raise AG2CError("flatten-queue --under must be inside the repository") from exc
     items: list[dict[str, Any]] = []
     if not base.is_dir():
         return items

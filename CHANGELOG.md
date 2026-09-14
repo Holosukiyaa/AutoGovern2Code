@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `govern flatten-queue --under <目录>` 可对任意工地排队；默认仍是 `src/ag2c`。Covered by `FlattenTests`.
+
 - 治理包考卷：`policy.json` 旁 `pack/exams/<组>/` 可放检测脚本；sow 写入 `pack/run_exam.py <组>`（不 `python -m ag2c`，不往用户 `tests/` 写文件）。仓库里已有测试夹仍用 unittest discover。Covered by `SeedLifecycleTests`。
 
 - `ag2c seed sow` 写入原生命令 `python -B -m unittest discover -s <夹> -p test_*.py`，不再写 `python -m ag2c seed run`。旧 seed-run 挂号单视为 foreign、不可信。不在项目里写 suites.py。Covered by `SeedLifecycleTests`。

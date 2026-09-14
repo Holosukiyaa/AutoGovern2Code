@@ -506,7 +506,7 @@ def main(argv: list[str] | None = None) -> int:
             elif args.govern_command == "flatten-queue":
                 from .flatten import FLATTEN_QUEUE_SCHEMA, flatten_queue
 
-                items = flatten_queue(Path.cwd())
+                items = flatten_queue(Path.cwd(), under=str(getattr(args, "under", "") or "") or None)
                 result = {"schema": FLATTEN_QUEUE_SCHEMA, "items": items}
                 if args.format == "text":
                     if not items:

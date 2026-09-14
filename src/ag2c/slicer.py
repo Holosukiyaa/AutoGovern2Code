@@ -216,11 +216,21 @@ def compile_slice(
     checker_reasons: dict[str, set[str]] = defaultdict(set)
     # Only direct-hit rooms contribute checkers. A scenario checker that lives
     # only on a context card stays not-in-slice; bind it on the room that changes.
+    from .suite_bind import is_tests_tree_card, suite_checker_ids_for_paths
+
+    artifact_paths = [str(item.get("path") or "") for item in artifacts]
+    mapped_suites = suite_checker_ids_for_paths(artifact_paths)
     for card_id in reasons:
         if card_id not in direct_ids:
             continue
-        for checker_id in policy.card(card_id).checkers:
+        card = policy.card(card_id)
+        tests_only = is_tests_tree_card(card)
+        for checker_id in card.checkers:
+            if tests_only and str(checker_id).startswith("check.suite-") and checker_id not in mapped_suites:
+                continue
             checker_reasons[checker_id].add(f"selected-card:{card_id}")
+    for checker_id in mapped_suites:
+        checker_reasons[checker_id].add("test-module-suite")
     for checker in policy.checkers:
         if checker.always:
             checker_reasons[checker.checker_id].add("always")

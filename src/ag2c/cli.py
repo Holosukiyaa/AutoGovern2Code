@@ -84,7 +84,7 @@ def _add_slice_arguments(parser: argparse.ArgumentParser, *, goal_required: bool
         required=goal_required,
         help="advisory task description; never selects ownership by itself",
     )
-    parser.add_argument("--all", action="store_true", help="select all policy areas and checkers")
+    parser.add_argument("--all", action="store_true", help="removed: full-suite switch is closed; slice by changed files")
 
 
 def _add_harness_arguments(parser: argparse.ArgumentParser) -> None:
@@ -212,7 +212,7 @@ def build_parser() -> argparse.ArgumentParser:
         "declare", help="中途申报：默认前后台同改（巴林条款）；--full-scan 全量验收；--trust-base 可信基说明书"
     )
     task_declare.add_argument("--reason", required=True)
-    task_declare.add_argument("--full-scan", action="store_true", help="申报全量验收：governance 变化触发全量时需先申报（申请预算语义），申报落账本")
+    task_declare.add_argument("--full-scan", action="store_true", help="removed: full-suite switch is closed")
     task_declare.add_argument("--trust-base", action="store_true", help="5.1 可信基变更说明书：改 GOVERNANCE_CODE_PATHS 时 verify 前必报")
     task_declare.add_argument("--why", default="")
     task_declare.add_argument("--risk", default="")

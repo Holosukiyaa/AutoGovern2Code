@@ -411,8 +411,7 @@ class FullScanDeclarationTests(unittest.TestCase):
         raw["checkers"][0]["timeout"] = 301
         manifest.policy_path.write_text(json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-    def test_verify_refuses_undeclared_full_scan(self) -> None:
-        from ag2c.errors import AG2CError
+    def test_verify_slices_after_policy_change_without_full_scan(self) -> None:
         from ag2c.tasks import verify_task
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -421,29 +420,27 @@ class FullScanDeclarationTests(unittest.TestCase):
             worktree = Path(task["worktree"]["path"])
             self._touch_and_census(root, worktree)
             self._mutate_policy(root)
-            with self.assertRaisesRegex(AG2CError, "declare --full-scan"):
-                verify_task(worktree)
+            report = verify_task(worktree)
+            self.assertTrue(report["passed"])
             kinds = [item["kind"] for item in self._record(root, task["id"])["interventions"]]
             self.assertIn("governance-changed", kinds)
+            self.assertNotIn("full-scan-declared", kinds)
 
-    def test_declared_full_scan_lets_verify_pass(self) -> None:
-        from ag2c.tasks import declare_full_scan, verify_task
+    def test_declare_full_scan_is_closed(self) -> None:
+        from ag2c.errors import AG2CError
+        from ag2c.suite_bind import FULL_SUITE_SWITCH_CLOSED
+        from ag2c.tasks import declare_full_scan
 
         with tempfile.TemporaryDirectory() as tmp:
             root = self._project(Path(tmp))
             task = self._start(root)
-            worktree = Path(task["worktree"]["path"])
-            self._touch_and_census(root, worktree)
-            self._mutate_policy(root)
-            result = declare_full_scan(worktree, reason="policy 变了，本次必须全量")
-            self.assertTrue(result["full_scan"]["declared"])
-            report = verify_task(worktree)
-            self.assertTrue(report["passed"])
-            kinds = [item["kind"] for item in self._record(root, task["id"])["interventions"]]
-            self.assertIn("full-scan-declared", kinds)
+            with self.assertRaisesRegex(AG2CError, "全量验收开关已关闭"):
+                declare_full_scan(Path(task["worktree"]["path"]), reason="policy 变了，本次必须全量")
+            self.assertIn("tests/", FULL_SUITE_SWITCH_CLOSED)
 
-    def test_start_all_counts_as_declaration(self) -> None:
-        from ag2c.tasks import start_task, verify_task
+    def test_start_all_is_closed(self) -> None:
+        from ag2c.errors import AG2CError
+        from ag2c.tasks import start_task
 
         with tempfile.TemporaryDirectory() as tmp:
             root = self._project(Path(tmp))
@@ -451,29 +448,16 @@ class FullScanDeclarationTests(unittest.TestCase):
                 "Done looks like: 服务函数返回值变更。Surfaces: verify 通过。"
                 "Out of result: 不动其他模块。验证层: 机器验证 tests 套件全绿，输出片段进 finish proof。无加料。"
             )
-            task = start_task(
-                root,
-                goal="change",
-                path_specs=["app:src/api/service.py"],
-                contract_specs=[],
-                portrait=portrait,
-                worktree_root=root.parent / "worktrees",
-                all_mode=True,
-            )
-            worktree = Path(task["worktree"]["path"])
-            self._touch_and_census(root, worktree)
-            self._mutate_policy(root)
-            self.assertTrue(verify_task(worktree)["passed"])  # --all 开工即声明，无需再申报
-
-    def test_declare_full_scan_requires_reason(self) -> None:
-        from ag2c.errors import AG2CError
-        from ag2c.tasks import declare_full_scan
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = self._project(Path(tmp))
-            task = self._start(root)
-            with self.assertRaises(AG2CError):
-                declare_full_scan(Path(task["worktree"]["path"]), reason="  ")
+            with self.assertRaisesRegex(AG2CError, "全量验收开关已关闭"):
+                start_task(
+                    root,
+                    goal="change",
+                    path_specs=["app:src/api/service.py"],
+                    contract_specs=[],
+                    portrait=portrait,
+                    worktree_root=root.parent / "worktrees",
+                    all_mode=True,
+                )
 
     def _record(self, root: Path, task_id: str) -> dict:
         from ag2c.config import discover_manifest, load_manifest

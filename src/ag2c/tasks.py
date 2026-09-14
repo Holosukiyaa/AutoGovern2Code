@@ -270,8 +270,12 @@ def start_task(
     if dirty:
         _notify_gate_block(canonical, "gate-block", "canonical 检出被修改", ", ".join(dirty[:5]))
         raise AG2CError("canonical worktree is dirty; AG2C will not start: " + ", ".join(dirty))
-    if not path_specs and not contract_specs and not all_mode:
-        raise AG2CError("AG2C requires exact paths/contracts or conservative --all before work begins")
+    if all_mode:
+        from .suite_bind import FULL_SUITE_SWITCH_CLOSED
+
+        raise AG2CError(FULL_SUITE_SWITCH_CLOSED)
+    if not path_specs and not contract_specs:
+        raise AG2CError("AG2C requires exact paths/contracts before work begins")
     try:
         _refuse_household_debt(canonical, path_specs, all_mode)
     except AG2CError as exc:
@@ -581,26 +585,10 @@ def declare_front_back(start: Path, *, reason: str) -> dict[str, Any]:
 
 
 def declare_full_scan(start: Path, *, reason: str) -> dict[str, Any]:
-    """全量验收申报（t50 验证成本治理的"申请预算"语义）。
+    """全量开关已关闭：套件只按改动文件进场，不能申报跑全家。"""
+    from .suite_bind import FULL_SUITE_SWITCH_CLOSED
 
-    全量验收是最贵的验证通道（所有 checker 不论切片全跑）。task start --all
-    在开工时已显式声明；而 governance 变化（policy/manifest 在任务期间被改）
-    原本会静默升级为全量——现在必须先申报才跑。申报写入任务记录并记
-    intervention full-scan-declared（落账本），verify 见到申报后放行全量。
-    """
-    reason = reason.strip()
-    if not reason:
-        raise AG2CError("full-scan declaration requires --reason")
-    canonical, task = _task_from_worktree(start)
-    _require_open_task(task)
-    entry = task.setdefault("entry", {})
-    declaration = {"declared": True, "reason": reason, "at": _now(), "via": "declare"}
-    existing = entry.get("full_scan")
-    if isinstance(existing, dict) and existing.get("declared"):
-        declaration["via"] = str(existing.get("via") or "declare")
-    entry["full_scan"] = declaration
-    _record_intervention(canonical, _canonical_manifest(canonical)[0], task, "full-scan-declared", {"reason": reason, "via": "declare"})
-    return {"task": task["id"], "full_scan": declaration}
+    raise AG2CError(FULL_SUITE_SWITCH_CLOSED)
 
 
 def _committed_delta(canonical: Path, base: str, manifest) -> list[str]:

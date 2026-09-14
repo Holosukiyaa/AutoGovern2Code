@@ -105,7 +105,11 @@ def verify_task(start: Path, *, _auto_refreshed: bool = False) -> dict[str, Any]
         (recorded_policy and recorded_policy != policy_digest)
         or (recorded_manifest and recorded_manifest != manifest_digest)
     )
-    verify_all_mode = bool(task["entry"]["all"]) or governance_changed
+    if bool(task["entry"]["all"]):
+        from .suite_bind import FULL_SUITE_SWITCH_CLOSED
+
+        raise AG2CError(FULL_SUITE_SWITCH_CLOSED)
+    verify_all_mode = False
     if governance_changed and not any(
         item.get("kind") == "governance-changed" for item in task.get("interventions", [])
     ):
@@ -116,19 +120,6 @@ def verify_task(start: Path, *, _auto_refreshed: bool = False) -> dict[str, Any]
             "governance-changed",
             {"policy_digest": policy_digest, "manifest_digest": manifest_digest},
         )
-    # t50 验证成本治理：全量验收是最贵的验证通道，必须任务级显式声明
-    # （"申请预算"语义）。task start --all 在开工时已声明；governance 变化
-    # 触发的全量升级不再静默放行——先 declare --full-scan 再 verify。
-    if verify_all_mode and not bool(task["entry"]["all"]):
-        full_scan = task.get("entry", {}).get("full_scan")
-        declared = isinstance(full_scan, dict) and full_scan.get("declared")
-        if not declared:
-            raise AG2CError(
-                "全量验收需要任务级显式声明（验证成本治理：申请预算语义）——governance 在任务期间发生变化，"
-                "本次 verify 将运行全部 checker（不论切片）。确认成本后运行：\n"
-                "  ag2c task declare --full-scan --reason <为什么本次必须全量>\n"
-                "申报会记 intervention 落账本，之后 verify 放行。"
-            )
     last_pass = next((item for item in reversed(task.get("verifications", [])) if item.get("passed")), None)
     current_digest = change_digest(worktree, task["source"]["head"])
     if task["state"] == "verified" and last_pass and current_digest != last_pass.get("change_digest"):

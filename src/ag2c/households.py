@@ -680,6 +680,16 @@ def _census_freshness(previous: dict | None, scope_digest: str, declaration_dige
     return "stale"
 
 
+def _household_is_tests_tree(item: dict) -> bool:
+    from .suite_bind import is_tests_tree_includes
+
+    includes: list[str] = []
+    for scope in item.get("scopes") or []:
+        if isinstance(scope, dict):
+            includes.extend(scope.get("includes") or scope.get("include") or [])
+    return is_tests_tree_includes(includes)
+
+
 def required_households(report: dict, entry_slice: dict) -> list[dict]:
     paths = entry_slice.get("entries", {}).get("paths", [])
     if not paths:
@@ -718,6 +728,15 @@ def enforce_households(manifest: Manifest, policy: Policy, entry_slice: dict, ch
             problems.append(f'census-{item["freshness"]}:{item["id"]}')
             freshness_problems.append(f'census-{item["freshness"]}:{item["id"]}')
         missing = set(item["checkers"]) - checker_ids
+        if _household_is_tests_tree(item):
+            from .suite_bind import suite_checker_ids_for_paths
+
+            owed_suites = suite_checker_ids_for_paths(path for _target, path in selected_paths)
+            missing = {
+                checker_id
+                for checker_id in missing
+                if not str(checker_id).startswith("check.suite-") or checker_id in owed_suites
+            }
         if missing:
             problems.append(f'implementation-check-not-selected:{item["id"]}:{",".join(sorted(missing))}')
     if problems:

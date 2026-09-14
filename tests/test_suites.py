@@ -24,3 +24,11 @@ class SuiteMappingTests(unittest.TestCase):
     def test_list_output(self) -> None:
         self.assertEqual(0, suites.main(["suites.py", "fast", "--list"]))
         self.assertEqual(2, suites.main(["suites.py", "nope"]))
+
+    def test_suite_bind_matches_suites_py(self) -> None:
+        from ag2c.suite_bind import DEFAULT_SUITES, suite_checker_ids_for_paths
+
+        self.assertEqual(suites.SUITES, DEFAULT_SUITES)
+        self.assertEqual({"check.suite-gui"}, suite_checker_ids_for_paths(["tests/test_desktop.py"]))
+        self.assertNotIn("check.suite-storage", suite_checker_ids_for_paths(["tests/test_desktop.py"]))
+        self.assertEqual(set(), suite_checker_ids_for_paths(["tests/test_cli.py"]))

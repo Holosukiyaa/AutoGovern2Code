@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-- 播种模块：外管项目不再把 `coverage.level=structured` 当作成树。`ag2c seed status` 观测 phase（planted/mapped/growing/sliced）、sower（none/ag2c/foreign/host）、trusted（仅 ag2c+sliced）。`ag2c seed sow` 只写入 `ag2c seed run --suite` 检查器，不在项目里写 suites.py；宿主仓拒绝 sow。evidence/coverage 先报 Seed，地图降为 Map。Covered by `SeedLifecycleTests`。
+- `ag2c seed sow` 写入原生命令 `python -B -m unittest discover -s <夹> -p test_*.py`，不再写 `python -m ag2c seed run`。旧 seed-run 挂号单视为 foreign、不可信。不在项目里写 suites.py。Covered by `SeedLifecycleTests`。
+
+- 播种模块：外管项目不再把 `coverage.level=structured` 当作成树。`ag2c seed status` 观测 phase（planted/mapped/growing/sliced）、sower（none/ag2c/foreign/host）、trusted（仅 ag2c+sliced）。`ag2c seed sow` 只写入门外挂号单；宿主仓拒绝 sow。evidence/coverage 先报 Seed，地图降为 Map。Covered by `SeedLifecycleTests`。
 
 - 覆盖度说话：`coverage.level=structured` 只表示卡片地图，不再暗示验证已切开。`ag2c coverage` 与 evidence 增报 `verification_growth`（unsplit/sliced）：一条 always 大门或同命令的 scenario 副本仍是 unsplit；知识卡绑了非 always、且命令与大门不同才是 sliced。`git diff --check` 不算产品测试。不改 household 升 structured 的行为。Covered by `VerificationGrowthTests`。
 

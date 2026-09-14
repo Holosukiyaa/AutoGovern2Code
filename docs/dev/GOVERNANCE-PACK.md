@@ -98,12 +98,12 @@ AG2C 自己：立法（卡片+checkers）已在门外档案；`tests/` 留在仓
 
 ## 5. 现在缺什么（相对本文）
 
-已有：执法（worktree/hook/verify）、AG2C 自己的反向开发（flatten-queue/split/check）、门外卡片与绑定、播种器雏形（但命令曾指向 `ag2c seed run`）、verification_growth / seed status。
+已有：执法（worktree/hook/verify）、AG2C 自己的反向开发（flatten-queue/split/check）、门外卡片与绑定、`ag2c seed sow` 写入 `unittest discover` 原生命令（不再 `-m ag2c seed run`）、verification_growth / seed status。
 
 还缺、且应排在 GUI 前面：
 
 1. **治理包形态：** 包内可放检测脚本；checkers 指向包或用户原生命令；卸包无源码痕迹。
-2. **sow 纠偏：** 只写门外挂号单，命令不得默认 `-m ag2c seed run`。
+2. **sow 纠偏：** 原生命令已落地；包内考卷目录尚未做。
 3. **flatten 对外模板：** 队列不得写死 `src/ag2c`；对工地里的用户源码排队。
 4. **账单：** 工地 vs 正本，用人话区分搬家 / 新考卷 / 行为改动。
 5. **真项目量一回效果**（治理包挂上、可选拆一刀、卸掉后产品仍跑）。

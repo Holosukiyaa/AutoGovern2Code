@@ -1,9 +1,9 @@
 """AG2C-owned seeding: lifecycle, observation, and mechanical sowing.
 
 Foreign projects are not trees. Enrollment plants a seed. `ag2c seed sow`
-grows room suites whose checker command is this module (`ag2c seed run`),
-not a per-project suites.py. Status is derived from Policy, never from an
-agent-written map.
+writes room checkers whose command is native ``unittest discover`` on the
+project's test folder — not ``python -m ag2c`` and not a per-project
+suites.py. Status is derived from Policy, never from an agent-written map.
 """
 from __future__ import annotations
 
@@ -42,15 +42,27 @@ def is_host_project(root: Path) -> bool:
 
 
 def is_ag2c_seed_command(command: tuple[str, ...] | list[str]) -> bool:
+    """True when the checker is native unittest discover (AG2C-sown shape).
+
+    ``python -m ag2c seed run`` is the old biased shape and is not trusted.
+    """
     parts = [str(item) for item in command]
-    return "-m" in parts and "ag2c" in parts and "seed" in parts and "run" in parts
+    return "-m" in parts and "unittest" in parts and "discover" in parts and "-s" in parts
 
 
 def is_foreign_suite_command(command: tuple[str, ...] | list[str]) -> bool:
     if is_ag2c_seed_command(command):
         return False
-    text = " ".join(str(item) for item in command)
-    return "suites.py" in text or "run_conformance.py" in text
+    parts = [str(item) for item in command]
+    text = " ".join(parts)
+    if "suites.py" in text or "run_conformance.py" in text:
+        return True
+    return "-m" in parts and "ag2c" in parts and "seed" in parts
+
+
+def native_discover_command(relative: str) -> list[str]:
+    folder = relative.replace("\\", "/").strip("/")
+    return ["python", "-B", "-m", "unittest", "discover", "-s", folder, "-p", "test_*.py"]
 
 
 def discover_groups(root: Path) -> dict[str, Path]:
@@ -174,7 +186,7 @@ def sow(start: Path, *, actor: str, reason: str) -> dict[str, Any]:
             checker_id=checker_id,
             actor=actor,
             reason=reason,
-            command=["python", "-B", "-m", "ag2c", "seed", "run", "--suite", name],
+            command=native_discover_command(relative),
             parse="unittest",
             bind=bind,
         )

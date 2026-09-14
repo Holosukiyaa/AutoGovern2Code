@@ -244,7 +244,33 @@ class SeedLifecycleTests(unittest.TestCase):
             self.assertFalse(status["trusted"])
             self.assertIn(status["phase"], {"growing", "sliced"})
 
-    def test_ag2c_seed_run_checker_is_ag2c_sower(self) -> None:
+    def test_unittest_discover_checker_is_ag2c_sower(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, _ = write_project(root, gated=True)
+            path = root / ".ag2c" / "policy.json"
+            value = json.loads(path.read_text(encoding="utf-8"))
+            value["checkers"].append(
+                {
+                    "id": "check.suite-api",
+                    "stage": "floor",
+                    "target": "app",
+                    "command": ["python", "-B", "-m", "unittest", "discover", "-s", "scripts/tests/api", "-p", "test_*.py"],
+                    "cwd": ".",
+                    "timeout": 180,
+                }
+            )
+            for card in value["cards"]:
+                if card["id"] == "knowledge.worker":
+                    card["checkers"] = ["check.suite-api"]
+            path.write_text(json.dumps(value), encoding="utf-8")
+            policy = load_policy(load_manifest(manifest.path))
+            status = assess_seed(policy)
+            self.assertEqual("ag2c", status["sower"])
+            self.assertEqual("sliced", status["phase"])
+            self.assertTrue(status["trusted"])
+
+    def test_legacy_ag2c_seed_run_is_foreign(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             manifest, _ = write_project(root, gated=True)
@@ -266,9 +292,8 @@ class SeedLifecycleTests(unittest.TestCase):
             path.write_text(json.dumps(value), encoding="utf-8")
             policy = load_policy(load_manifest(manifest.path))
             status = assess_seed(policy)
-            self.assertEqual("ag2c", status["sower"])
-            self.assertEqual("sliced", status["phase"])
-            self.assertTrue(status["trusted"])
+            self.assertEqual("foreign", status["sower"])
+            self.assertFalse(status["trusted"])
 
     def test_host_src_ag2c_is_host_sower(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -344,6 +369,9 @@ class SeedLifecycleTests(unittest.TestCase):
             self.assertEqual("ag2c", status["sower"])
             commands = [checker.command for checker in policy.checkers if checker.checker_id == "check.suite-api"]
             self.assertEqual(1, len(commands))
-            self.assertIn("seed", commands[0])
-            self.assertIn("run", commands[0])
-            self.assertIn("api", commands[0])
+            joined = " ".join(commands[0])
+            self.assertIn("unittest", joined)
+            self.assertIn("discover", joined)
+            self.assertIn("scripts/tests/api", joined)
+            self.assertNotIn("ag2c", joined)
+            self.assertTrue(status["trusted"])

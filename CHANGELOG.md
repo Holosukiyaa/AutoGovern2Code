@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `govern flatten-bill`：stdin 统一 diff 分成搬家 / 新考卷 / 行为改动。测试路径进新考卷，即使 flatten-check 会判违规。Covered by `FlattenTests`.
+
 - `govern flatten-queue --under <目录>` 可对任意工地排队；默认仍是 `src/ag2c`。Covered by `FlattenTests`.
 
 - 治理包考卷：`policy.json` 旁 `pack/exams/<组>/` 可放检测脚本；sow 写入 `pack/run_exam.py <组>`（不 `python -m ag2c`，不往用户 `tests/` 写文件）。仓库里已有测试夹仍用 unittest discover。Covered by `SeedLifecycleTests`。

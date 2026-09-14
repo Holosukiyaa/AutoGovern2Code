@@ -531,6 +531,15 @@ def main(argv: list[str] | None = None) -> int:
                     return 1
                 print(_json(result))
                 return 1 if violations else 0
+            elif args.govern_command == "flatten-bill":
+                from .flatten import flatten_bill, format_flatten_bill
+
+                bill = flatten_bill(sys.stdin.read())
+                if args.format == "json":
+                    print(_json(bill))
+                else:
+                    print(format_flatten_bill(bill), end="")
+                return 0
             elif args.govern_command == "flatten-split":
                 from .flatten import flatten_split
 

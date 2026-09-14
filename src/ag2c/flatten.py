@@ -19,6 +19,7 @@ from .softcap import SOFTCAP_ROOT
 FLATTEN_QUEUE_SCHEMA = "ag2c.flatten-queue.v1"
 FLATTEN_CHECK_SCHEMA = "ag2c.flatten-check.v1"
 FLATTEN_SPLIT_SCHEMA = "ag2c.flatten-split.v1"
+FLATTEN_BILL_SCHEMA = "ag2c.flatten-bill.v1"
 
 _IMPORT_RE = re.compile(r"^[ \t]*(import |from )")
 _DOCSTRING_OPEN_RE = re.compile(r'^[ \t]*("""|\'\'\')')
@@ -90,6 +91,71 @@ def pure_move_violations(diff: str) -> list[str]:
                 continue
             violations.append(f"{path}:{line}")
     return violations
+
+
+def is_exam_path(path: str) -> bool:
+    posix = path.replace("\\", "/")
+    name = posix.rsplit("/", 1)[-1]
+    if name.startswith("test_") and name.endswith(".py"):
+        return True
+    if posix.startswith("tests/") or "/tests/" in posix:
+        return posix.endswith(".py")
+    return posix.endswith(".py") and (posix.startswith("pack/exams/") or "/pack/exams/" in posix)
+
+
+def flatten_bill(diff: str) -> dict[str, Any]:
+    """Classify a unified diff into 搬家 / 新考卷 / 行为改动."""
+    deleted, added_files = parse_unified_diff(diff)
+    deleted_fps = {line_fingerprint(line) for line in deleted}
+    moves: list[str] = []
+    exams: list[str] = []
+    behavior: list[dict[str, Any]] = []
+    for path, lines in sorted(added_files.items()):
+        if is_exam_path(path):
+            exams.append(path)
+            continue
+        exempt = _leading_docstring_fingerprints(lines)
+        bad: list[str] = []
+        for line in lines:
+            if not line.strip() or _is_import_line(line):
+                continue
+            fp = line_fingerprint(line)
+            if fp in exempt or fp in deleted_fps:
+                continue
+            bad.append(line)
+        if bad:
+            behavior.append({"path": path, "lines": bad})
+        else:
+            moves.append(path)
+    return {
+        "schema": FLATTEN_BILL_SCHEMA,
+        "moves": moves,
+        "exams": exams,
+        "behavior": behavior,
+    }
+
+
+def format_flatten_bill(bill: dict[str, Any]) -> str:
+    def block(title: str, rows: list[str]) -> list[str]:
+        out = [title]
+        if rows:
+            out.extend(f"  {row}" for row in rows)
+        else:
+            out.append("  （无）")
+        return out
+
+    lines = block("搬家:", list(bill.get("moves") or []))
+    lines.extend(block("新考卷:", list(bill.get("exams") or [])))
+    behavior_rows = []
+    for item in bill.get("behavior") or []:
+        path = str(item.get("path") or "")
+        snippets = list(item.get("lines") or [])[:3]
+        if snippets:
+            behavior_rows.append(f"{path}: {snippets[0].strip()}")
+        else:
+            behavior_rows.append(path)
+    lines.extend(block("行为改动:", behavior_rows))
+    return "\n".join(lines) + "\n"
 
 
 def _commit_count(root: Path, rel: str) -> int:

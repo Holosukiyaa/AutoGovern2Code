@@ -455,6 +455,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="纯搬运门：stdin 统一 diff，新增非豁免行必须来自删除行",
     )
     flatten_check_cmd.add_argument("--format", choices=("text", "json"), default="json")
+    flatten_bill_cmd = govern_commands.add_parser(
+        "flatten-bill",
+        help="工地账单：stdin 统一 diff，分成搬家 / 新考卷 / 行为改动",
+    )
+    flatten_bill_cmd.add_argument("--format", choices=("text", "json"), default="text")
     flatten_split_cmd = govern_commands.add_parser(
         "flatten-split",
         help="拆分原语：抽出顶层符号到同目录新模块，源文件门面再导出",

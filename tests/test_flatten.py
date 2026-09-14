@@ -12,7 +12,7 @@ import bootstrap  # noqa: F401
 from support import _git, git_project
 from ag2c.cli import main
 from ag2c.errors import AG2CError
-from ag2c.flatten import flatten_queue, flatten_split, pure_move_violations
+from ag2c.flatten import flatten_bill, flatten_queue, flatten_split, pure_move_violations
 
 
 def _diff(old: str, new: str, path: str = "src/ag2c/mod.py") -> str:
@@ -132,3 +132,41 @@ class FlattenTests(unittest.TestCase):
         default_items = json.loads(buf.getvalue())["items"]
         self.assertTrue(default_items)
         self.assertTrue(all(str(item["path"]).startswith("src/ag2c/") for item in default_items))
+
+    def test_bill_classifies_move_exam_and_behavior(self) -> None:
+        empty = flatten_bill("")
+        self.assertEqual([], empty["moves"])
+        self.assertEqual([], empty["exams"])
+        self.assertEqual([], empty["behavior"])
+        moved = (
+            "--- a/src/ag2c/mod.py\n+++ b/src/ag2c/mod.py\n@@\n"
+            "-def foo():\n-    return 1\n"
+            "--- /dev/null\n+++ b/src/ag2c/piece.py\n@@\n"
+            "+def foo():\n+    return 1\n"
+        )
+        bill = flatten_bill(moved)
+        self.assertIn("src/ag2c/piece.py", bill["moves"])
+        self.assertEqual([], bill["exams"])
+        self.assertEqual([], bill["behavior"])
+        exam = "--- /dev/null\n+++ b/tests/test_foo.py\n@@\n+def test_ok():\n+    assert True\n"
+        exam_bill = flatten_bill(exam)
+        self.assertEqual(["tests/test_foo.py"], exam_bill["exams"])
+        self.assertEqual([], exam_bill["behavior"])
+        pack_exam = "--- /dev/null\n+++ b/pack/exams/smoke/test_ok.py\n@@\n+def test_ok():\n+    assert True\n"
+        pack_bill = flatten_bill(pack_exam)
+        self.assertEqual(["pack/exams/smoke/test_ok.py"], pack_bill["exams"])
+        self.assertEqual([], pack_bill["behavior"])
+        logic = flatten_bill(_diff("def f():\n    return 1", "def f():\n    return 2"))
+        self.assertTrue(logic["behavior"])
+        self.assertEqual("src/ag2c/mod.py", logic["behavior"][0]["path"])
+        self.assertEqual("ag2c.flatten-bill.v1", logic["schema"])
+        buf = io.StringIO()
+        with patch("sys.stdin", io.StringIO(moved)), patch("sys.stdout", buf):
+            self.assertEqual(0, main(["govern", "flatten-bill", "--format", "json"]))
+        payload = json.loads(buf.getvalue())
+        self.assertIn("src/ag2c/piece.py", payload["moves"])
+        self.assertEqual([], payload["behavior"])
+        text_buf = io.StringIO()
+        with patch("sys.stdin", io.StringIO(moved)), patch("sys.stdout", text_buf):
+            self.assertEqual(0, main(["govern", "flatten-bill", "--format", "text"]))
+        self.assertIn("搬家", text_buf.getvalue())

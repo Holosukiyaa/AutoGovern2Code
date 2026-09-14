@@ -42,12 +42,76 @@ def is_host_project(root: Path) -> bool:
 
 
 def is_ag2c_seed_command(command: tuple[str, ...] | list[str]) -> bool:
-    """True when the checker is native unittest discover (AG2C-sown shape).
+    """True for native unittest discover or the store pack runner.
 
     ``python -m ag2c seed run`` is the old biased shape and is not trusted.
     """
     parts = [str(item) for item in command]
-    return "-m" in parts and "unittest" in parts and "discover" in parts and "-s" in parts
+    if "-m" in parts and "unittest" in parts and "discover" in parts and "-s" in parts:
+        return True
+    joined = " ".join(parts).replace("\\", "/")
+    return "pack/run_exam.py" in joined
+
+
+def pack_dir(policy_path: Path) -> Path:
+    return policy_path.parent / "pack"
+
+
+def discover_pack_groups(pack: Path) -> dict[str, Path]:
+    found: dict[str, Path] = {}
+    exams = pack / "exams"
+    if not exams.is_dir():
+        return found
+    for child in sorted(exams.iterdir()):
+        if not child.is_dir() or child.name in SKIP_GROUP_NAMES:
+            continue
+        if not list(child.glob("test_*.py")):
+            continue
+        found[child.name] = child
+    return found
+
+
+RUN_EXAM_SOURCE = (
+    '"""Run one pack exam group. cwd must be the governed project root."""\n'
+    "from __future__ import annotations\n\n"
+    "import sys\n"
+    "import unittest\n"
+    "from pathlib import Path\n\n\n"
+    "def main(argv: list[str]) -> int:\n"
+    "    if len(argv) < 2 or not str(argv[1]).strip():\n"
+    '        print("usage: run_exam.py <group>", file=sys.stderr)\n'
+    "        return 2\n"
+    "    group = str(argv[1]).strip()\n"
+    '    if group in {".", ".."} or any(sep in group for sep in "/\\\\"):\n'
+    '        print("invalid group", file=sys.stderr)\n'
+    "        return 2\n"
+    '    folder = Path(__file__).resolve().parent / "exams" / group\n'
+    "    if not folder.is_dir():\n"
+    '        print(f"unknown pack exam group: {group}", file=sys.stderr)\n'
+    "        return 2\n"
+    "    root = Path.cwd()\n"
+    '    for entry in (root, root / "src", root / "scripts"):\n'
+    "        text = str(entry)\n"
+    "        if entry.is_dir() and text not in sys.path:\n"
+    "            sys.path.insert(0, text)\n"
+    "    result = unittest.TextTestRunner(verbosity=1).run(\n"
+    '        unittest.defaultTestLoader.discover(str(folder), pattern="test_*.py")\n'
+    "    )\n"
+    "    return 0 if result.wasSuccessful() else 1\n\n\n"
+    'if __name__ == "__main__":\n'
+    "    raise SystemExit(main(sys.argv))\n"
+)
+
+
+def ensure_pack_runner(pack: Path) -> Path:
+    pack.mkdir(parents=True, exist_ok=True)
+    runner = pack / "run_exam.py"
+    runner.write_text(RUN_EXAM_SOURCE, encoding="utf-8")
+    return runner
+
+
+def pack_exam_command(runner: Path, group: str) -> list[str]:
+    return ["python", "-B", runner.resolve().as_posix(), group]
 
 
 def is_foreign_suite_command(command: tuple[str, ...] | list[str]) -> bool:
@@ -172,6 +236,8 @@ def sow(start: Path, *, actor: str, reason: str) -> dict[str, Any]:
     manifest = load_manifest(discover_manifest(root), project_root=root)
     policy = load_policy(manifest)
     groups = discover_groups(root)
+    pack = pack_dir(manifest.policy_path)
+    pack_groups = discover_pack_groups(pack)
     created: list[str] = []
     skipped: list[dict[str, str]] = []
     for name, folder in groups.items():
@@ -192,6 +258,27 @@ def sow(start: Path, *, actor: str, reason: str) -> dict[str, Any]:
         )
         created.append(checker_id)
         policy = load_policy(load_manifest(discover_manifest(root), project_root=root))
+    if pack_groups:
+        runner = ensure_pack_runner(pack)
+        for name in pack_groups:
+            if f"check.suite-{name}" in created:
+                continue
+            bind = _bind_targets(policy, name, f"pack/exams/{name}")
+            if not bind:
+                skipped.append({"suite": name, "reason": "no floor or knowledge card to bind"})
+                continue
+            checker_id = f"check.suite-{name}"
+            update_checker(
+                root,
+                checker_id=checker_id,
+                actor=actor,
+                reason=reason,
+                command=pack_exam_command(runner, name),
+                parse="unittest",
+                bind=bind,
+            )
+            created.append(checker_id)
+            policy = load_policy(load_manifest(discover_manifest(root), project_root=root))
     status = assess_seed(policy, project_root=root)
     return {
         "action": "sow",
@@ -199,7 +286,8 @@ def sow(start: Path, *, actor: str, reason: str) -> dict[str, Any]:
         "reason": reason,
         "created": created,
         "skipped": skipped,
-        "groups": sorted(groups),
+        "groups": sorted(set(groups) | set(pack_groups)),
+        "pack": str(pack) if pack_groups else "",
         "seed": status,
     }
 

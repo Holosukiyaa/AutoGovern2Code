@@ -375,3 +375,56 @@ class SeedLifecycleTests(unittest.TestCase):
             self.assertIn("scripts/tests/api", joined)
             self.assertNotIn("ag2c", joined)
             self.assertTrue(status["trusted"])
+
+    def test_sow_binds_pack_exams_without_writing_project_tests(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, _ = write_project(root, gated=True)
+            pack = Path(manifest.policy_path).parent / "pack" / "exams" / "smoke"
+            pack.mkdir(parents=True)
+            (pack / "test_ok.py").write_text(
+                "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n",
+                encoding="utf-8",
+            )
+            path = root / ".ag2c" / "policy.json"
+            value = json.loads(path.read_text(encoding="utf-8"))
+            value["cards"].append(
+                {
+                    "id": "knowledge.smoke",
+                    "type": "knowledge",
+                    "title": "pack smoke",
+                    "summary": "Pack exam.",
+                    "scopes": [{"target": "app", "include": [".ag2c/pack/exams/smoke/**"], "ownership": "reference"}],
+                    "checkers": [],
+                    "jurisdiction": {
+                        "capability": "smoke",
+                        "implementation": "pack.smoke",
+                        "status": "current",
+                        "entrypoints": [],
+                        "grain": "subtree",
+                        "meaning": "named",
+                        "contract": "none",
+                        "decider": "none",
+                        "span": "folder",
+                    },
+                }
+            )
+            path.write_text(json.dumps(value), encoding="utf-8")
+            record_census(root)
+            result = sow(root, actor="tester", reason="plant pack smoke")
+            self.assertIn("check.suite-smoke", result["created"])
+            self.assertFalse((root / "tests" / "suites.py").exists())
+            self.assertFalse((root / "tests" / "smoke").exists())
+            self.assertFalse((root / "scripts" / "tests" / "smoke").exists())
+            runner = Path(manifest.policy_path).parent / "pack" / "run_exam.py"
+            self.assertTrue(runner.is_file())
+            policy = load_policy(load_manifest(manifest.path))
+            status = assess_seed(policy, project_root=root)
+            self.assertEqual("ag2c", status["sower"])
+            commands = [checker.command for checker in policy.checkers if checker.checker_id == "check.suite-smoke"]
+            self.assertEqual(1, len(commands))
+            joined = " ".join(commands[0])
+            self.assertIn("pack/run_exam.py", joined.replace("\\", "/"))
+            self.assertIn("smoke", commands[0])
+            self.assertNotIn("-m", commands[0])
+            self.assertTrue(status["trusted"])

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 治理包考卷：`policy.json` 旁 `pack/exams/<组>/` 可放检测脚本；sow 写入 `pack/run_exam.py <组>`（不 `python -m ag2c`，不往用户 `tests/` 写文件）。仓库里已有测试夹仍用 unittest discover。Covered by `SeedLifecycleTests`。
+
 - `ag2c seed sow` 写入原生命令 `python -B -m unittest discover -s <夹> -p test_*.py`，不再写 `python -m ag2c seed run`。旧 seed-run 挂号单视为 foreign、不可信。不在项目里写 suites.py。Covered by `SeedLifecycleTests`。
 
 - 播种模块：外管项目不再把 `coverage.level=structured` 当作成树。`ag2c seed status` 观测 phase（planted/mapped/growing/sliced）、sower（none/ag2c/foreign/host）、trusted（仅 ag2c+sliced）。`ag2c seed sow` 只写入门外挂号单；宿主仓拒绝 sow。evidence/coverage 先报 Seed，地图降为 Map。Covered by `SeedLifecycleTests`。

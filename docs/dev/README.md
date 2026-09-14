@@ -8,6 +8,7 @@ This directory is the maintainer-facing doc set. If you only want to **use** AG2
 - [CI_VERIFICATION.md](CI_VERIFICATION.md) — local evidence, checkers, and how remote CI should relate to the local ledger.
 - [AI-HUMAN-DIFFERENCES.md](AI-HUMAN-DIFFERENCES.md) — AI ≠ 人类：治理设计再审视（找不同阶段的负面研究总榜、已确认决策与 AI 原生机制）。
 - [GOVERNANCE-PACK.md](GOVERNANCE-PACK.md) — **主指导：** 外挂治理包（卡片+checkers+检测脚本）与可选反向开发；GUI 不是主题。
+- [SELF-GOVERNANCE-FRICTION.md](SELF-GOVERNANCE-FRICTION.md) — 自管摩擦清单（预算锁、全量税、测试房绑全家等），可逐条消；不是外管大洞。
 - [PROXY-GOVERNANCE.md](PROXY-GOVERNANCE.md) — 代理人治理：从 25 分钟的脚本说起（梯子成本不变量、调度器六职责、授权矩阵四档、三层注意力与抽查校准）。
 - [GUI-RETIREMENT.md](GUI-RETIREMENT.md) — 次要：砍托盘驾驶舱、改走 MCP + 解惑 Skill（主线见 GOVERNANCE-PACK.md）。
 

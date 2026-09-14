@@ -41,11 +41,14 @@ UI_INDEX_HTML = """<!DOCTYPE html>
 <link rel="stylesheet" href="/ui/layout.css">
 </head>
 <body>
-<p id="status"></p>
-<p id="attention"></p>
+<header id="bar"><span id="status"></span> <span id="attention"></span></header>
+<nav id="tree"><h2>文件</h2><ul></ul></nav>
+<main id="home">
 <section id="action"><h2>要你处理</h2><ul></ul></section>
 <section id="alert"><h2>系统警情</h2><ul></ul></section>
 <section id="record"><h2>记录</h2><ul></ul></section>
+</main>
+<aside id="inspect"><h2>检查器</h2><p id="inspect-title">点文件树或知识卡</p><dl id="inspect-fields"></dl></aside>
 <script src="/ui/app.js"></script>
 </body>
 </html>
@@ -59,8 +62,13 @@ UI_LAYOUT_CSS = """:root {
   --bg: #1c1c1f;
   --fg: #ececec;
 }
-html, body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 sans-serif; }
-#attention { font-size: 1.35rem; padding: 0.75rem 1rem; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 15px/1.45 sans-serif; }
+body { display: grid; grid-template: "bar bar bar" auto "tree home inspect" 1fr / 22% 1fr 28%; }
+#bar { grid-area: bar; padding: 0.5rem 1rem; }
+#tree { grid-area: tree; overflow: auto; border-right: 1px solid #333; padding: 0.5rem; }
+#home { grid-area: home; overflow: auto; }
+#inspect { grid-area: inspect; overflow: auto; border-left: 1px solid #333; padding: 0.5rem; }
+#attention { font-size: 1.2rem; }
 section { padding: 0.5rem 1rem 1rem; }
 h2 { color: var(--muted); font-size: 0.95rem; margin: 0 0 0.4rem; }
 ul { margin: 0; padding-left: 1.2rem; }
@@ -123,6 +131,7 @@ window.ag2cFetchDashboard = function () {
       var body = {};
       if (projects.length && projects[0].root) {
         body.path = projects[0].root;
+        window.__AG2C_PROJECT = projects[0].root;
       }
       return fetch("/api/project/dashboard", {
         method: "POST",
@@ -141,10 +150,64 @@ window.ag2cFetchDashboard = function () {
       fillList("action", model.actions);
       fillList("alert", model.alerts);
       fillList("record", recordRows(model.records));
+      if (typeof window.ag2cFetchTree === "function") {
+        window.ag2cFetchTree();
+      }
     })
     .catch(function (err) {
       window.__AG2C_DASHBOARD_ERROR = String(err);
       if (attention) attention.textContent = "error";
+    });
+};
+function projectBody() {
+  return window.__AG2C_PROJECT ? { path: window.__AG2C_PROJECT } : {};
+}
+function fillInspect(model) {
+  var title = document.getElementById("inspect-title");
+  var fields = document.getElementById("inspect-fields");
+  if (title) title.textContent = (model && model.title) || "点文件树或知识卡";
+  if (!fields) return;
+  fields.innerHTML = "";
+  ["path", "claim", "summary", "status"].forEach(function (key) {
+    if (!model || !model[key]) return;
+    var dt = document.createElement("dt");
+    dt.textContent = key;
+    var dd = document.createElement("dd");
+    dd.textContent = model[key];
+    fields.appendChild(dt);
+    fields.appendChild(dd);
+  });
+  window.__AG2C_INSPECT = model;
+}
+window.ag2cFetchTree = function () {
+  fetch("/api/project/tree", {
+    method: "POST",
+    headers: Object.assign({ "Content-Type": "application/json" }, headers()),
+    credentials: "omit",
+    body: JSON.stringify(projectBody())
+  })
+    .then(function (res) { return res.ok ? res.json() : { files: [], inspect: {} }; })
+    .then(function (payload) {
+      var ul = document.querySelector("#tree ul");
+      if (!ul) return;
+      ul.innerHTML = "";
+      (payload.files || []).forEach(function (item) {
+        var li = document.createElement("li");
+        li.textContent = item.title || item.path;
+        li.setAttribute("data-path", item.path || "");
+        li.onclick = function () {
+          fetch("/api/project/inspect", {
+            method: "POST",
+            headers: Object.assign({ "Content-Type": "application/json" }, headers()),
+            credentials: "omit",
+            body: JSON.stringify(Object.assign(projectBody(), { file: item.path }))
+          })
+            .then(function (res) { return res.ok ? res.json() : {}; })
+            .then(fillInspect);
+        };
+        ul.appendChild(li);
+      });
+      fillInspect(payload.inspect);
     });
 };
 if (window.__AG2C_TOKEN) {

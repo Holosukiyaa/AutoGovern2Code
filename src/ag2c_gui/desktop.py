@@ -188,6 +188,38 @@ class DesktopHandler(BaseHTTPRequestHandler):
                 guard = details.get("guard") if isinstance(details.get("guard"), dict) else {}
                 self._json(HTTPStatus.OK, dashboard_model(details, guard))
                 return
+            if path == "/api/project/tree":
+                from .tray_inspect import coverage_rows, empty_inspect
+
+                details = None
+                if str(body.get("path") or "").strip():
+                    details = project_details(self._request_path(body), refresh=bool(body.get("refresh")))
+                files, _cards, headline = coverage_rows(details, "", "")
+                self._json(
+                    HTTPStatus.OK,
+                    {
+                        "files": [{"path": rel, "title": (node.get("title") or rel)} for rel, node in files[:800]],
+                        "headline": headline,
+                        "inspect": empty_inspect(headline),
+                    },
+                )
+                return
+            if path == "/api/project/inspect":
+                from .tray_inspect import coverage_rows, empty_inspect, inspect_file
+
+                details = None
+                if str(body.get("path") or "").strip():
+                    details = project_details(self._request_path(body), refresh=bool(body.get("refresh")))
+                files, cards, headline = coverage_rows(details, "", "")
+                wanted = str(body.get("file") or "").replace("\\", "/")
+                payload = empty_inspect(headline)
+                if wanted:
+                    for rel, node in files:
+                        if rel.replace("\\", "/") == wanted:
+                            payload = inspect_file(node, files, cards)
+                            break
+                self._json(HTTPStatus.OK, payload)
+                return
             if path == "/api/project/digest":
                 self._json(HTTPStatus.OK, _project_digest(self._request_path(body)))
                 return

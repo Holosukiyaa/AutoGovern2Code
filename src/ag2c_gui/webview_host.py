@@ -38,48 +38,125 @@ UI_INDEX_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <title>AutoGovern2Code</title>
+<link rel="stylesheet" href="/ui/layout.css">
 </head>
 <body>
 <p id="status"></p>
+<p id="attention"></p>
+<section id="action"><h2>要你处理</h2><ul></ul></section>
+<section id="alert"><h2>系统警情</h2><ul></ul></section>
+<section id="record"><h2>记录</h2><ul></ul></section>
 <script src="/ui/app.js"></script>
 </body>
 </html>
 """
-UI_APP_JS = """window.ag2cFetchStatus = function () {
-  var node = document.getElementById("status");
-  var headers = {};
+UI_LAYOUT_CSS = """:root {
+  --danger: #f24c40;
+  --decision: #f2b340;
+  --notice: #b38738;
+  --ok: #66946b;
+  --muted: #7a7a80;
+  --bg: #1c1c1f;
+  --fg: #ececec;
+}
+html, body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 sans-serif; }
+#attention { font-size: 1.35rem; padding: 0.75rem 1rem; }
+section { padding: 0.5rem 1rem 1rem; }
+h2 { color: var(--muted); font-size: 0.95rem; margin: 0 0 0.4rem; }
+ul { margin: 0; padding-left: 1.2rem; }
+li.error { color: var(--danger); }
+li.warn { color: var(--decision); }
+li.ok { color: var(--ok); }
+"""
+UI_APP_JS = """function headers() {
+  var h = {};
   if (window.__AG2C_TOKEN) {
-    headers["X-AG2C-Token"] = window.__AG2C_TOKEN;
+    h["X-AG2C-Token"] = window.__AG2C_TOKEN;
   }
-  fetch("/api/status", { headers: headers, credentials: "omit" })
+  return h;
+}
+function fillList(id, rows) {
+  var ul = document.querySelector("#" + id + " ul");
+  if (!ul) return;
+  ul.innerHTML = "";
+  (rows || []).forEach(function (row) {
+    var li = document.createElement("li");
+    li.className = row.severity || "";
+    li.textContent = row.text || "";
+    ul.appendChild(li);
+  });
+}
+function recordRows(records) {
+  var rows = [];
+  var health = (records && records.health) || [];
+  health.forEach(function (item) {
+    rows.push({ severity: "ok", text: (item.label || "") + "：" + String(item.value) });
+  });
+  ["patrol", "hazards", "token"].forEach(function (key) {
+    ((records && records[key]) || []).forEach(function (row) { rows.push(row); });
+  });
+  return rows;
+}
+window.ag2cFetchStatus = function () {
+  var node = document.getElementById("status");
+  fetch("/api/status", { headers: headers(), credentials: "omit" })
     .then(function (res) {
-      if (!res.ok) {
-        throw new Error(String(res.status));
-      }
+      if (!res.ok) throw new Error(String(res.status));
       return res.json();
     })
     .then(function (body) {
       window.__AG2C_STATUS = body;
       window.__AG2C_STATUS_JSON = JSON.stringify(body);
-      if (node) {
-        node.textContent = body.status || "";
-      }
+      if (node) node.textContent = body.status || "";
     })
     .catch(function (err) {
       window.__AG2C_STATUS_ERROR = String(err);
-      if (node) {
-        node.textContent = "error";
+      if (node) node.textContent = "error";
+    });
+};
+window.ag2cFetchDashboard = function () {
+  var attention = document.getElementById("attention");
+  fetch("/api/projects", { headers: headers(), credentials: "omit" })
+    .then(function (res) { return res.ok ? res.json() : { projects: [] }; })
+    .then(function (listing) {
+      var projects = listing.projects || [];
+      var body = {};
+      if (projects.length && projects[0].root) {
+        body.path = projects[0].root;
       }
+      return fetch("/api/project/dashboard", {
+        method: "POST",
+        headers: Object.assign({ "Content-Type": "application/json" }, headers()),
+        credentials: "omit",
+        body: JSON.stringify(body)
+      });
+    })
+    .then(function (res) {
+      if (!res.ok) throw new Error(String(res.status));
+      return res.json();
+    })
+    .then(function (model) {
+      window.__AG2C_DASHBOARD = model;
+      if (attention) attention.textContent = (model.attention && model.attention.text) || "";
+      fillList("action", model.actions);
+      fillList("alert", model.alerts);
+      fillList("record", recordRows(model.records));
+    })
+    .catch(function (err) {
+      window.__AG2C_DASHBOARD_ERROR = String(err);
+      if (attention) attention.textContent = "error";
     });
 };
 if (window.__AG2C_TOKEN) {
   window.ag2cFetchStatus();
+  window.ag2cFetchDashboard();
 }
 """
 _UI_PAGES = {
     "/ui": ("text/html; charset=utf-8", UI_INDEX_HTML),
     "/ui/": ("text/html; charset=utf-8", UI_INDEX_HTML),
     "/ui/index.html": ("text/html; charset=utf-8", UI_INDEX_HTML),
+    "/ui/layout.css": ("text/css; charset=utf-8", UI_LAYOUT_CSS),
     "/ui/app.js": ("text/javascript; charset=utf-8", UI_APP_JS),
 }
 
@@ -101,6 +178,7 @@ def inject_token_js(token: str) -> str:
         "window.__AG2C_TOKEN = "
         + json.dumps(token)
         + "; if (typeof window.ag2cFetchStatus === 'function') { window.ag2cFetchStatus(); }"
+        + " if (typeof window.ag2cFetchDashboard === 'function') { window.ag2cFetchDashboard(); }"
     )
 
 

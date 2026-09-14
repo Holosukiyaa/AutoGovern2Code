@@ -178,6 +178,16 @@ class DesktopHandler(BaseHTTPRequestHandler):
                     project_details(self._request_path(body), refresh=bool(body.get("refresh"))),
                 )
                 return
+            if path == "/api/project/dashboard":
+                from .dashboard import dashboard_model
+
+                if not str(body.get("path") or "").strip():
+                    self._json(HTTPStatus.OK, dashboard_model(None, None))
+                    return
+                details = project_details(self._request_path(body), refresh=bool(body.get("refresh")))
+                guard = details.get("guard") if isinstance(details.get("guard"), dict) else {}
+                self._json(HTTPStatus.OK, dashboard_model(details, guard))
+                return
             if path == "/api/project/digest":
                 self._json(HTTPStatus.OK, _project_digest(self._request_path(body)))
                 return

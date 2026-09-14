@@ -20,7 +20,6 @@ from ag2c_gui.dashboard import (
     NOTICE,
     OK_DIM,
     dashboard_model,
-    draw_dashboard,
     hero_block,
     open_tasks,
     pending_items,
@@ -442,99 +441,21 @@ class SectionPromptTests(unittest.TestCase):
         self.assertIn("治理成本", prompt)
 
 
-class DrawSmokeTests(unittest.TestCase):
-    """无头渲染冒烟：draw_dashboard 在真实 imgui 上下文里完整跑帧、不抛异常。 t53 的教训：引用了本版 imgui_bundle 不存在的 set_window_font_scale，单测全绿 但真实 GUI 每帧抛 AttributeError（被 _guarded 吞成空白看板）。纯函数测试覆盖 不了绘制 API 的存在性——这个冒烟测试就是为此而设。"""
+class WebViewPageTests(unittest.TestCase):
+    """Home page is HTML/CSS in the WebView host, not an imgui frame loop."""
 
-    def _render(self, model, frames: int = 2, open_records: bool = False) -> None:
-        from imgui_bundle import imgui
+    def test_static_page_has_three_zones_and_ops_strip(self):
+        from ag2c_gui.webview_host import UI_INDEX_HTML
 
-        ctx = imgui.create_context()
-        try:
-            io = imgui.get_io()
-            io.delta_time = 1.0 / 60.0
-            io.display_size = imgui.ImVec2(1280, 720)
-            io.fonts.add_font_default()
-            io.set_ini_filename("")  # 禁用 ini 落盘：测试不得在 cwd 产生布局缓存碎屑
-            # 无渲染后端时绕过"字体图集未构建"断言（声明后端自管理纹理）。
-            io.backend_flags |= imgui.BackendFlags_.renderer_has_textures
-            for _ in range(frames):
-                imgui.new_frame()
-                imgui.begin("smoke")
-                if open_records:
-                    imgui.get_state_storage().set_int(imgui.get_id("记录 · 仅供查阅"), 1)
-                draw_dashboard(model)
-                imgui.end()
-                imgui.render()
-        finally:
-            imgui.destroy_context(ctx)
-
-    @staticmethod
-    def _full_model():
-        """覆盖三区与全部分支：决策项、系统警情、记录（健康/任务/巡逻/改造/成本）。"""
-        details = {
-            "project": {"name": "demo"},
-            "worktrees": [
-                {
-                    "id": "t1",
-                    "goal": "g",
-                    "state": "open",
-                    "worktree": {"lifecycle": "diverged", "diverged": True},
-                    "verifications": [
-                        {
-                            "acceptance": {"complete": "not-run", "floor": "passed", "scenario": "not-run"},
-                            "checker_results": [{"id": "check.x", "status": "skipped"}],
-                            "regulator": {"outcome": "rejected"},
-                        }
-                    ],
-                }
-            ],
-            "pending": {"items": [{"title": "Knowledge 已过期", "hint": "同步 Knowledge"}]},
-            "knowledge": [{"id": "k1", "status": "stale"}],
-            "census": {"error": "boom", "households": [{"id": "h1", "freshness": "stale"}]},
-            "index": {"errors": ["e1"]},
-            "baseline_debt": {"total": 5, "target": 3, "over": True},
-            "audit": {"pending": [{"kind": "room-card", "id": "knowledge.x", "question": "q"}], "due": True, "days_since": 9},
-            "patrol": {
-                "drills": {
-                    "gate": {"runs": 1, "days_since": 2, "last_result": "passed"},
-                    "mutation": {"runs": 0},
-                },
-                "interceptions": {"window_days": 30, "in_window": 2},
-            },
-            "hazards": {
-                "hazards": [{"kind": "hollow", "target": "x.py", "suggestion": "补测试", "resolved": False}],
-                "dismissed": 1,
-            },
-            "token": {
-                "month_cost_usd": 1.2,
-                "cost_usd": 3.4,
-                "month_tokens": 1000,
-                "top_rework": [{"task": "t1", "verify_runs": 3}],
-            },
-        }
-        return dashboard_model(details, {"canonicalDirty": True, "openTasks": 1})
-
-    def test_draw_empty_model_does_not_raise(self):
-        self._render(dashboard_model(None, None))
-
-    def test_draw_full_model_records_collapsed(self):
-        self._render(self._full_model())
-
-    def test_draw_full_model_records_expanded(self):
-        self._render(self._full_model(), open_records=True)
-
-    def test_clipboard_roundtrip_headless(self):
-        """复制按钮依赖的剪贴板 API 在无头上下文里可用（t54 教训：绘制 API 存在性要冒烟）。 imgui_bundle 对 OpenClipboard 失败是原生崩溃。任意进程持锁时先预检、 短窗口重试，仍锁才 skip，reason 必含 clipboard-locked，禁止静默 skip。"""
-        require_clipboard()
-        from imgui_bundle import imgui
-
-        ctx = imgui.create_context()
-        try:
-            prompt = section_prompt("actions", "demo", [{"text": "待结算：x"}])
-            imgui.set_clipboard_text(prompt)
-            self.assertEqual(imgui.get_clipboard_text(), prompt)
-        finally:
-            imgui.destroy_context(ctx)
+        self.assertIn('id="ops"', UI_INDEX_HTML)
+        self.assertIn("要你处理", UI_INDEX_HTML)
+        self.assertIn("系统警情", UI_INDEX_HTML)
+        self.assertIn("记录", UI_INDEX_HTML)
+        self.assertIn("操作日志", UI_INDEX_HTML)
+        self.assertIn("施工", UI_INDEX_HTML)
+        self.assertIn("实际记录", UI_INDEX_HTML)
+        self.assertIn("AI 入口", UI_INDEX_HTML)
+        self.assertNotIn("imgui_bundle", UI_INDEX_HTML)
 
     def test_clipboard_guard_skips_when_locked(self):
         with ClipboardLock() as lock:
@@ -562,8 +483,7 @@ class DrawSmokeTests(unittest.TestCase):
         threading.Thread(target=_unlock_soon, daemon=True).start()
         require_clipboard(retries=8, wait_s=0.05)
 
-    def test_render_leaves_no_ini_debris(self):
-        """无头渲染不得在 cwd 落任何 ini 碎屑（t54 的布局缓存碎屑曾被误提交进仓）。 口径是 *.ini 全匹配而非特定文件名：imgui 默认 ini 名只是碎屑的一种， 任何 ini 落盘都是事故。该口径也不引用仓库里已退役的具体文件路径。"""
+    def test_importing_dashboard_leaves_no_ini_debris(self):
         import os
         import tempfile
         from pathlib import Path
@@ -572,8 +492,11 @@ class DrawSmokeTests(unittest.TestCase):
             previous = os.getcwd()
             try:
                 os.chdir(directory)
-                self._render(dashboard_model(None, None))
+                dashboard_model(None, None)
+                from ag2c_gui.webview_host import UI_INDEX_HTML
+
+                self.assertIn('id="home"', UI_INDEX_HTML)
             finally:
                 os.chdir(previous)
             debris = sorted(p.name for p in Path(directory).glob("*.ini"))
-            self.assertEqual(debris, [], f"无头渲染在 cwd 落了 ini 碎屑: {debris}")
+            self.assertEqual(debris, [], f"装配首页在 cwd 落了 ini 碎屑: {debris}")

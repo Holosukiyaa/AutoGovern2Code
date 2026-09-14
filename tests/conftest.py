@@ -12,7 +12,7 @@ import bootstrap  # noqa: E402,F401
 
 
 def pytest_collection_modifyitems(items: list) -> None:
-    """Pin imgui tray tests to one xdist worker, whatever the entry point. tests/suites.py already runs the gui suite without -n; this marker makes the full-run entry (`pytest tests/ -n auto --dist loadgroup`) keep the same promise: every test from the gui modules lands in the "gui" group, and a group never leaves its worker, so they execute serially. The module set is derived from SUITES["gui"] itself — suites.py stays the single source of truth, so adding a gui module cannot silently escape the serial pin."""
+    """Pin gui suite tests to one xdist worker, whatever the entry point. tests/suites.py already runs the gui suite without -n; this marker makes the full-run entry (`pytest tests/ -n auto --dist loadgroup`) keep the same promise: every test from the gui modules lands in the "gui" group, and a group never leaves its worker, so they execute serially. The module set is derived from SUITES["gui"] itself — suites.py stays the single source of truth, so adding a gui module cannot silently escape the serial pin."""
     import pytest
 
     from suites import SUITES  # tests dir is on sys.path (see above)

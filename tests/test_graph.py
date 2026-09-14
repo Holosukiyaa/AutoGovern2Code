@@ -533,11 +533,18 @@ class CanvasRemovalTests(unittest.TestCase):
     def test_tray_source_has_no_lineage_canvas_left(self) -> None:
         from pathlib import Path
 
-        import ag2c_gui.imgui_tray as imgui_tray
+        import ag2c_gui.graph as graph
+        import ag2c_gui.tray_host as tray_host
+        import ag2c_gui.webview_host as webview_host
 
-        source = Path(imgui_tray.__file__).read_text(encoding="utf-8")
-        for symbol in ("_gui_lineage", "_lineage_", "build_lineage", "layout_lineage_view", "imgui_node_editor", "谱系"):
-            self.assertNotIn(symbol, source, symbol)
+        sources = [
+            Path(graph.__file__).read_text(encoding="utf-8"),
+            Path(tray_host.__file__).read_text(encoding="utf-8"),
+            Path(webview_host.__file__).read_text(encoding="utf-8"),
+        ]
+        for source in sources:
+            for symbol in ("_gui_lineage", "build_lineage", "layout_lineage_view", "imgui_node_editor", "谱系"):
+                self.assertNotIn(symbol, source, symbol)
 
     def test_knowledge_lineage_index_still_feeds_the_agent(self) -> None:
         room = _card("knowledge.src", "knowledge", "src", include=["src/**"])

@@ -1,4 +1,4 @@
-"""WebView2 shell host. Coexists with the Hello ImGui tray until W5."""
+"""WebView2 shell host. This is the product window; Hello ImGui is leftover bytes."""
 
 from __future__ import annotations
 
@@ -247,9 +247,28 @@ window.ag2cFetchOps = function (tab) {
 document.querySelectorAll("#ops button").forEach(function (btn) {
   btn.onclick = function () { window.ag2cFetchOps(btn.getAttribute("data-tab")); };
 });
+window.ag2cPollDigest = function () {
+  if (!window.__AG2C_PROJECT) return;
+  fetch("/api/project/digest", {
+    method: "POST",
+    headers: Object.assign({ "Content-Type": "application/json" }, headers()),
+    credentials: "omit",
+    body: JSON.stringify({ path: window.__AG2C_PROJECT, previous: window.__AG2C_DIGEST || "" })
+  })
+    .then(function (res) { return res.ok ? res.json() : {}; })
+    .then(function (payload) {
+      var digest = payload.digest || "";
+      if (payload.reload) {
+        window.ag2cFetchDashboard();
+        window.ag2cFetchTree();
+      }
+      if (digest) window.__AG2C_DIGEST = digest;
+    });
+};
 if (window.__AG2C_TOKEN) {
   window.ag2cFetchStatus();
   window.ag2cFetchDashboard();
+  setInterval(function () { window.ag2cPollDigest(); }, 5000);
 }
 """
 _UI_PAGES = {

@@ -11,7 +11,6 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from types import ModuleType
 from unittest.mock import MagicMock, patch
 
 import bootstrap
@@ -20,9 +19,9 @@ import ag2c_gui.desktop
 from ag2c_gui.desktop import DesktopServer
 
 
-def _imgui_sources(root: Path | None = None) -> str:
+def _webview_sources(root: Path | None = None) -> str:
     base = (root or Path(__file__).resolve().parents[1]) / "src" / "ag2c_gui"
-    names = ("imgui_tray.py", "imgui_state.py", "imgui_panels.py", "imgui_runtime.py", "custody.py")
+    names = ("webview_host.py", "desktop.py", "custody.py", "dashboard.py")
     return "\n".join((base / name).read_text(encoding="utf-8") for name in names if (base / name).is_file())
 
 
@@ -162,6 +161,30 @@ class DesktopServerTests(unittest.TestCase):
         self.assertEqual(expected, json.loads(body)["project"])
         repair.assert_called_once()
 
+    def test_inspect_endpoint_writes_audit_log(self) -> None:
+        from ag2c_gui.tray_host import append_audit  # noqa: F401 — product import path
+
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "ag2c-audit.log"
+            inspect = {"mode": "file", "title": "cli.py"}
+            with patch.dict(os.environ, {"AG2C_AUDIT_LOG": str(log)}), patch(
+                "ag2c_gui.desktop.project_details", return_value={"available": True}
+            ), patch(
+                "ag2c_gui.tray_inspect.coverage_rows",
+                return_value=([("src/ag2c/cli.py", {"title": "cli.py"})], [], "对照"),
+            ), patch("ag2c_gui.tray_inspect.inspect_file", return_value=inspect):
+                status, body, _ = self.request(
+                    "POST",
+                    "/api/project/inspect",
+                    body={"path": "C:/Project", "file": "src/ag2c/cli.py"},
+                    token=True,
+                )
+            self.assertEqual(200, status)
+            self.assertEqual(inspect, json.loads(body))
+            written = log.read_text(encoding="utf-8")
+            self.assertIn("点击文件", written)
+            self.assertIn("src/ag2c/cli.py", written)
+
     def test_project_details_endpoint_returns_governance_payload(self) -> None:
         expected = {
             "available": True,
@@ -189,8 +212,26 @@ class DesktopServerTests(unittest.TestCase):
                 token=True,
             )
         self.assertEqual(200, status)
-        self.assertEqual({"digest": "abc123", "version": "0"}, json.loads(body))
+        self.assertEqual({"digest": "abc123", "version": "0", "reload": False}, json.loads(body))
         digest.assert_called_once()
+
+    def test_digest_endpoint_sets_reload_when_previous_differs(self) -> None:
+        with patch("ag2c_gui.desktop._project_digest", return_value={"digest": "new", "version": "0"}):
+            status, body, _ = self.request(
+                "POST",
+                "/api/project/digest",
+                body={"path": "C:/Project", "previous": "old"},
+                token=True,
+            )
+            self.assertEqual(200, status)
+            self.assertEqual({"digest": "new", "version": "0", "reload": True}, json.loads(body))
+            status, body, _ = self.request(
+                "POST",
+                "/api/project/digest",
+                body={"path": "C:/Project", "previous": "new"},
+                token=True,
+            )
+            self.assertEqual({"digest": "new", "version": "0", "reload": False}, json.loads(body))
 
     def test_serve_desktop_notifies_after_socket_is_bound(self) -> None:
         from ag2c_gui.desktop import serve_desktop
@@ -211,6 +252,28 @@ class DesktopServerTests(unittest.TestCase):
             )
         self.assertEqual(1, len(ready))
         self.assertGreater(ready[0], 0)
+
+    def test_ui_page_is_served_without_token(self) -> None:
+        status, body, _ = self.request("GET", "/ui/")
+        self.assertEqual(200, status)
+        page = body.decode("utf-8")
+        self.assertIn('id="ops"', page)
+        self.assertIn("操作日志", page)
+        self.assertIn("施工", page)
+        self.assertIn("实际记录", page)
+        self.assertIn("AI 入口", page)
+
+    def test_ui_page_does_not_write_ini_debris(self) -> None:
+        previous = os.getcwd()
+        with tempfile.TemporaryDirectory() as directory:
+            try:
+                os.chdir(directory)
+                status, _, _ = self.request("GET", "/ui/")
+            finally:
+                os.chdir(previous)
+            self.assertEqual(200, status)
+            debris = sorted(p.name for p in Path(directory).glob("*.ini"))
+            self.assertEqual(debris, [], f"GET /ui/ 在 cwd 落了 ini 碎屑: {debris}")
 
 
 class ProjectDigestTests(unittest.TestCase):
@@ -239,16 +302,6 @@ class ProjectDigestTests(unittest.TestCase):
                 # The enrolled guard hooks canonical commits; the test only needs HEAD to move.
                 git(root, "commit", "--no-verify", "-m", "move HEAD")
                 self.assertNotEqual(touched, _project_digest(root)["digest"])
-
-    def test_tray_polls_digest_and_reloads_on_change(self) -> None:
-        ui = _imgui_sources()
-        self.assertIn("AUTO_REFRESH_INTERVAL_S", ui)
-        self.assertIn("def _maybe_auto_refresh", ui)
-        self.assertIn("def _poll_digest", ui)
-        self.assertIn('"POST", "api/project/digest"', ui)
-        self.assertIn("state.digest", ui)
-        self.assertIn("检测到项目变更，已自动刷新", ui)
-        self.assertIn("_maybe_auto_refresh(state)", ui)
 
     def test_canonical_guard_reports_dirty_outside_task_windows(self) -> None:
         from support import git_project
@@ -313,14 +366,6 @@ class ProjectDigestTests(unittest.TestCase):
                 self.assertIn("digest", payload)
                 self.assertIn("guard", payload)
 
-    def test_tray_watchdog_banner_source(self) -> None:
-        ui = _imgui_sources()
-        self.assertIn("guard_warning", ui)
-        self.assertIn("canonicalDirty", ui)
-        self.assertIn("看门狗报警", ui)
-        self.assertIn("canonical 在非任务窗口被修改", ui)
-
-
 class RehomeJobTests(unittest.TestCase):
     def setUp(self) -> None:
         from ag2c_gui import desktop
@@ -369,342 +414,154 @@ class RehomeJobTests(unittest.TestCase):
     def test_unknown_job_poll_returns_none(self) -> None:
         self.assertIsNone(self._desktop._rehome_job("no-such-job"))
 
-    def test_crash_log_captures_header_traceback_and_native_faults(self) -> None:
-        import faulthandler
-
-        from ag2c_gui import imgui_tray
-
-        old_hook = sys.excepthook
-        old_log = imgui_tray._CRASH_LOG
-        with tempfile.TemporaryDirectory() as directory:
-            with patch.dict(os.environ, {"AG2C_DATA_ROOT": directory}, clear=False):
-                try:
-                    path = imgui_tray._install_crash_logging()
-                    self.assertEqual(path, imgui_tray._crash_log_path())
-                    try:
-                        raise ValueError("boom")
-                    except ValueError:
-                        imgui_tray._log_crash("test heading")
-                    content = path.read_text(encoding="utf-8")
-                    self.assertIn("tray start", content)
-                    self.assertIn("test heading", content)
-                    self.assertIn("ValueError: boom", content)
-                finally:
-                    sys.excepthook = old_hook
-                    faulthandler.disable()
-                    if imgui_tray._CRASH_LOG is not None:
-                        imgui_tray._CRASH_LOG.close()
-                    imgui_tray._CRASH_LOG = old_log
-
-    def test_logged_wrapper_names_the_callback_before_reraising(self) -> None:
-        from ag2c_gui import imgui_tray
-
-        seen = []
-        with patch.object(imgui_tray, "_log_crash", side_effect=lambda heading: seen.append(heading)):
-            wrapped = imgui_tray._logged("show_status", lambda: (_ for _ in ()).throw(RuntimeError("panel died")))
-            with self.assertRaises(RuntimeError):
-                wrapped()
-        self.assertEqual(["frame callback: show_status"], seen)
-
 
 class TrayHostSourceTests(unittest.TestCase):
-    def test_tray_host_is_hello_imgui_without_webview2_or_pyside(self) -> None:
+    def test_product_window_is_webview2_not_hello_imgui(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        ui = _imgui_sources(root)
+        ui = _webview_sources(root)
         host = (root / "src" / "ag2c_gui" / "tray_host.py").read_text(encoding="utf-8")
-        host += "\n" + (root / "src" / "ag2c_gui" / "tray_inspect.py").read_text(encoding="utf-8")
-        caption = (root / "src" / "ag2c_gui" / "tray_caption_win32.py").read_text(encoding="utf-8")
-        management = (root / "src" / "ag2c" / "management.py").read_text(encoding="utf-8")
-        tasks = (root / "src" / "ag2c" / "tasks.py").read_text(encoding="utf-8")
-        households = (root / "src" / "ag2c" / "households.py").read_text(encoding="utf-8")
         entry = (root / "packaging" / "windows" / "tray.py").read_text(encoding="utf-8")
-        build = (root / "scripts" / "build_windows_portable.ps1").read_text(encoding="utf-8")
-        portable = (root / "scripts" / "prepare_portable.ps1").read_text(encoding="utf-8")
-        self.assertIn("from imgui_bundle import hello_imgui", ui)
-        self.assertNotIn("_gui_lineage", ui); self.assertNotIn("imgui_node_editor", ui)
-        self.assertIn("DockableWindow", ui); self.assertIn("portable_file_dialogs", ui)
-        self.assertIn("application_start", ui); self.assertIn("enable_viewports = False", ui)
-        self.assertIn("AutoGovern2Code/tray-v16.ini", ui); self.assertIn("borderless = False", ui)
-        self.assertNotIn("_title_bar_buttons", ui); self.assertNotIn("_chrome_button", ui); self.assertNotIn("winchrome", ui)
-        self.assertIn("show_menu_bar = False", ui); self.assertNotIn("show_menus", ui)
-        self.assertIn("##file-tree-body", ui); self.assertIn("no_collapse", ui); self.assertIn("small_button", ui)
-        self.assertNotIn('small_button("托管")', ui); self.assertIn('small_button("停止治理")', ui)
-        self.assertIn("刚才没有要你点的", ui)
-        self.assertIn('drawer_labels = ("文件树", "检查器", "运维")', ui)
-        self.assertNotIn('drawer_labels = ("文件树", "检查器", "运维", "托管")', ui)
-        self.assertNotIn("##span-", ui); self.assertNotIn("outward_hull", ui)
-        self.assertIn("卡名就是摘要", ui); self.assertIn("详细设计", ui)
-        self.assertIn("序号按层写", ui); self.assertIn("1-1-1", ui)
-        self.assertNotIn('text_disabled("摘要")', ui)
-        graph_src = (root / "src" / "ag2c_gui" / "graph.py").read_text(encoding="utf-8")
-        self.assertNotIn("outward_hull", graph_src)
-        self.assertIn("highlight_card_keys", ui)
-        self.assertIn("归属知识卡", ui)
-        self.assertNotIn("LINEAGE_MODULE_HEADER", ui)
-        self.assertIn("anti_aliasing_samples", ui)
-        self.assertIn("rasterizer_density", ui)
-        self.assertIn("anti_aliased_lines_use_tex", ui)
-        self.assertIn("OpsSpace", ui)
-        self.assertNotIn("CardSpace", ui)
-        self.assertIn("_gui_project_bar", ui)
-        self.assertIn("_gui_gate_strip", ui)
-        self.assertIn("AI 入口", ui)
-        self.assertIn("检测 MCP", ui)
-        self.assertIn("复制连接说明", ui)
-        self.assertNotIn("复制提示词", ui)
-        self.assertIn("if migrations:", ui)
-        self.assertIn("status = project_list_item(root)", management)
-        self.assertIn("_CENSUS_CACHE", households)
-        report = (root / "src" / "ag2c" / "task_report.py").read_text(encoding="utf-8")
-        evidence_src = report[report.find("def evidence(") : report.find("def evidence(") + 1800]
-        self.assertIn("if verify_local:", evidence_src)
-        self.assertLess(evidence_src.find("if verify_local:"), evidence_src.find("census_report"))
-        self.assertNotIn("已控制", ui)
-        self.assertNotIn("交付门禁已接通", ui)
-        self.assertNotIn('"id": "delivery"', host)
-        self.assertNotIn('"label": "交付"', host)
-        self.assertIn("mcp_health_snapshot", ui)
-        self.assertIn("mcp_entry_text", ui)
-        self.assertIn("set_clipboard_text", ui)
-        self.assertIn("实际记录", ui)
-        self.assertIn("begin_combo", ui)
-        self.assertIn('layout_name = "tray-v16"', ui)
-        self.assertNotIn("_caption_place", ui)
-        self.assertNotIn('begin_menu("项目")', ui)
-        self.assertIn('split("MainDockSpace", "InspectorSpace", imgui.Dir.right, 0.32)', ui)
-        self.assertIn('split("MainDockSpace", "OpsSpace", imgui.Dir.down, 0.30)', ui)
-        self.assertNotIn("borderless_movable", ui)
-        self.assertNotIn("0x00A1", caption)
-        self.assertNotIn("_caption_hit", ui)
-        self.assertIn("from .tray_caption_win32 import", ui)
-        self.assertNotIn("is_mouse_dragging(0, 6.0)", ui)
-        self.assertNotIn("ag2c-caption-proof.txt", caption)
-        self.assertNotIn("glfwRestoreWindow", caption)
-        self.assertNotIn("glfwMaximizeWindow", caption)
-        self.assertNotIn("center_node_on_screen", ui)
-        self.assertIn("add_text", ui)
-        self.assertIn("0x00292421", caption)
-        self.assertIn("glfwGetWin32Window", caption)
-        self.assertIn("set_scroll_here_y(0.0)", ui)
-        self.assertIn("set_scroll_y", ui)
-        self.assertNotIn("ShowWindow", caption)
-        self.assertIn("coverage_scroll_key", host)
-        self.assertIn("fps_idle = 60.0", ui)
-        self.assertIn("show_status_fps = False", ui)
-        self.assertNotIn("framerate", ui)
-        self.assertIn("frame_ms", ui)
-        self.assertIn("def audit(", ui)
-        self.assertNotIn("audit_open", ui)
-        self.assertNotIn("panel_open", ui)
-        self.assertIn("def _audit_body(", ui)
-        self.assertIn("def _gui_ops(", ui)
-        self.assertIn("def _gui_inspector(", ui)
-        self.assertIn("begin_tab_bar", ui)
-        self.assertIn("TabItemFlags_.set_selected", ui)
-        self.assertIn("ag2c-audit.log", ui)
-        self.assertNotIn('begin("操作日志"', ui)
-        self.assertNotIn('"panel:" + kind', ui)
-        self.assertIn("post_render_dockable_windows", ui)
-        self.assertIn("dock_windows", ui)
-        self.assertIn("def toggle_dock(", ui)
-        self.assertIn("def open_ops(", ui)
-        # Runtime visibility must mutate the live C++ DockableWindow, not the
-        # Python originals (docking_params assignment copies by value).
-        self.assertIn("get_runner_params()", ui)
-        self.assertIn("dockable_window_of_name", ui)
-        self.assertIn('set_dock_visible("检查器", True)', ui)
-        self.assertIn('window("首页", "MainDockSpace"', ui)
-        self.assertIn('window("文件树", "FileTreeSpace"', ui)
-        self.assertIn('split("MainDockSpace", "FileTreeSpace", imgui.Dir.left, 0.42)', ui)
-        self.assertIn('drawer_labels = ("文件树", "检查器", "运维")', ui)
-        self.assertIn("def _gui_dashboard(", ui)
-        self.assertIn("custody_model(details, guard)", ui)
-        self.assertIn("state.guard = dict(guard)", ui)
-        self.assertIn("is_visible = not closable", ui)
-        self.assertIn("def _refresh_panel(", ui)
-        self.assertIn("def _gate_panel_content(", ui)
-        self.assertIn("def _records_panel_content(", ui)
-        self.assertIn("def _work_panel_content(", ui)
-        self.assertNotIn("_inspect_gate", ui)
-        self.assertIn('GATE_BUTTON_LABELS = {"gate": "MCP 链接"', ui)
-        self.assertIn("list_journals", ui)
-        self.assertIn('"journal": journal', ui)
-        self.assertIn('begin_child("##records-body"', ui)
-        self.assertIn("def _short_time(", ui)
-        self.assertIn("_cached_tree", ui)
-        self.assertIn("anti_aliasing_samples = 4", ui)
-        self.assertIn("config_dpi_scale_fonts", ui)
-        self.assertNotIn("begin_create", ui)
-        self.assertNotIn("begin_pin", ui)
-        self.assertNotIn("set_group_size", ui)
-        self.assertNotIn("ed.group(", ui)
-        self.assertNotIn("ProjectSpace", ui)
-        self.assertNotIn("LineageSpace", ui)
-        self.assertIn('window("首页", "MainDockSpace"', ui)
-        self.assertIn('window("检查器", "InspectorSpace"', ui)
-        self.assertIn('window("运维", "OpsSpace"', ui)
-        self.assertNotIn('window("项目"', ui)
-        self.assertNotIn('window("详情", "MainDockSpace"', ui)
-        self.assertNotIn('window("详情", "CardSpace"', ui)
-        self.assertNotIn('window("详情", "RightStack"', ui)
-        self.assertNotIn("set_current_editor(None)", ui)
-        self.assertNotIn("imguizmo", ui)
-        self.assertNotIn("immvision", ui)
-        self.assertIn('begin_tab_item("知识卡片", None, 0)', ui)
-        self.assertNotIn('menu_item("添加项目", None', ui)
-        self.assertIn("正在重新扫描", ui)
-        self.assertIn("def _gui_splash(", ui)
-        self.assertIn("##splash", ui)
-        self.assertIn("legacy_size", ui)
-        self.assertIn("add_text(font, title_size", ui)
-        self.assertIn("imgui.dummy(imgui.ImVec2(width, height))", ui)
-        self.assertIn("WindowFlags_.no_inputs", ui)
-        self.assertNotIn("_scan_overlay", ui)
-        self.assertIn("refresh=True", ui)
-        self.assertIn("DwmSetWindowAttribute", caption)
-        self.assertIn("set_next_item_open(True)", ui)
-        self.assertIn("prefix in force_open", ui)
-        self.assertIn("restore_previous_geometry = False", ui)
-        self.assertNotIn("show_view_menu", ui)
-        self.assertIn("_dialog_lock", ui)
-        self.assertIn("enable_idling = False", ui)
-        self.assertIn("background_color = (0.13, 0.14, 0.16, 1.0)", ui)
-        self.assertIn("photoshop_style", ui)
-        self.assertIn("from ag2c_gui.webview_host import main", entry)
-        self.assertIn("packaging\\windows\\tray.py", build)
-        self.assertIn("NOTICE-imgui.txt", build)
-        self.assertIn("prepare_portable.ps1", build)
-        self.assertIn("AutoGovern2Code-Portable-Windows-x64.zip", build)
-        self.assertIn("tray-host", portable)
-        self.assertIn("portable.ini", portable)
-        self.assertIn("--portable", host)
-        self.assertIn("portable.ini", host)
         launcher = (root / "start-tray.bat").read_text(encoding="utf-8")
+        extra = (root / "pyproject.toml").read_text(encoding="utf-8")
+        self.assertIn("from ag2c_gui.webview_host import main", entry)
+        self.assertNotIn("imgui-bundle", extra)
+        self.assertIn("pywebview>=5", extra)
+        self.assertIn("import webview", launcher)
+        self.assertNotIn("imgui-bundle", launcher)
+        self.assertIn('id="ops"', ui)
+        self.assertIn("操作日志", ui)
+        self.assertIn("/api/project/ops", ui)
+        self.assertIn("要你处理", ui)
+        self.assertIn("系统警情", ui)
+        self.assertNotIn("from imgui_bundle import", ui)
         self.assertIn("packaging\\windows\\tray.py", launcher)
-        self.assertIn("imgui-bundle", launcher)
         self.assertIn("pythonw.exe", launcher)
         self.assertIn("AG2C_PORTABLE", launcher)
         self.assertIn("AG2C_DATA_ROOT", launcher)
         self.assertIn("portable.ini", launcher)
         self.assertIn("--portable", launcher)
-        ignore = (root / ".gitignore").read_text(encoding="utf-8")
-        enroll = (root / "src" / "ag2c" / "enrollment.py").read_text(encoding="utf-8")
-        self.assertIn("/portable.ini", ignore)
-        self.assertIn(".grok/", ignore)
-        self.assertNotIn("commit or stash before enrolling", enroll)
-        self.assertIn("def issue_label(", host)
-        self.assertIn("def skill_prompt_text(", host)
-        cli = (root / "src" / "ag2c" / "cli.py").read_text(encoding="utf-8")
-        self.assertIn('skill_commands.add_parser("prompt")', cli)
-        self.assertIn('skill_commands.add_parser("version"', cli)
-        self.assertIn("SKILL_ENTRY_PROMPT", (root / "src" / "ag2c" / "harnesses.py").read_text(encoding="utf-8"))
-        self.assertIn("timeout=300", host)
-        self.assertIn("imgui.text_wrapped(error)", ui)
-        self.assertIn('("placeholder", "占位")', host)
-        self.assertIn("入学占位，还没有说清这个目录", host)
-        self.assertIn("ensure_portable_archive", (root / "src" / "ag2c_gui" / "desktop.py").read_text(encoding="utf-8"))
-        storage = (root / "src" / "ag2c" / "storage.py").read_text(encoding="utf-8")
-        self.assertIn("rebind_portable_git_enrollment", storage)
-        self.assertIn("relocate_installed_worktrees", storage)
-        self.assertIn('ignore=shutil.ignore_patterns("worktrees", "webview2", "__pycache__")', storage)
-        self.assertIn("AG2C_CHECK", launcher)
-        self.assertIn('"%AG2C_CHECK%" -c "from imgui_bundle import hello_imgui"', launcher)
         self.assertIn("hidden_process_kwargs", host)
         self.assertIn("_windowless_python", host)
         self.assertIn("def _bind_kill_on_close(", host)
         self.assertIn("AssignProcessToJobObject", host)
         self.assertIn("JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000", host)
         self.assertIn("_bind_kill_on_close(process)", host)
-        self.assertNotIn("post_init = lambda: _start_backend(state)", ui)
-        self.assertIn("state.run_job(lambda: _start_backend(state))", ui)
-        self.assertLess(ui.index("state.run_job(lambda: _start_backend(state))"), ui.index("hello_imgui.run(runner)"))
         self.assertFalse((root / "src" / "ag2c" / "qt_tray.py").exists())
         self.assertFalse((root / "src" / "ag2c" / "ui").exists())
         self.assertFalse((root / "start-governance-viewer.cmd").exists())
         self.assertFalse((root / "打开管理界面.bat").exists())
 
+    def test_non_gui_source_guards_still_hold(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        host = (root / "src" / "ag2c_gui" / "tray_host.py").read_text(encoding="utf-8")
+        desktop = (root / "src" / "ag2c_gui" / "desktop.py").read_text(encoding="utf-8")
+        management = (root / "src" / "ag2c" / "management.py").read_text(encoding="utf-8")
+        households = (root / "src" / "ag2c" / "households.py").read_text(encoding="utf-8")
+        report = (root / "src" / "ag2c" / "task_report.py").read_text(encoding="utf-8")
+        evidence_src = report[report.find("def evidence(") : report.find("def evidence(") + 1800]
+        storage = (root / "src" / "ag2c" / "storage.py").read_text(encoding="utf-8")
+        enroll = (root / "src" / "ag2c" / "enrollment.py").read_text(encoding="utf-8")
+        cli = (root / "src" / "ag2c" / "cli.py").read_text(encoding="utf-8")
+        harnesses = (root / "src" / "ag2c" / "harnesses.py").read_text(encoding="utf-8")
+        ignore = (root / ".gitignore").read_text(encoding="utf-8")
+        build = (root / "scripts" / "build_windows_portable.ps1").read_text(encoding="utf-8")
+        portable = (root / "scripts" / "prepare_portable.ps1").read_text(encoding="utf-8")
+        launcher = (root / "start-tray.bat").read_text(encoding="utf-8")
+        self.assertIn("status = project_list_item(root)", management)
+        self.assertIn("_CENSUS_CACHE", households)
+        self.assertIn("if verify_local:", evidence_src)
+        self.assertLess(evidence_src.find("if verify_local:"), evidence_src.find("census_report"))
+        self.assertNotIn('"id": "delivery"', host)
+        self.assertNotIn('"label": "交付"', host)
+        self.assertIn("mcp_health_snapshot", host)
+        self.assertIn("mcp_entry_text", host)
+        self.assertIn("coverage_scroll_key", host)
+        self.assertIn("--portable", host)
+        self.assertIn("portable.ini", host)
+        self.assertIn("timeout=300", host)
+        self.assertIn('("placeholder", "占位")', host)
+        self.assertIn("ensure_portable_archive", desktop)
+        self.assertIn("def _canonical_guard(", desktop)
+        self.assertIn("def _project_digest(", desktop)
+        self.assertIn("rebind_portable_git_enrollment", storage)
+        self.assertIn("relocate_installed_worktrees", storage)
+        self.assertIn('ignore=shutil.ignore_patterns("worktrees", "webview2", "__pycache__")', storage)
+        self.assertNotIn("commit or stash before enrolling", enroll)
+        self.assertIn('skill_commands.add_parser("prompt")', cli)
+        self.assertIn('skill_commands.add_parser("version"', cli)
+        self.assertIn("SKILL_ENTRY_PROMPT", harnesses)
+        self.assertIn("/portable.ini", ignore)
+        self.assertIn(".grok/", ignore)
+        self.assertIn("packaging\\windows\\tray.py", build)
+        self.assertIn("prepare_portable.ps1", build)
+        self.assertIn("AutoGovern2Code-Portable-Windows-x64.zip", build)
+        self.assertIn("tray-host", portable)
+        self.assertIn("portable.ini", portable)
+        self.assertIn("AG2C_CHECK", launcher)
+        self.assertIn("def issue_label(", host)
+        self.assertIn("def skill_prompt_text(", host)
+        ui = _webview_sources(root)
+        self.assertIn("ag2cPollDigest", ui)
+        self.assertIn("/api/project/digest", ui)
+        self.assertIn("payload.reload", ui)
+        self.assertIn("previous: window.__AG2C_DIGEST", ui)
 
-class TrayFontTests(unittest.TestCase):
-    @unittest.skipUnless(os.name == "nt", "Windows CJK fonts live under C:\\Windows\\Fonts")
-    def test_windows_cjk_font_file_exists(self) -> None:
-        from ag2c_gui.imgui_tray import cjk_font_path
+    def test_selected_root_drops_a_selection_that_left_the_registry(self) -> None:
+        from ag2c_gui.tray_host import selected_root_after_list
 
-        found = cjk_font_path()
-        self.assertIsNotNone(found)
-        assert found is not None
-        self.assertTrue(found.is_file())
-        self.assertEqual("C:\\Windows\\Fonts", str(found.parent))
+        vanished = r"C:\Users\Holo\AppData\Local\Temp\tmpxoioswl5\demo"
+        live = r"C:\_HOLOLAB\code\AutoGovern2Code-main"
+        self.assertEqual(
+            live,
+            selected_root_after_list([{"name": "AutoGovern2Code-main", "root": live, "state": "protected"}], vanished),
+        )
+        self.assertEqual(
+            live,
+            selected_root_after_list(
+                [
+                    {"name": "demo", "root": vanished, "state": "missing"},
+                    {"name": "AutoGovern2Code-main", "root": live, "state": "protected"},
+                ],
+                "",
+            ),
+        )
+        self.assertEqual(
+            vanished,
+            selected_root_after_list([{"name": "demo", "root": vanished, "state": "missing"}], vanished),
+        )
 
-    @unittest.skipUnless(os.name == "nt", "Windows CJK fonts live under C:\\Windows\\Fonts")
-    def test_load_fonts_uses_filesystem_cjk_as_default(self) -> None:
-        from ag2c_gui.imgui_tray import _load_fonts, cjk_font_path
+    def test_append_audit_writes_ring_and_log_file(self) -> None:
+        from ag2c_gui.tray_host import AUDIT_LIMIT, append_audit
 
-        loaded: list[dict[str, object]] = []
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "ag2c-audit.log"
+            with patch.dict(os.environ, {"AG2C_AUDIT_LOG": str(log)}):
+                lines: list[str] = []
+                append_audit(lines, "点击文件", "文件树", "src/ag2c/webview_host.py")
+                append_audit(lines, "点击知识卡", "知识卡片", "源码治理")
+                written = log.read_text(encoding="utf-8")
+            self.assertEqual(2, len(lines))
+            self.assertIn("点击文件", lines[0])
+            self.assertIn("src/ag2c/webview_host.py", lines[0])
+            self.assertIn("知识卡片", lines[1])
+            self.assertIn("点击文件  文件树  src/ag2c/webview_host.py", written)
+        self.assertGreaterEqual(AUDIT_LIMIT, 100)
 
-        class Params:
-            def __init__(self) -> None:
-                self.inside_assets = True
-                self.merge_to_last_font = False
+    def test_append_audit_ring_drops_oldest_past_limit(self) -> None:
+        from ag2c_gui.tray_host import AUDIT_LIMIT, append_audit
 
-        hello = MagicMock()
-        hello.FontLoadingParams = Params
-
-        def load_font(path: str, size: float, params: Params | None = None) -> None:
-            loaded.append(
-                {
-                    "path": path,
-                    "size": size,
-                    "inside": None if params is None else params.inside_assets,
-                    "merge": None if params is None else params.merge_to_last_font,
-                }
-            )
-
-        hello.load_font.side_effect = load_font
-        bundle = ModuleType("imgui_bundle")
-        bundle.hello_imgui = hello  # type: ignore[attr-defined]
-        bundle.imgui = MagicMock()  # type: ignore[attr-defined]
-        with patch.dict(sys.modules, {"imgui_bundle": bundle, "imgui_bundle.hello_imgui": hello}):
-            _load_fonts()
-        cjk = cjk_font_path()
-        self.assertIsNotNone(cjk)
-        assert cjk is not None
-        self.assertGreaterEqual(len(loaded), 1)
-        self.assertEqual(str(cjk), loaded[0]["path"])
-        self.assertFalse(loaded[0]["inside"])
-        self.assertFalse(loaded[0]["merge"])
-        self.assertTrue(any(item["merge"] and "fontawesome" in str(item["path"]) for item in loaded[1:]))
-        hello.imgui_default_settings.load_default_font_with_font_awesome_icons.assert_not_called()
-
-
-class TraySelectionTests(unittest.TestCase):
-    def test_duplicate_titles_get_distinct_widget_ids(self) -> None:
-        from ag2c_gui.imgui_tray import node_key, widget_id
-
-        label = "ADOPTION.md  ·  在册"
-        left = widget_id(label, node_key({"title": "ADOPTION.md", "path": "docs/ADOPTION.md"}))
-        right = widget_id(label, node_key({"title": "ADOPTION.md", "path": "docs/i18n/ADOPTION.md"}))
-        self.assertNotEqual(left, right)
-        self.assertTrue(left.startswith(label))
-        self.assertIn("docs/ADOPTION.md", left)
-        self.assertIn("docs/i18n/ADOPTION.md", right)
-
-    def test_tray_hides_nav_cursor_and_uses_unique_selectable_ids(self) -> None:
-        ui = _imgui_sources()
-        self.assertIn("set_nav_cursor_visible(False)", ui)
-        self.assertIn("Col_.nav_cursor", ui)
-        self.assertIn("widget_id(label, root)", ui)
-        self.assertIn("widget_id(label, key)", ui)
-        self.assertIn("inspect_key", ui)
-        self.assertIn("file_tree_children", ui)
-        self.assertNotIn("open_on_arrow", ui)
-        self.assertIn("set_next_item_open", ui)
-        self.assertIn("设计思路", ui)
-        self.assertIn("未认领", ui)
-        self.assertIn("同类", ui)
-        self.assertIn("治理文件", ui)
-        self.assertIn("def _selectable(", ui)
-        self.assertIn("_selectable(widget_id(rel, \"gov:\" + rel))", ui)
-
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "ag2c-audit.log"
+            with patch.dict(os.environ, {"AG2C_AUDIT_LOG": str(log)}):
+                lines: list[str] = []
+                for index in range(AUDIT_LIMIT + 25):
+                    append_audit(lines, "点击", "测试", str(index))
+            self.assertEqual(AUDIT_LIMIT, len(lines))
+            self.assertTrue(lines[0].endswith(" 测试  25"))
+            self.assertTrue(lines[-1].endswith(f" 测试  {AUDIT_LIMIT + 24}"))
+            joined = "\n".join(lines) + "\n"
+            self.assertNotIn(" 测试  0\n", joined)
+            self.assertNotIn(" 测试  24\n", joined)
 
 class TrayHostHelperTests(unittest.TestCase):
     def test_coverage_filter_keeps_exploring_cards(self) -> None:
@@ -785,19 +642,15 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertNotIn("未普查", inspected["message"])
 
     def test_file_tree_lets_src_open_nested_children(self) -> None:
-        import ag2c_gui.imgui_tray  # noqa: F401 — complete circular import with imgui_panels
-        from ag2c_gui.imgui_panels import _auto_open_root_dir
         from ag2c_gui.tray_host import file_tree_children
-        tree = file_tree_children([("README.md", {"kind": "file", "title": "README.md", "path": "app:README.md"}), ("src/ag2c/gitops.py", {"kind": "file", "title": "gitops.py", "path": "app:src/ag2c/gitops.py"}), ("src/ag2c/imgui_tray.py", {"kind": "file", "title": "imgui_tray.py", "path": "app:src/ag2c/imgui_tray.py"})])
+        tree = file_tree_children([("README.md", {"kind": "file", "title": "README.md", "path": "app:README.md"}), ("src/ag2c/gitops.py", {"kind": "file", "title": "gitops.py", "path": "app:src/ag2c/gitops.py"}), ("src/ag2c/webview_host.py", {"kind": "file", "title": "webview_host.py", "path": "app:src/ag2c/webview_host.py"})])
         root_names = [name for name, kind, _prefix, _node in tree[""]]
         self.assertEqual(["src", "README.md"], root_names)
         self.assertEqual("dir", tree[""][0][1])
         self.assertEqual(["ag2c"], [name for name, _kind, _prefix, _node in tree["src"]])
         nested = [name for name, kind, _prefix, _node in tree["src/ag2c"]]
-        self.assertEqual(["gitops.py", "imgui_tray.py"], nested)
+        self.assertEqual(["gitops.py", "webview_host.py"], nested)
         self.assertTrue(all(kind == "file" for _name, kind, _prefix, _node in tree["src/ag2c"]))
-        dump = [("f%d.py" % i, "file", "f%d.py" % i, {}) for i in range(17)]
-        self.assertEqual((True, False, True), (_auto_open_root_dir(tree["src"]), _auto_open_root_dir(dump), _auto_open_root_dir(dump[:16])))
 
     def test_file_and_card_focus_are_bidirectional(self) -> None:
         from ag2c_gui.tray_host import claim_label, coverage_scroll_key, files_for_card, focus_card, focus_file, peer_rels
@@ -812,11 +665,11 @@ class TrayHostHelperTests(unittest.TestCase):
         }
         tray = {
             "kind": "file",
-            "id": "file:app:src/ag2c/imgui_tray.py",
-            "title": "imgui_tray.py",
-            "path": "app:src/ag2c/imgui_tray.py",
+            "id": "file:app:src/ag2c/webview_host.py",
+            "title": "webview_host.py",
+            "path": "app:src/ag2c/webview_host.py",
             "coveredBy": ["源码治理"],
-            "summary": "src/ag2c/imgui_tray.py",
+            "summary": "src/ag2c/webview_host.py",
         }
         util = {
             "kind": "file",
@@ -851,7 +704,7 @@ class TrayHostHelperTests(unittest.TestCase):
         }
         files = [
             ("src/ag2c/gitops.py", gitops),
-            ("src/ag2c/imgui_tray.py", tray),
+            ("src/ag2c/webview_host.py", tray),
             ("src/ag2c/util.py", util),
             ("src/shared.py", both),
         ]
@@ -860,17 +713,17 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertEqual("未认领", claim_label(util))
         self.assertEqual("重复认领", claim_label(both))
         self.assertEqual(
-            ["src/ag2c/gitops.py", "src/ag2c/imgui_tray.py", "src/shared.py"],
+            ["src/ag2c/gitops.py", "src/ag2c/webview_host.py", "src/shared.py"],
             files_for_card(files, card),
         )
-        self.assertEqual(["src/ag2c/gitops.py", "src/ag2c/imgui_tray.py"], peer_rels(files, gitops))
+        self.assertEqual(["src/ag2c/gitops.py", "src/ag2c/webview_host.py"], peer_rels(files, gitops))
         self.assertEqual([], peer_rels(files, util))
-        picked = focus_file(files, cards, "src/ag2c/imgui_tray.py")
+        picked = focus_file(files, cards, "src/ag2c/webview_host.py")
         assert picked is not None
-        self.assertEqual("src/ag2c/imgui_tray.py", picked["selected_file"])
+        self.assertEqual("src/ag2c/webview_host.py", picked["selected_file"])
         self.assertEqual("knowledge.src", picked["selected_card_key"])
         self.assertEqual({"knowledge.src"}, picked["highlight_card_keys"])
-        self.assertEqual({"src/ag2c/imgui_tray.py"}, picked["highlight_paths"])
+        self.assertEqual({"src/ag2c/webview_host.py"}, picked["highlight_paths"])
         self.assertIn("src", picked["force_open"])
         self.assertIn("src/ag2c", picked["force_open"])
         inspect = picked["inspect"]
@@ -894,7 +747,7 @@ class TrayHostHelperTests(unittest.TestCase):
         from_card = focus_card(files, card)
         self.assertEqual("knowledge.src", from_card["selected_card_key"])
         self.assertEqual("", from_card["selected_file"])
-        self.assertEqual({"src/ag2c/gitops.py", "src/ag2c/imgui_tray.py", "src/shared.py"}, from_card["highlight_paths"])
+        self.assertEqual({"src/ag2c/gitops.py", "src/ag2c/webview_host.py", "src/shared.py"}, from_card["highlight_paths"])
         self.assertEqual({"src", "src/ag2c"}, from_card["force_open"])
         self.assertNotIn("tests", from_card["force_open"])
         self.assertEqual("src", from_card["scroll_file_key"])
@@ -903,15 +756,10 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertEqual(set(), empty_focus["highlight_paths"])
         self.assertEqual("", empty_focus["scroll_file_key"])
         self.assertEqual("这张卡还没有落到文件树上的代码文件", empty_focus["inspect"]["message"])
-        from ag2c_gui.imgui_tray import AppState, _focus_card
         from ag2c_gui.tray_inspect import build_row_cache
         cache = build_row_cache(files, cards)
         self.assertEqual({"card": {}, "file": {}, "counts": {}}, build_row_cache([], []))
         self.assertEqual(from_card, cache["card"][card["id"]])
-        held = AppState([]); held.row_cache = cache
-        with patch("ag2c_gui.tray_inspect.files_for_card") as ff, patch("ag2c_gui.tray_inspect.coverage_rows") as cr:
-            _focus_card(held, card); ff.assert_not_called(); cr.assert_not_called()
-        self.assertEqual(from_card["selected_card_key"], held.selected_card_key)
         self.assertEqual("prototypes/demo-free-layout", coverage_scroll_key([("prototypes/demo-free-layout/app.tsx", {}), ("prototypes/demo-free-layout/src/editor.tsx", {}), ("services/foo.ts", {})], {"prototypes/demo-free-layout/app.tsx", "prototypes/demo-free-layout/src/editor.tsx"}))
 
     def test_file_tree_click_uses_file_card_not_the_parent_room(self) -> None:
@@ -1122,50 +970,6 @@ class TrayHostHelperTests(unittest.TestCase):
         self.assertEqual("", preferred_project_root([vanished]))
         self.assertEqual("", preferred_project_root([]))
 
-    def test_load_projects_drops_a_selection_that_left_the_registry(self) -> None:
-        from ag2c_gui.imgui_tray import _load_projects
-
-        vanished = r"C:\Users\Holo\AppData\Local\Temp\tmpxoioswl5\demo"
-        live = r"C:\_HOLOLAB\code\AutoGovern2Code-main"
-
-        class State:
-            def __init__(self, api, selected: str) -> None:
-                self.api = api
-                self.lock = threading.Lock()
-                self.busy = False
-                self.status = ""
-                self.projects: list = []
-                self.selected_root = selected
-
-        class GoneFromRegistry:
-            def request(self, method: str, path: str, body=None):
-                return {"projects": [{"name": "AutoGovern2Code-main", "root": live, "state": "protected"}]}
-
-        state = State(GoneFromRegistry(), vanished)
-        _load_projects(state)
-        self.assertEqual(live, state.selected_root)
-
-        class Mixed:
-            def request(self, method: str, path: str, body=None):
-                return {
-                    "projects": [
-                        {"name": "demo", "root": vanished, "state": "missing"},
-                        {"name": "AutoGovern2Code-main", "root": live, "state": "protected"},
-                    ]
-                }
-
-        state = State(Mixed(), "")
-        _load_projects(state)
-        self.assertEqual(live, state.selected_root)
-
-        class StillListed:
-            def request(self, method: str, path: str, body=None):
-                return {"projects": [{"name": "demo", "root": vanished, "state": "missing"}]}
-
-        state = State(StillListed(), vanished)
-        _load_projects(state)
-        self.assertEqual(vanished, state.selected_root)
-
     def test_managed_projects_sorts_missing_last_and_skips_git(self) -> None:
         from ag2c import management
 
@@ -1332,98 +1136,6 @@ class TrayGateTests(unittest.TestCase):
         sick = {row["id"]: row for row in project_gate_rows(project, details)}
         self.assertTrue(sick["worktrees"]["warn"])
         self.assertIn("已分叉", sick["worktrees"]["value"])
-
-    def test_audit_records_clicks_to_ring_and_log_file(self) -> None:
-        from ag2c_gui.imgui_tray import AUDIT_LIMIT, AppState, audit
-
-        with tempfile.TemporaryDirectory() as directory:
-            log = Path(directory) / "ag2c-audit.log"
-            with patch.dict(os.environ, {"AG2C_AUDIT_LOG": str(log)}):
-                state = AppState([])
-                audit(state, "点击文件", "文件树", "src/ag2c/imgui_tray.py")
-                audit(state, "点击知识卡", "知识卡片", "源码治理")
-                audit(state, "展开", "文件树", "src/ag2c")
-                written = log.read_text(encoding="utf-8")
-            self.assertEqual(3, len(state.audit_lines))
-            self.assertIn("点击文件", state.audit_lines[0])
-            self.assertIn("文件树", state.audit_lines[0])
-            self.assertIn("src/ag2c/imgui_tray.py", state.audit_lines[0])
-            self.assertIn("知识卡片", state.audit_lines[1])
-            self.assertIn("源码治理", state.audit_lines[1])
-            self.assertIn("展开  文件树  src/ag2c", state.audit_lines[2])
-            self.assertIn("点击文件  文件树  src/ag2c/imgui_tray.py", written)
-            self.assertIn("点击知识卡  知识卡片  源码治理", written)
-            self.assertIn("展开  文件树  src/ag2c", written)
-        self.assertGreaterEqual(AUDIT_LIMIT, 100)
-
-    def test_audit_ring_drops_oldest_past_limit(self) -> None:
-        from ag2c_gui.imgui_tray import AUDIT_LIMIT, AppState, audit
-
-        with tempfile.TemporaryDirectory() as directory:
-            log = Path(directory) / "ag2c-audit.log"
-            with patch.dict(os.environ, {"AG2C_AUDIT_LOG": str(log)}):
-                state = AppState([])
-                for index in range(AUDIT_LIMIT + 25):
-                    audit(state, "点击", "测试", str(index))
-            self.assertEqual(AUDIT_LIMIT, len(state.audit_lines))
-            self.assertTrue(state.audit_lines[0].endswith(" 测试  25"))
-            self.assertTrue(state.audit_lines[-1].endswith(f" 测试  {AUDIT_LIMIT + 24}"))
-            joined = "\n".join(state.audit_lines) + "\n"
-            self.assertNotIn(" 测试  0\n", joined)
-            self.assertNotIn(" 测试  24\n", joined)
-
-    def test_focus_path_and_card_write_audit_lines(self) -> None:
-        from ag2c_gui.imgui_tray import AppState, _focus_card, _focus_path
-
-        tray = {
-            "kind": "file",
-            "id": "file:app:src/ag2c/imgui_tray.py",
-            "title": "imgui_tray.py",
-            "path": "app:src/ag2c/imgui_tray.py",
-            "coveredBy": ["源码治理"],
-        }
-        card = {
-            "kind": "knowledge",
-            "id": "knowledge.src",
-            "title": "源码治理",
-            "summary": "对照",
-            "flags": [],
-        }
-        details = {"graph": {"nodes": [tray, card]}, "cards": [card], "project": {"name": "AutoGovern2Code"}}
-        with tempfile.TemporaryDirectory() as directory:
-            log = Path(directory) / "ag2c-audit.log"
-            with patch.dict(os.environ, {"AG2C_AUDIT_LOG": str(log)}):
-                state = AppState([])
-                state.details = details
-                _focus_path(state, "src/ag2c/imgui_tray.py")
-                self.assertEqual("src/ag2c/imgui_tray.py", state.selected_file)
-                _focus_card(state, card)
-                self.assertEqual("knowledge.src", state.selected_card_key)
-                _focus_path(state, "missing/nope.py", where="详情")
-                written = log.read_text(encoding="utf-8")
-            actions = [line.split("  ", 3)[1] for line in state.audit_lines]
-            self.assertIn("点击文件", state.audit_lines[0])
-            self.assertIn("文件树", state.audit_lines[0])
-            self.assertIn("src/ag2c/imgui_tray.py", state.audit_lines[0])
-            self.assertIn("点击知识卡", state.audit_lines[1])
-            self.assertIn("知识卡片", state.audit_lines[1])
-            self.assertIn("源码治理", state.audit_lines[1])
-            self.assertIn("未命中文件", state.audit_lines[-1])
-            self.assertIn("详情", state.audit_lines[-1])
-            self.assertIn("missing/nope.py", state.audit_lines[-1])
-            self.assertEqual(["点击文件", "点击知识卡", "点击文件", "未命中文件"], actions)
-            self.assertIn("未命中文件  详情  missing/nope.py", written)
-
-    def test_audit_overlay_is_not_a_dock_and_newest_is_reversed_in_gui_source(self) -> None:
-        ui = _imgui_sources()
-        self.assertIn("reversed(state.audit_lines)", ui)
-        self.assertIn('small_button("清空")', ui); self.assertIn('small_button("打开日志文件")', ui)
-        self.assertNotIn("avail_meter", ui)
-        self.assertIn("还没有操作。点击文件或知识卡后会出现在这里。", ui)
-        self.assertIn('audit(state, "点击目录", "文件树", prefix)', ui)
-        windows_block = ui[ui.index("def _windows"): ui.index("def _gui_splash")]
-        self.assertNotIn("审计", windows_block)
-
 
 class HiddenConsoleTests(unittest.TestCase):
     def test_hidden_process_kwargs_hide_windows_consoles(self) -> None:

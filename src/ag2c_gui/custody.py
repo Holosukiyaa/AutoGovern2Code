@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .dashboard import DECISION, MUTED, NOTICE, OK_DIM, open_tasks, pending_items, stale_knowledge
+from .dashboard import open_tasks, pending_items, stale_knowledge
 
 _FLAGS = (
     ("auto_settle", "结算"),
@@ -77,79 +77,3 @@ def custody_model(details: dict[str, Any] | None, guard: dict[str, Any] | None =
         "veto": veto,
         "irreversible": _IRREVERSIBLE,
     }
-
-
-def draw_custody(model: dict[str, Any]) -> list[tuple[str, bool]]:
-    """Render 看/否/授. Returns clicks: (flag, on) or ('audit-ack', True)."""
-    from imgui_bundle import imgui
-
-    clicks: list[tuple[str, bool]] = []
-    if model.get("empty"):
-        imgui.text_disabled("先选择一个项目。")
-        return clicks
-    imgui.text_disabled(str(model.get("project") or ""))
-    imgui.same_line()
-    imgui.text_disabled("已托管" if model.get("granted") else "未托管")
-    color = OK_DIM if not (model.get("veto") or []) else DECISION
-    imgui.text_colored(color, str(model.get("headline") or ""))
-    imgui.separator()
-    imgui.text_colored(NOTICE, "看")
-    watch = model.get("watch") or []
-    if watch:
-        for item in watch:
-            imgui.bullet_text(str(item.get("text") or "代理决定"))
-    else:
-        imgui.text_disabled("代理还没替你做过事")
-    imgui.separator()
-    imgui.text_colored(DECISION, "否")
-    veto = model.get("veto") or []
-    if veto:
-        for item in veto:
-            imgui.bullet_text(str(item.get("text") or item.get("id") or ""))
-        if any(str(item.get("kind")) == "audit" for item in veto) and imgui.small_button("已抽查##custody"):
-            clicks.append(("audit-ack", True))
-    else:
-        imgui.text_disabled("没有要你点的")
-    imgui.separator()
-    imgui.text_colored(MUTED, "授")
-    imgui.text_disabled(str(model.get("irreversible") or _IRREVERSIBLE))
-    for item in model.get("flags") or []:
-        fid = str(item.get("id") or "")
-        label = str(item.get("label") or fid)
-        on = bool(item.get("on"))
-        imgui.text(f"{label} · {'已授' if on else '未授'}")
-        imgui.same_line()
-        if on:
-            if imgui.small_button(f"收回##{fid}"):
-                clicks.append((fid, False))
-        else:
-            if imgui.small_button(f"授##{fid}"):
-                clicks.append((fid, True))
-    return clicks
-
-
-def apply_custody_clicks(state: Any, clicks: list[tuple[str, bool]]) -> None:
-    if not clicks:
-        return
-    from .imgui_tray import _post, _refresh
-
-    with state.lock:
-        root = state.selected_root
-    if not root:
-        return
-    for flag, on in clicks:
-        if flag == "audit-ack":
-            state.run_job(lambda: _post(state, "api/project/audit-ack", root))
-            continue
-
-        def job(flag: str = flag, on: bool = on, path: str = root) -> None:
-            if state.api is None:
-                return
-            state.api.request(
-                "POST",
-                "api/project/proxy",
-                {"path": path, "flag": flag, "on": on, "reason": "mayor 授 from 托管"},
-            )
-            _refresh(state)
-
-        state.run_job(job)

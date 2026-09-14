@@ -181,11 +181,15 @@ class DesktopHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/project/dashboard":
                 from .dashboard import dashboard_model
+                from .tray_host import selected_root_after_list
 
-                if not str(body.get("path") or "").strip():
+                requested = str(body.get("path") or "").strip()
+                if not requested:
+                    requested = selected_root_after_list(managed_projects(), "")
+                if not requested:
                     self._json(HTTPStatus.OK, dashboard_model(None, None))
                     return
-                details = project_details(self._request_path(body), refresh=bool(body.get("refresh")))
+                details = project_details(Path(requested).expanduser().resolve(), refresh=bool(body.get("refresh")))
                 guard = details.get("guard") if isinstance(details.get("guard"), dict) else {}
                 self._json(HTTPStatus.OK, dashboard_model(details, guard))
                 return
@@ -206,6 +210,7 @@ class DesktopHandler(BaseHTTPRequestHandler):
                 )
                 return
             if path == "/api/project/inspect":
+                from .tray_host import append_audit
                 from .tray_inspect import coverage_rows, empty_inspect, inspect_file
 
                 details = None
@@ -218,6 +223,7 @@ class DesktopHandler(BaseHTTPRequestHandler):
                     for rel, node in files:
                         if rel.replace("\\", "/") == wanted:
                             payload = inspect_file(node, files, cards)
+                            append_audit([], "点击文件", "文件树", wanted)
                             break
                 self._json(HTTPStatus.OK, payload)
                 return
@@ -270,7 +276,13 @@ class DesktopHandler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK, payload)
                 return
             if path == "/api/project/digest":
-                self._json(HTTPStatus.OK, _project_digest(self._request_path(body)))
+                from .tray_host import digest_triggers_reload
+
+                payload = dict(_project_digest(self._request_path(body)))
+                previous = str(body.get("previous") or "")
+                current = str(payload.get("digest") or "")
+                payload["reload"] = digest_triggers_reload(previous, current)
+                self._json(HTTPStatus.OK, payload)
                 return
             if path == "/api/project/audit-ack":
                 from ag2c.audit import acknowledge

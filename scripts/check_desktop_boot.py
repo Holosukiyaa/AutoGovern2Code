@@ -94,9 +94,18 @@ def main() -> int:
         if payload.get("status") != "ready":
             print(f"FAIL: /api/status answered but status={payload.get('status')!r}")
             return 1
+        ui_url = f"http://127.0.0.1:{port}/ui/"
+        with urllib.request.urlopen(ui_url, timeout=2) as response:
+            page = response.read().decode("utf-8")
+            if response.status != 200:
+                print(f"FAIL: GET /ui/ status={response.status}")
+                return 1
+        if 'id="ops"' not in page:
+            print("FAIL: GET /ui/ did not contain id=ops")
+            return 1
         _shutdown(port, token)
         process.wait(timeout=3)
-        print(f"OK: desktop server booted on 127.0.0.1:{port}, answered /api/status, shut down cleanly")
+        print(f"OK: desktop server booted on 127.0.0.1:{port}, answered /api/status and /ui/, shut down cleanly")
         return 0
     finally:
         watchdog.cancel()

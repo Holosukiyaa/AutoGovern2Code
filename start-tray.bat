@@ -32,12 +32,12 @@ if exist "%CD%\git\cmd\git.exe" set "AG2C_PORTABLE_GIT=%CD%\git"
 
 set "AG2C_CHECK=%AG2C_PYTHON%"
 if defined AG2C_PYTHONW if exist "%AG2C_PYTHONW%" set "AG2C_CHECK=%AG2C_PYTHONW%"
-"%AG2C_CHECK%" -c "from imgui_bundle import hello_imgui" 1>nul 2>nul
+"%AG2C_CHECK%" -c "import webview" 1>nul 2>nul
 if errorlevel 1 (
-  echo imgui-bundle is missing. Installing...
-  "%AG2C_PYTHON%" -m pip install --disable-pip-version-check "imgui-bundle>=1.5"
+  echo pywebview is missing. Installing...
+  "%AG2C_PYTHON%" -m pip install --disable-pip-version-check "pywebview>=5"
   if errorlevel 1 (
-    echo Could not install imgui-bundle. Run: python -m pip install imgui-bundle
+    echo Could not install pywebview. Run: python -m pip install pywebview
     pause
     exit /b 1
   )

@@ -354,6 +354,51 @@ def preferred_project_root(projects: list[dict[str, Any]]) -> str:
     return ""
 
 
+AUDIT_LIMIT = 800
+
+
+def audit_log_path() -> Path:
+    override = os.environ.get("AG2C_AUDIT_LOG", "").strip()
+    if override:
+        return Path(override)
+    return Path(os.environ.get("TEMP", ".") or ".") / "ag2c-audit.log"
+
+
+def append_audit(lines: list[str], action: str, where: str, detail: str = "", *, limit: int = AUDIT_LIMIT) -> str:
+    """Append one operator action to an in-memory ring and the audit log file."""
+    frac = time.time()
+    stamp = time.strftime("%H:%M:%S", time.localtime(frac)) + f".{int(frac * 1000) % 1000:03d}"
+    detail = " ".join(str(detail or "").split())
+    if len(detail) > 400:
+        detail = detail[:397] + "..."
+    line = f"{stamp}  {action}  {where}"
+    if detail:
+        line += f"  {detail}"
+    lines.append(line)
+    extra = len(lines) - limit
+    if extra > 0:
+        del lines[:extra]
+    try:
+        with audit_log_path().open("a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+    except OSError:
+        pass
+    return line
+
+
+def selected_root_after_list(projects: list[dict[str, Any]], selected: str) -> str:
+    """Keep the current selection if it is still listed; otherwise pick a live root."""
+    roots = {text(row, "root") for row in projects if isinstance(row, dict)}
+    if selected and selected in roots:
+        return selected
+    return preferred_project_root(projects)
+
+
+def digest_triggers_reload(previous: str, current: str) -> bool:
+    """Reload dashboard/tree when a later digest differs from the one already shown."""
+    return bool(current) and bool(previous) and previous != current
+
+
 def row_key(node: dict[str, Any], fallback: str = "") -> str:
     return text(node, "id") or text(node, "path") or fallback
 

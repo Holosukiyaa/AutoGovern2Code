@@ -1,4 +1,4 @@
-from ag2c_gui.imgui_tray import main
+from ag2c_gui.webview_host import main
 
 
 raise SystemExit(main())

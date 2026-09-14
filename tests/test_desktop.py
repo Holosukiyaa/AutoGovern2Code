@@ -570,7 +570,7 @@ class TrayHostSourceTests(unittest.TestCase):
         self.assertIn("enable_idling = False", ui)
         self.assertIn("background_color = (0.13, 0.14, 0.16, 1.0)", ui)
         self.assertIn("photoshop_style", ui)
-        self.assertIn("from ag2c_gui.imgui_tray import main", entry)
+        self.assertIn("from ag2c_gui.webview_host import main", entry)
         self.assertIn("packaging\\windows\\tray.py", build)
         self.assertIn("NOTICE-imgui.txt", build)
         self.assertIn("prepare_portable.ps1", build)

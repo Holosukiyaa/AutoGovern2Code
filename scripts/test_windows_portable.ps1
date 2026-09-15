@@ -21,7 +21,7 @@ $pathWithGit = $env:PATH
 try {
     Expand-Archive -LiteralPath $ZipPath -DestinationPath $extract
     $root = Join-Path $extract 'AutoGovern2Code'
-    foreach ($expected in @('portable.ini', 'AutoGovern2Code.exe', 'NOTICE-imgui.txt', 'ag2c\ag2c.exe', 'git\cmd\git.exe')) {
+    foreach ($expected in @('portable.ini', 'AutoGovern2Code.exe', 'ag2c\ag2c.exe', 'git\cmd\git.exe')) {
         if (-not (Test-Path -LiteralPath (Join-Path $root $expected))) {
             throw "Portable package is missing: $expected"
         }

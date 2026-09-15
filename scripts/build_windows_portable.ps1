@@ -14,7 +14,6 @@ $launcher = Join-Path $repoRoot 'packaging\windows\launcher.py'
 $skillSource = Join-Path $repoRoot 'src\ag2c\skills'
 $skillData = "${skillSource}:ag2c\skills"
 $desktopEntry = Join-Path $repoRoot 'packaging\windows\tray.py'
-$desktopNotice = Join-Path $repoRoot 'packaging\windows\NOTICE-imgui.txt'
 
 if (-not (Test-Path -LiteralPath (Join-Path $skillSource 'ag2c-governed-development\SKILL.md'))) {
     throw "Packaged AG2C Skill source is missing from $skillSource."
@@ -91,9 +90,9 @@ if (-not (Test-Path -LiteralPath (Join-Path $gitRoot 'cmd\git.exe'))) {
     throw "Bundled MinGit was not placed at $gitRoot"
 }
 
-& python -m pip install --disable-pip-version-check "imgui-bundle>=1.5"
+& python -m pip install --disable-pip-version-check "pywebview>=5"
 if ($LASTEXITCODE -ne 0) {
-    throw "imgui-bundle install failed with exit code $LASTEXITCODE."
+    throw "pywebview install failed with exit code $LASTEXITCODE."
 }
 $trayDist = Join-Path $buildRoot 'tray'
 & python -m PyInstaller `
@@ -103,11 +102,8 @@ $trayDist = Join-Path $buildRoot 'tray'
     --onedir `
     --name AutoGovern2Code `
     --paths (Join-Path $repoRoot 'src') `
-    --hidden-import ag2c_gui.imgui_tray `
+    --hidden-import ag2c_gui.webview_host `
     --hidden-import ag2c_gui.tray_host `
-    --exclude-module imgui_bundle.imguizmo `
-    --exclude-module imgui_bundle.immvision `
-    --exclude-module imgui_bundle.implot3d `
     --exclude-module PySide6 `
     --distpath $trayDist `
     --workpath (Join-Path $buildRoot 'pyinstaller-tray') `
@@ -125,7 +121,6 @@ if (Test-Path -LiteralPath $trayHost) {
     Remove-Item -LiteralPath $trayHost -Recurse -Force
 }
 Copy-Item -LiteralPath $trayOut -Destination $trayHost -Recurse -Force
-Copy-Item -LiteralPath $desktopNotice -Destination (Join-Path $trayHost 'NOTICE-imgui.txt') -Force
 
 # Lay out the no-install portable folder: exe + ag2c\ + git\ + data\ + portable.ini.
 & (Join-Path $repoRoot 'scripts\prepare_portable.ps1') -OutputRoot $portableRoot -SkipGit

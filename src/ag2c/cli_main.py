@@ -329,6 +329,90 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Trusted checks recorded: {report['checks']}")
                 print(f"Check rerun: {report['rerun']}")
             return 0
+        if args.command == "govern" and args.govern_command in {
+            "flatten-queue",
+            "flatten-check",
+            "flatten-bill",
+            "flatten-split",
+            "flatten-glue",
+            "flatten-door",
+        }:
+            if args.govern_command == "flatten-queue":
+                from .flatten import FLATTEN_QUEUE_SCHEMA, flatten_queue
+
+                items = flatten_queue(Path.cwd(), under=str(getattr(args, "under", "") or "") or None)
+                result = {"schema": FLATTEN_QUEUE_SCHEMA, "items": items}
+                if args.format == "text":
+                    if not items:
+                        print("flatten-queue: empty")
+                        return 0
+                    for item in items:
+                        print(f"{item['score']}\t{item['lines']} lines\t{item['heat']} commits\t{item['path']}")
+                    return 0
+                print(_json(result))
+                return 0
+            if args.govern_command == "flatten-check":
+                from .flatten import FLATTEN_CHECK_SCHEMA, pure_move_violations
+
+                diff = sys.stdin.read()
+                violations = pure_move_violations(diff)
+                result = {"schema": FLATTEN_CHECK_SCHEMA, "violations": violations}
+                if args.format == "text":
+                    if not violations:
+                        print("flatten-check: pass")
+                        return 0
+                    print("flatten-check: fail")
+                    for item in violations:
+                        print(item)
+                    return 1
+                print(_json(result))
+                return 1 if violations else 0
+            if args.govern_command == "flatten-bill":
+                from .flatten import flatten_bill, format_flatten_bill
+
+                bill = flatten_bill(sys.stdin.read())
+                if args.format == "json":
+                    print(_json(bill))
+                else:
+                    print(format_flatten_bill(bill), end="")
+                return 0
+            if args.govern_command == "flatten-split":
+                from .flatten import flatten_split
+
+                result = flatten_split(
+                    Path.cwd(),
+                    source=args.source,
+                    dest=args.dest,
+                    names=list(args.name),
+                    dry_run=bool(args.dry_run),
+                )
+                if args.format == "text":
+                    print(f"flatten-split: {result['source']} -> {result['dest']} ({', '.join(result['names'])})")
+                    if result.get("dry_run"):
+                        print("dry-run")
+                    return 0
+                print(_json(result))
+                return 0
+            if args.govern_command == "flatten-glue":
+                from .flatten import flatten_glue
+
+                result = flatten_glue(Path.cwd(), str(args.file))
+                if args.format == "text":
+                    print("胶水" if result["glue"] else "不是胶水")
+                    for reason in result.get("reasons") or []:
+                        print(reason)
+                    return 0
+                print(_json(result))
+                return 0
+            from .flatten import flatten_door
+
+            result = flatten_door(Path.cwd(), old=str(args.old), side=str(args.side), names=list(args.name))
+            if args.format == "text":
+                print("门牌改掉了" if result["cut"] else "门牌没改")
+                print(result.get("reason") or "")
+                return 0
+            print(_json(result))
+            return 0
         manifest, policy = _loaded(args)
         if args.command == "knowledge":
             if args.knowledge_command == "status":
@@ -516,60 +600,6 @@ def main(argv: list[str] | None = None) -> int:
                 from .checks import accept_test_baseline
 
                 result = accept_test_baseline(manifest, policy, list(args.checker), actor=args.actor, reason=args.reason)
-            elif args.govern_command == "flatten-queue":
-                from .flatten import FLATTEN_QUEUE_SCHEMA, flatten_queue
-
-                items = flatten_queue(Path.cwd(), under=str(getattr(args, "under", "") or "") or None)
-                result = {"schema": FLATTEN_QUEUE_SCHEMA, "items": items}
-                if args.format == "text":
-                    if not items:
-                        print("flatten-queue: empty")
-                        return 0
-                    for item in items:
-                        print(f"{item['score']}\t{item['lines']} lines\t{item['heat']} commits\t{item['path']}")
-                    return 0
-            elif args.govern_command == "flatten-check":
-                from .flatten import FLATTEN_CHECK_SCHEMA, pure_move_violations
-
-                diff = sys.stdin.read()
-                violations = pure_move_violations(diff)
-                result = {"schema": FLATTEN_CHECK_SCHEMA, "violations": violations}
-                if args.format == "text":
-                    if not violations:
-                        print("flatten-check: pass")
-                        return 0
-                    print("flatten-check: fail")
-                    for item in violations:
-                        print(item)
-                    return 1
-                print(_json(result))
-                return 1 if violations else 0
-            elif args.govern_command == "flatten-bill":
-                from .flatten import flatten_bill, format_flatten_bill
-
-                bill = flatten_bill(sys.stdin.read())
-                if args.format == "json":
-                    print(_json(bill))
-                else:
-                    print(format_flatten_bill(bill), end="")
-                return 0
-            elif args.govern_command == "flatten-split":
-                from .flatten import flatten_split
-
-                result = flatten_split(
-                    Path.cwd(),
-                    source=args.source,
-                    dest=args.dest,
-                    names=list(args.name),
-                    dry_run=bool(args.dry_run),
-                )
-                if args.format == "text":
-                    print(f"flatten-split: {result['source']} -> {result['dest']} ({', '.join(result['names'])})")
-                    if result.get("dry_run"):
-                        print("dry-run")
-                    return 0
-                print(_json(result))
-                return 0
             elif args.govern_command == "warning-dismiss":
                 from .checks import dismiss_warning
 

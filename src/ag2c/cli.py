@@ -472,6 +472,20 @@ def build_parser() -> argparse.ArgumentParser:
     flatten_split_cmd.add_argument("--name", action="append", default=[], help="要抽出的顶层函数/类/常量名，可重复")
     flatten_split_cmd.add_argument("--dry-run", action="store_true", help="只报告计划，不写文件")
     flatten_split_cmd.add_argument("--format", choices=("text", "json"), default="json")
+    flatten_glue_cmd = govern_commands.add_parser(
+        "flatten-glue",
+        help="胶水判定：转口且调用方分两拨才立案；__init__.py 不当胶水",
+    )
+    flatten_glue_cmd.add_argument("--file", required=True, help="大门文件，相对仓库根")
+    flatten_glue_cmd.add_argument("--format", choices=("text", "json"), default="json")
+    flatten_door_cmd = govern_commands.add_parser(
+        "flatten-door",
+        help="门牌检查：老文件不再转口且调用方改去侧屋才算切断",
+    )
+    flatten_door_cmd.add_argument("--old", required=True, help="老大门，相对仓库根")
+    flatten_door_cmd.add_argument("--side", required=True, help="侧屋，相对仓库根")
+    flatten_door_cmd.add_argument("--name", action="append", required=True, help="要检查的名字，可重复")
+    flatten_door_cmd.add_argument("--format", choices=("text", "json"), default="json")
     wdismiss_cmd = govern_commands.add_parser("warning-dismiss", help="撤销一条警告的累计计数（警告升级门的合法出口），带 actor/reason 落账本；计数从零重来")
     wdismiss_cmd.add_argument("--key", required=True, help="警告 key，与升级门报错中一致（如 check.suite-enrollment:seconds）")
     wdismiss_cmd.add_argument("--actor", required=True)

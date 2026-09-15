@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,7 +13,7 @@ import bootstrap  # noqa: F401
 from support import _git, git_project
 from ag2c.cli import main
 from ag2c.errors import AG2CError
-from ag2c.flatten import flatten_bill, flatten_queue, flatten_split, pure_move_violations
+from ag2c.flatten import flatten_bill, flatten_door, flatten_glue, flatten_queue, flatten_split, pure_move_violations
 
 
 def _diff(old: str, new: str, path: str = "src/ag2c/mod.py") -> str:
@@ -137,6 +138,7 @@ class FlattenTests(unittest.TestCase):
         empty = flatten_bill("")
         self.assertEqual([], empty["moves"])
         self.assertEqual([], empty["exams"])
+        self.assertEqual([], empty["retarget"])
         self.assertEqual([], empty["behavior"])
         moved = (
             "--- a/src/ag2c/mod.py\n+++ b/src/ag2c/mod.py\n@@\n"
@@ -170,3 +172,121 @@ class FlattenTests(unittest.TestCase):
         with patch("sys.stdin", io.StringIO(moved)), patch("sys.stdout", text_buf):
             self.assertEqual(0, main(["govern", "flatten-bill", "--format", "text"]))
         self.assertIn("搬家", text_buf.getvalue())
+        self.assertIn("改路牌", text_buf.getvalue())
+        retarget_diff = (
+            "--- a/shop.py\n+++ b/shop.py\n@@\n"
+            "-from .shop import bar\n"
+            "+from .side import bar\n"
+        )
+        retarget_bill = flatten_bill(retarget_diff)
+        self.assertEqual(["shop.py"], retarget_bill["retarget"])
+        self.assertEqual([], retarget_bill["behavior"])
+        self.assertEqual([], retarget_bill["moves"])
+        buf = io.StringIO()
+        with patch("sys.stdin", io.StringIO(retarget_diff)), patch("sys.stdout", buf):
+            self.assertEqual(0, main(["govern", "flatten-bill", "--format", "json"]))
+        self.assertEqual(["shop.py"], json.loads(buf.getvalue())["retarget"])
+        text_buf = io.StringIO()
+        with patch("sys.stdin", io.StringIO(retarget_diff)), patch("sys.stdout", text_buf):
+            self.assertEqual(0, main(["govern", "flatten-bill", "--format", "text"]))
+        retarget_text = text_buf.getvalue()
+        self.assertIn("改路牌:", retarget_text)
+        self.assertIn("  shop.py", retarget_text)
+        self.assertIn("行为改动:\n  （无）", retarget_text)
+
+    def test_glue_and_door_four_shops(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            glue = root / "glue"
+            glue.mkdir()
+            (glue / "shop.py").write_text("def foo():\n    return '计价'\n\nfrom .side import bar\n", encoding="utf-8")
+            (glue / "side.py").write_text("def bar():\n    return '发货'\n", encoding="utf-8")
+            (glue / "alice.py").write_text("from .shop import foo\n\ndef run():\n    return foo()\n", encoding="utf-8")
+            (glue / "bob.py").write_text("from .shop import bar\n\ndef run():\n    return bar()\n", encoding="utf-8")
+            report = flatten_glue(glue, "shop.py")
+            self.assertTrue(report["glue"])
+            self.assertTrue(any("转口" in item for item in report["reasons"]))
+            self.assertTrue(any("两拨" in item for item in report["reasons"]))
+
+            not_glue = root / "not_glue"
+            not_glue.mkdir()
+            (not_glue / "parser.py").write_text("def parse(text):\n    return text.strip()\n\ndef format(data):\n    return str(data)\n", encoding="utf-8")
+            (not_glue / "app.py").write_text("from .parser import parse, format\n\ndef run(text):\n    return format(parse(text))\n", encoding="utf-8")
+            clean = flatten_glue(not_glue, "parser.py")
+            self.assertFalse(clean["glue"])
+
+            init = root / "pkg"
+            init.mkdir()
+            (init / "__init__.py").write_text("from .side import bar\n", encoding="utf-8")
+            (init / "side.py").write_text("def bar():\n    return 1\n", encoding="utf-8")
+            (init / "bob.py").write_text("from . import bar\n", encoding="utf-8")
+            self.assertFalse(flatten_glue(init, "__init__.py")["glue"])
+
+            moved = root / "moved"
+            moved.mkdir()
+            (moved / "shop.py").write_text("def foo():\n    return '计价'\n\nfrom .side import bar\n", encoding="utf-8")
+            (moved / "side.py").write_text("def bar():\n    return '发货'\n", encoding="utf-8")
+            (moved / "alice.py").write_text("from .shop import foo\n\ndef run():\n    return foo()\n", encoding="utf-8")
+            (moved / "bob.py").write_text("from .shop import bar\n\ndef run():\n    return bar()\n", encoding="utf-8")
+            self.assertTrue(flatten_glue(moved, "shop.py")["glue"])
+            door_moved = flatten_door(moved, old="shop.py", side="side.py", names=["bar"])
+            self.assertFalse(door_moved["cut"])
+            self.assertIn("转口", door_moved["reason"])
+
+            cut = root / "cut"
+            cut.mkdir()
+            (cut / "shop.py").write_text("def foo():\n    return '计价'\n", encoding="utf-8")
+            (cut / "side.py").write_text("def bar():\n    return '发货'\n", encoding="utf-8")
+            (cut / "alice.py").write_text("from .shop import foo\n\ndef run():\n    return foo()\n", encoding="utf-8")
+            (cut / "bob.py").write_text("from .side import bar\n\ndef run():\n    return bar()\n", encoding="utf-8")
+            self.assertFalse(flatten_glue(cut, "shop.py")["glue"])
+            door_cut = flatten_door(cut, old="shop.py", side="side.py", names=["bar"])
+            self.assertTrue(door_cut["cut"])
+
+            missing = flatten_glue
+            with self.assertRaises(AG2CError):
+                missing(root, "nope.py")
+            with self.assertRaises(AG2CError):
+                flatten_door(cut, old="shop.py", side="side.py", names=[])
+
+        help_buf = io.StringIO()
+        with patch("sys.stdout", help_buf):
+            try:
+                main(["govern", "flatten-glue", "--help"])
+            except SystemExit as exc:
+                self.assertEqual(0, exc.code)
+        self.assertIn("flatten-glue", help_buf.getvalue())
+        help_buf = io.StringIO()
+        with patch("sys.stdout", help_buf):
+            try:
+                main(["govern", "flatten-door", "--help"])
+            except SystemExit as exc:
+                self.assertEqual(0, exc.code)
+        self.assertIn("flatten-door", help_buf.getvalue())
+
+        glue_root = Path(tempfile.mkdtemp())
+        (glue_root / "shop.py").write_text("def foo():\n    return 1\n\nfrom .side import bar\n", encoding="utf-8")
+        (glue_root / "side.py").write_text("def bar():\n    return 2\n", encoding="utf-8")
+        (glue_root / "alice.py").write_text("from .shop import foo\n", encoding="utf-8")
+        (glue_root / "bob.py").write_text("from .shop import bar\n", encoding="utf-8")
+        here = Path.cwd()
+        os.chdir(glue_root)
+        try:
+            buf = io.StringIO()
+            err = io.StringIO()
+            with patch("sys.stdout", buf), patch("sys.stderr", err):
+                code = main(["govern", "flatten-glue", "--file", "shop.py", "--format", "json"])
+            self.assertEqual(0, code, err.getvalue())
+            self.assertTrue(json.loads(buf.getvalue())["glue"])
+            buf = io.StringIO()
+            with patch("sys.stdout", buf):
+                code = main(["govern", "flatten-door", "--old", "shop.py", "--side", "side.py", "--name", "bar", "--format", "json"])
+            self.assertEqual(0, code)
+            self.assertFalse(json.loads(buf.getvalue())["cut"])
+            err = io.StringIO()
+            with patch("sys.stderr", err):
+                code = main(["govern", "flatten-glue", "--file", "missing.py", "--format", "json"])
+            self.assertNotEqual(0, code)
+            self.assertIn("flatten-glue missing file", err.getvalue())
+        finally:
+            os.chdir(here)

@@ -750,4 +750,3 @@ from .task_delivery import classify_delivery, cost_self_report, describe_deliver
 from .task_orient import _orient_queue_entry
 from .task_retire import _assert_retirement_diff
 from .task_report import evidence, _local_evidence
-from .task_amend import amend_portrait

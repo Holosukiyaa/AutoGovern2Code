@@ -14,7 +14,8 @@ from support import git_project, write_project
 from ag2c.config import discover_manifest, load_manifest
 from ag2c.errors import AG2CError
 from ag2c.ledger import append_event, read_events
-from ag2c.tasks import TASK_SCHEMA, _start_evidence_valid, _task_path, amend_portrait, git_private_path
+from ag2c.tasks import TASK_SCHEMA, _start_evidence_valid, _task_path, git_private_path
+from ag2c.task_amend import amend_portrait
 
 OLD_PORTRAIT = (
     "Done looks like: 旧承诺——预算口径 60s（机器验证：fast 套件绿）。"

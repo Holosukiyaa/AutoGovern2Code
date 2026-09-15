@@ -266,7 +266,7 @@ def _call_task_declare(args: dict[str, Any]) -> Any:
     return declare_front_back(_cwd(args, required=True), reason=str(args.get("reason") or ""))
 
 def _call_task_amend_portrait(args: dict[str, Any]) -> Any:
-    from .tasks import amend_portrait
+    from .task_amend import amend_portrait
 
     return amend_portrait(
         _cwd(args, required=True),

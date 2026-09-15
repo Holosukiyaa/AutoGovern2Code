@@ -28,7 +28,8 @@ from .household_commands import (
     review_census,
 )
 from .households import _is_proper_subdir, directory_scope
-from .tasks import finish_task, start_task
+from .tasks import start_task
+from .task_finish import finish_task
 from .task_verify import verify_task
 from .task_orient import abandon_task
 

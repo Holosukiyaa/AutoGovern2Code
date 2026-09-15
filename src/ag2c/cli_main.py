@@ -169,7 +169,8 @@ def main(argv: list[str] | None = None) -> int:
             print(_json(status))
             return 0 if status["managed"] else 1
         if args.command == "task":
-            from .tasks import amend_portrait, declare_front_back, declare_full_scan, finish_task, start_task, task_record
+            from .tasks import amend_portrait, declare_front_back, declare_full_scan, start_task, task_record
+            from .task_finish import finish_task
             from .task_verify import verify_task
             from .task_orient import abandon_task, list_tasks, orient_task, refresh_task
 

@@ -12,7 +12,7 @@ from unittest import mock
 import bootstrap
 
 from ag2c.model import Manifest
-from ag2c.tasks import _finish_hints
+from ag2c.task_finish import _finish_hints
 
 from support import git_project, record_census, write_project
 
@@ -332,7 +332,7 @@ class AutoRefreshTests(unittest.TestCase):
             self.assertIn("canonical-head-diverged", [item["kind"] for item in record["interventions"]])
 
     def test_finish_auto_recovers_on_disjoint_divergence(self) -> None:
-        from ag2c.tasks import finish_task
+        from ag2c.task_finish import finish_task
         from ag2c.task_verify import verify_task
 
         with tempfile.TemporaryDirectory() as tmp:

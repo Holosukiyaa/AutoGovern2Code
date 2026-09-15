@@ -276,7 +276,7 @@ def _call_task_amend_portrait(args: dict[str, Any]) -> Any:
     )
 
 def _call_finish(args: dict[str, Any]) -> Any:
-    from .tasks import finish_task
+    from .task_finish import finish_task
 
     proof = str(args.get("proof") or "").strip()
     if not proof:

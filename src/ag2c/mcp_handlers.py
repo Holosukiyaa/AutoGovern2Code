@@ -483,7 +483,7 @@ def _call_settle(args: dict[str, Any]) -> Any:
     return settle_pending(_cwd(args, required=True), actor=_actor(args), reason=str(args.get("reason") or ""))
 
 def _call_evidence(args: dict[str, Any]) -> Any:
-    from .tasks import evidence
+    from .task_report import evidence
 
     task = str(args.get("task") or "").strip() or None
     return evidence(_cwd(args), task)

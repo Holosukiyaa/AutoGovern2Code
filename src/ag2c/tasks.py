@@ -749,4 +749,3 @@ def task_records(start: Path, *, manifest=None) -> list[dict[str, Any]]:
 from .task_delivery import classify_delivery, cost_self_report, describe_delivery, resolve_delivery
 from .task_orient import _orient_queue_entry
 from .task_retire import _assert_retirement_diff
-from .task_report import evidence, _local_evidence

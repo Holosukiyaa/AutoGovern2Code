@@ -289,7 +289,7 @@ def main(argv: list[str] | None = None) -> int:
             print(_json(task_record(Path.cwd(), args.task)))
             return 0
         if args.command == "evidence":
-            from .tasks import evidence
+            from .task_report import evidence
 
             report = evidence(Path.cwd(), args.task)
             if args.format == "json":

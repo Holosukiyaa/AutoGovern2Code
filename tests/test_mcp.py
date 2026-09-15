@@ -164,20 +164,20 @@ class PortraitLintTests(unittest.TestCase):
         "is_visible；实机：预览实例点击截图）。Out of result: 抽屉内容。无加料。"
     )
     def test_good_portrait_passes(self) -> None:
-        from ag2c.tasks import lint_portrait
+        from ag2c.portrait import lint_portrait
         self.assertEqual([], lint_portrait(self.GOOD))
     def test_thin_portrait_is_refused(self) -> None:
-        from ag2c.tasks import lint_portrait
+        from ag2c.portrait import lint_portrait
         violations = lint_portrait("修好它")
         self.assertTrue(any(v.startswith("too-thin") for v in violations))
     def test_missing_verification_layer_is_refused(self) -> None:
-        from ag2c.tasks import lint_portrait
+        from ag2c.portrait import lint_portrait
         portrait = "Done looks like: 抽屉可以打开关闭，状态条按钮生效，门状态行定位到对应面板，布局保持。"
         violations = lint_portrait(portrait)
         self.assertTrue(any(v.startswith("no-verification-layer") for v in violations))
 
     def test_vague_phrase_is_refused_and_named(self) -> None:
-        from ag2c.tasks import lint_portrait
+        from ag2c.portrait import lint_portrait
 
         portrait = "Done looks like: 谱系图正常工作，点击卡片详情正常显示（机器验证：测试）。"
         violations = lint_portrait(portrait)
@@ -186,14 +186,14 @@ class PortraitLintTests(unittest.TestCase):
         self.assertIn("正常工作", vague[0])
 
     def test_english_vague_phrase_is_refused(self) -> None:
-        from ag2c.tasks import lint_portrait
+        from ag2c.portrait import lint_portrait
 
         portrait = "Done looks like: the drawer works as expected after the fix (verified by tests)."
         violations = lint_portrait(portrait)
         self.assertTrue(any(v.startswith("vague-phrase") for v in violations))
 
     def test_constitution_named_vague_words_are_refused(self) -> None:
-        from ag2c.tasks import lint_portrait
+        from ag2c.portrait import lint_portrait
 
         # The constitution names 优化/完善/合理 as words that never pass.
         for word in ("优化", "完善", "合理"):
@@ -205,7 +205,7 @@ class PortraitLintTests(unittest.TestCase):
             )
 
     def test_negated_vague_phrase_is_exempt(self) -> None:
-        from ag2c.tasks import lint_portrait
+        from ag2c.portrait import lint_portrait
 
         portrait = (
             "Done looks like: 抽屉开关生效，不再是按钮变蓝但面板不出现（机器验证：test_desktop 断言；"
@@ -214,14 +214,14 @@ class PortraitLintTests(unittest.TestCase):
         self.assertEqual([], lint_portrait(portrait))
 
     def test_missing_inference_ledger_is_refused(self) -> None:
-        from ag2c.tasks import lint_portrait
+        from ag2c.portrait import lint_portrait
 
         portrait = "Done looks like: 抽屉开关生效（机器验证：test_desktop 断言 toggle 翻转）。"
         violations = lint_portrait(portrait)
         self.assertTrue(any(v.startswith("no-inference-ledger") for v in violations))
 
     def test_inferences_section_satisfies_the_ledger(self) -> None:
-        from ag2c.tasks import lint_portrait
+        from ag2c.portrait import lint_portrait
 
         portrait = (
             "Done looks like: 抽屉开关生效（机器验证：test_desktop 断言）。"
@@ -230,7 +230,7 @@ class PortraitLintTests(unittest.TestCase):
         self.assertEqual([], lint_portrait(portrait))
 
     def test_inference_section_extraction(self) -> None:
-        from ag2c.tasks import portrait_inference_section
+        from ag2c.portrait import portrait_inference_section
 
         portrait = (
             "Done looks like: x（机器验证：测试）。Surfaces: verify。 "

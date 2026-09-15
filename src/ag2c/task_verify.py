@@ -26,7 +26,8 @@ from .suite_bind import disk_engine_src
 from .portrait import lint_portrait, portrait_inference_section
 from .util import atomic_json_write, digest_file, hidden_process_kwargs
 from .task_evidence import _matching_event, _verification_evidence_valid, _start_evidence_valid, _portrait_amendment_chain_valid
-from .tasks import _assert_retirement_diff, _atomic_json, _canonical_manifest, _changed_specs, _committed_delta, _governance_code_reconcile, _notify_gate_block, _now, _record_intervention, _require_open_task, _sync_canonical_dirty_notification, _task_from_worktree, _task_path, _worktree_snapshot, front_back_overlap
+from .tasks import _atomic_json, _canonical_manifest, _changed_specs, _committed_delta, _governance_code_reconcile, _notify_gate_block, _now, _record_intervention, _require_open_task, _sync_canonical_dirty_notification, _task_from_worktree, _task_path, _worktree_snapshot, front_back_overlap
+from .task_retire import _assert_retirement_diff
 from .task_orient import refresh_task
 
 VERIFY_REEXEC_ENV = "AG2C_VERIFY_REEXEC"

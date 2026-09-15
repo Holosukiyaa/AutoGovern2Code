@@ -25,7 +25,8 @@ from .storage import git_private_path
 from .portrait import lint_portrait, portrait_inference_section
 from .util import atomic_json_write, digest_file
 from .task_evidence import _matching_event, _verification_evidence_valid, _start_evidence_valid, _portrait_amendment_chain_valid
-from .tasks import ORIENT_SCHEMA, TERMINAL_TASK_STATES, _atomic_json, _canonical_manifest, _load_task, _now, _record_intervention, _remove_task_worktree, _require_open_task, _sync_canonical_dirty_notification, _task_path, _worktree_snapshot, resolve_delivery, task_records
+from .tasks import ORIENT_SCHEMA, TERMINAL_TASK_STATES, _atomic_json, _canonical_manifest, _load_task, _now, _record_intervention, _remove_task_worktree, _require_open_task, _sync_canonical_dirty_notification, _task_path, _worktree_snapshot, task_records
+from .task_delivery import resolve_delivery
 
 def list_tasks(start: Path) -> list[dict[str, Any]]:
     canonical = Path(activation_status(start)["canonical_root"])

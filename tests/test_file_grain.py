@@ -11,7 +11,7 @@ import bootstrap  # noqa: F401
 from ag2c.errors import AG2CError, ConfigurationError
 from ag2c.households import census_report, file_scope, households_covering_path, overlay_jurisdiction_owners
 from ag2c.household_commands import confirm_retirement, register_household, retire_household
-from ag2c.tasks import _assert_retirement_diff
+from ag2c.task_retire import _assert_retirement_diff
 from support import _git, git_project, write_project
 
 

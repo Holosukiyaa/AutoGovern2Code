@@ -82,7 +82,6 @@ from .slicer import compile_slice
 from .storage import git_private_path
 from .portrait import lint_portrait, portrait_inference_section
 from .util import atomic_json_write, digest_file
-from .task_evidence import _matching_event, _verification_evidence_valid, _start_evidence_valid, _portrait_amendment_chain_valid
 
 TASK_SCHEMA = "ag2c.task.v1"
 OPEN_TASK_STATES = frozenset({"active", "verified"})
@@ -745,7 +744,3 @@ def task_records(start: Path, *, manifest=None) -> list[dict[str, Any]]:
     directory = manifest.state_dir / "tasks"
     records = [_load_task(canonical, path.stem, manifest=manifest) for path in directory.glob("*.json")] if directory.is_dir() else []
     return sorted(records, key=lambda item: str(item.get("created_at", "")), reverse=True)
-
-from .task_delivery import classify_delivery, cost_self_report, describe_delivery, resolve_delivery
-from .task_orient import _orient_queue_entry
-from .task_retire import _assert_retirement_diff

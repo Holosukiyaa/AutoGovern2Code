@@ -136,7 +136,7 @@ def build_messages(
             "后者是 reject 理由。"
         )
         banner += "\n".join(lines) + "\n\n"
-    from .tasks import portrait_inference_section
+    from .portrait import portrait_inference_section
 
     additions = portrait_inference_section(portrait)
     additions_block = ""

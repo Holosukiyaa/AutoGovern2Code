@@ -140,7 +140,7 @@ class TokenReportTests(unittest.TestCase):
 class CostReportTests(unittest.TestCase):
     def test_empty_and_three_legs(self) -> None:
         from ag2c.errors import AG2CError
-        from ag2c.tasks import cost_self_report
+        from ag2c.task_delivery import cost_self_report
 
         with tempfile.TemporaryDirectory() as directory:
             manifest = bare_manifest(Path(directory))

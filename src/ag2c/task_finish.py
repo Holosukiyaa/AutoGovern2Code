@@ -25,7 +25,8 @@ from .storage import git_private_path
 from .portrait import lint_portrait, portrait_inference_section
 from .util import atomic_json_write, digest_file
 from .task_evidence import _matching_event, _verification_evidence_valid, _start_evidence_valid, _portrait_amendment_chain_valid
-from .tasks import _atomic_json, _auto_drill, _canonical_manifest, _changed_specs, _committed_delta, _load_task, _now, _record_intervention, _require_open_task, _sync_canonical_dirty_notification, _task_path, cost_self_report, describe_delivery, require_trunk
+from .tasks import _atomic_json, _auto_drill, _canonical_manifest, _changed_specs, _committed_delta, _load_task, _now, _record_intervention, _require_open_task, _sync_canonical_dirty_notification, _task_path, require_trunk
+from .task_delivery import cost_self_report, describe_delivery
 from .task_orient import refresh_task
 
 def _proxy_flag(policy, name: str) -> bool:

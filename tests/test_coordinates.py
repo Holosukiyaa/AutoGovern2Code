@@ -34,7 +34,8 @@ from ag2c.coordinates import (
 )
 from ag2c.errors import AG2CError
 from ag2c.ledger import append_event
-from ag2c.tasks import _start_evidence_valid, start_task
+from ag2c.tasks import start_task
+from ag2c.task_evidence import _start_evidence_valid
 
 PORTRAIT = (
     "Done looks like: 服务函数返回值变更。Surfaces: verify 通过。"

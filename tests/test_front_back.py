@@ -11,6 +11,7 @@ import bootstrap  # noqa: F401
 from support import git_project, write_project
 
 from ag2c.errors import AG2CError
+from ag2c.storage import git_private_path
 from ag2c.tasks import (
     TASK_SCHEMA,
     _is_product_code,
@@ -18,7 +19,6 @@ from ag2c.tasks import (
     _task_path,
     declare_front_back,
     front_back_overlap,
-    git_private_path,
 )
 
 

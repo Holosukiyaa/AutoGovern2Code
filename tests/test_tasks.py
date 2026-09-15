@@ -128,7 +128,7 @@ class VerificationEvidenceTests(unittest.TestCase):
 
     def _fixture(self, root: Path, *, extra: dict | None = None):
         from ag2c.ledger import append_event
-        from ag2c.tasks import _verification_evidence_valid
+        from ag2c.task_evidence import _verification_evidence_valid
 
         manifest = _bare_manifest(root)
         task = {"id": "t-x"}

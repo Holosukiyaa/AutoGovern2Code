@@ -25,7 +25,8 @@ from .storage import git_private_path
 from .portrait import lint_portrait, portrait_inference_section
 from .util import atomic_json_write, digest_file
 from .task_evidence import _matching_event, _verification_evidence_valid, _start_evidence_valid, _portrait_amendment_chain_valid
-from .tasks import TERMINAL_TASK_STATES, _canonical_manifest, _worktree_snapshot, resolve_delivery, task_record, task_records
+from .tasks import TERMINAL_TASK_STATES, _canonical_manifest, _worktree_snapshot, task_record, task_records
+from .task_delivery import resolve_delivery
 
 def _local_evidence(canonical: Path, task: dict[str, Any], *, verify: bool = True) -> dict[str, Any]:
     result = task.get("result")

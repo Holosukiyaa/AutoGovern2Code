@@ -1,4 +1,4 @@
-"""WebView2 shell host. This is the product window; Hello ImGui is leftover bytes."""
+"""WebView2 shell host. This is the product window."""
 
 from __future__ import annotations
 

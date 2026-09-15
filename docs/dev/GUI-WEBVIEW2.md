@@ -1,14 +1,14 @@
 # UI 搬迁：Hello ImGui → WebView2（保留现有布局）
 
 > 地位：窗口皮肤怎么换。治理包仍是主线，见 [GOVERNANCE-PACK.md](GOVERNANCE-PACK.md)。
-> 本文落地不等于已经换壳。未点头前不删 imgui、不提交 HTML 壳。
+> 换壳已落地：产品窗口是 WebView2。Hello ImGui Python 与 NOTICE 已从树里删掉。
 > 作者：grok，2026-09-14。市长要求：真窗口、AI 好改样式、布局保持现在满意的那套。
 
 ---
 
 ## 1. 为何换
 
-现在的托盘是 Hello ImGui：每帧自绘、自己的窗口循环，Windows 不把它当正经应用。所以卡，也吃不到系统给 HWND 的合成、DPI、贴靠。
+原先的托盘是 Hello ImGui：每帧自绘、自己的窗口循环，Windows 不把它当正经应用。所以卡，也吃不到系统给 HWND 的合成、DPI、贴靠。
 
 换成 **WebView2**：系统 WebView 控件嵌在真窗口里。样式是 HTML/CSS，AI 训练数据最多，改布局不用碰 Python 执法核。Win10（装了 Evergreen Runtime）和 Win11 都能用。
 
@@ -37,7 +37,7 @@
 
 页面只 `fetch` 现有 `/api/status`、`/api/projects`、`/api/project/details`、digest 轮询。缺的 JSON 再加只读字段，不把治理写进前端。
 
-**要删的（换壳完成之后）：** `imgui_tray.py`、`imgui_panels.py`、`imgui_runtime.py`、`tray_caption_win32.py`、imgui_bundle 依赖。`tray_host.py` 里无 toolkit 的部分留下给 WebView 宿主用。
+**已删：** `imgui_tray.py`、`imgui_panels.py`、`imgui_runtime.py`、`tray_caption_win32.py`、imgui_bundle 依赖与 `NOTICE-imgui.txt`。`tray_host.py` 里无 toolkit 的部分留下给 WebView 宿主用。
 
 ---
 

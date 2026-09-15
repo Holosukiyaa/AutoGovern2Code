@@ -1,4 +1,4 @@
-"""File tree and knowledge-card payload for the Hello ImGui tray."""
+"""File tree and knowledge-card payload for the WebView2 product window."""
 
 from __future__ import annotations
 

@@ -100,7 +100,7 @@ project check checks all households; a scoped task checks its selected household
 
 ## Tray acceptance
 
-The Hello ImGui tray shows a project file tree on the left and knowledge cards on
+The WebView2 product window shows a project file tree on the left and knowledge cards on
 the right. Search by path, card title, or `frontend`. Select a file or card to
 inspect who covers it, which floor owns the path, the latest commit, and leftover
 status. Status filters keep the matching files and cards; they do not draw a

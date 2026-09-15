@@ -178,8 +178,45 @@ class RecalibrateTests(unittest.TestCase):
             manifest = _manifest(Path(tmp))
             _record_run(manifest, {"check.a": 100.0})
             table = recalibrate_verify_budgets(manifest, _policy(_checker("check.a", budget_seconds=500.0)), actor="t", reason="锚定")
-            self.assertEqual([], table["checkers"])  # 人工预算的 checker 动态机制不碰
+            self.assertEqual("kept", table["checkers"][0]["action"])
+            self.assertEqual(500.0, table["checkers"][0]["budget_seconds"])
             self.assertEqual(500.0, effective_budget_seconds(manifest, _checker("check.a", budget_seconds=500.0)))
+
+    def test_explicit_budget_reanchors_when_measured_headroom_exceeds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = _manifest(Path(tmp))
+            manifest.policy_path.write_text(
+                json.dumps(
+                    {
+                        "schema": "ag2c.policy.v1",
+                        "cards": [{"id": "constitution.project", "type": "constitution", "title": "c", "summary": "c"}],
+                        "checkers": [
+                            {
+                                "id": "check.a",
+                                "stage": "floor",
+                                "target": "app",
+                                "command": ["python", "-c", "pass"],
+                                "cwd": ".",
+                                "timeout": 300,
+                                "budget_seconds": 10,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            _record_run(manifest, {"check.a": 100.0})
+            policy = _policy(_checker("check.a", budget_seconds=10.0))
+            preview = recalibrate_verify_budgets(manifest, policy, actor="t", reason="预览", dry_run=True)
+            self.assertEqual("reanchored", preview["checkers"][0]["action"])
+            self.assertEqual(150.0, preview["checkers"][0]["budget_seconds"])
+            self.assertEqual(10, json.loads(manifest.policy_path.read_text(encoding="utf-8"))["checkers"][0]["budget_seconds"])
+            table = recalibrate_verify_budgets(manifest, policy, actor="t", reason="过时人定价")
+            self.assertEqual("reanchored", table["checkers"][0]["action"])
+            self.assertEqual(150.0, table["checkers"][0]["budget_seconds"])
+            written = json.loads(manifest.policy_path.read_text(encoding="utf-8"))["checkers"][0]["budget_seconds"]
+            self.assertEqual(150.0, written)
+            self.assertEqual(150.0, effective_budget_seconds(manifest, _checker("check.a", budget_seconds=written)))
 
     def test_no_history_no_budget(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

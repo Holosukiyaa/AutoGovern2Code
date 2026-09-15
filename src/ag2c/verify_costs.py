@@ -14,10 +14,13 @@
 
 告知渠道：settle 自动重标并写 verify-budget-calibrated 账本事件；
 `ag2c govern verify-budget` 裸命令打印 实测/预算/动作 预览表。
+人定 budget_seconds 过低时，带 actor/reason 的重标把它抬到 ceil(实测×HEADROOM)，
+只升不降。
 """
 
 from __future__ import annotations
 
+import json
 import math
 from datetime import datetime, timezone
 from pathlib import Path
@@ -271,12 +274,40 @@ def recalibrate_verify_budgets(manifest: Manifest, policy: Policy, *, actor: str
     rows: list[dict[str, Any]] = []
     changed = False
     for checker in policy.checkers:
-        if _seconds_or_zero(getattr(checker, "budget_seconds", 0)) > 0:
-            continue  # 人工显式预算优先，动态机制不碰
         measured = measured_seconds(history.get(checker.checker_id, []))
         if measured <= 0:
             continue  # 无历史不定预算（0 在警告侧是"不报警"语义）
         derived = max(MIN_BUDGET_SECONDS, math.ceil(measured * VERIFY_HEADROOM))
+        explicit = _seconds_or_zero(getattr(checker, "budget_seconds", 0))
+        if explicit > 0:
+            if derived > explicit:
+                action, budget, previous_budget = "reanchored", float(derived), explicit
+            else:
+                action, budget, previous_budget = "kept", explicit, explicit
+            rows.append(
+                {
+                    "checker": checker.checker_id,
+                    "measured_seconds": round(measured, 1),
+                    "budget_seconds": budget,
+                    "previous_seconds": previous_budget,
+                    "action": action,
+                }
+            )
+            if action == "reanchored" and not dry_run and _write_explicit_budget(manifest, checker.checker_id, budget):
+                append_event(
+                    manifest.ledger_path,
+                    "verify-budget-calibrated",
+                    {
+                        "checker": checker.checker_id,
+                        "action": action,
+                        "measured_seconds": round(measured, 1),
+                        "budget_seconds": budget,
+                        "previous_seconds": previous_budget,
+                        "actor": actor,
+                        "reason": reason,
+                    },
+                )
+            continue
         previous = store.get(checker.checker_id)
         previous_budget = _seconds_or_zero(previous.get("budget_seconds")) if isinstance(previous, dict) else 0.0
         if previous_budget <= 0:
@@ -311,3 +342,26 @@ def recalibrate_verify_budgets(manifest: Manifest, policy: Policy, *, actor: str
     if changed:
         atomic_json_write(verify_budgets_path(manifest), {"schema": VERIFY_BUDGETS_SCHEMA, "checkers": store})
     return {"schema": VERIFY_BUDGETS_SCHEMA, "checkers": rows}
+
+
+def _write_explicit_budget(manifest: Manifest, checker_id: str, budget: float) -> bool:
+    path = manifest.policy_path
+    if not path.is_file():
+        return False
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeError):
+        return False
+    checkers = raw.get("checkers")
+    if not isinstance(checkers, list):
+        return False
+    found = False
+    for item in checkers:
+        if isinstance(item, dict) and str(item.get("id")) == checker_id:
+            item["budget_seconds"] = budget
+            found = True
+            break
+    if not found:
+        return False
+    atomic_json_write(path, raw)
+    return True

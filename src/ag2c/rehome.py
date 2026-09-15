@@ -28,7 +28,8 @@ from .household_commands import (
     review_census,
 )
 from .households import _is_proper_subdir, directory_scope
-from .tasks import finish_task, start_task, verify_task
+from .tasks import finish_task, start_task
+from .task_verify import verify_task
 from .task_orient import abandon_task
 
 _SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "dist", "build", ".retired"}

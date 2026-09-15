@@ -452,7 +452,7 @@ class FullScanDeclarationTests(unittest.TestCase):
         manifest.policy_path.write_text(json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     def test_verify_slices_after_policy_change_without_full_scan(self) -> None:
-        from ag2c.tasks import verify_task
+        from ag2c.task_verify import verify_task
 
         with tempfile.TemporaryDirectory() as tmp:
             root = self._project(Path(tmp))

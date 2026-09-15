@@ -554,7 +554,7 @@ class ReconciliationWiringTests(unittest.TestCase):
     def _touch_and_verify(root: Path, started: dict) -> dict:
         from support import record_census
 
-        from ag2c.tasks import verify_task
+        from ag2c.task_verify import verify_task
 
         worktree = Path(started["worktree"]["path"])
         service = worktree / "src" / "api" / "service.py"

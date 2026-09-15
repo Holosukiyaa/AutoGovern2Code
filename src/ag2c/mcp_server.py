@@ -342,7 +342,7 @@ def _call_verify(args: dict[str, Any]) -> Any:
     job returns a "running" marker and later calls poll. Results (and raised AG2CErrors)
     are delivered exactly once, then the job is forgotten.
     """
-    from .tasks import verify_task
+    from .task_verify import verify_task
 
     cwd = _cwd(args, required=True).resolve()
     key = str(cwd)

@@ -25,7 +25,7 @@ from .storage import git_private_path
 from .portrait import lint_portrait, portrait_inference_section
 from .util import atomic_json_write, digest_file
 from .task_evidence import _matching_event, _verification_evidence_valid, _start_evidence_valid, _portrait_amendment_chain_valid
-from .tasks import _atomic_json, _auto_drill, _canonical_manifest, _changed_specs, _committed_delta, _load_task, _now, _record_intervention, _require_open_task, _sync_canonical_dirty_notification, _task_path, cost_self_report, describe_delivery, require_trunk, verify_task
+from .tasks import _atomic_json, _auto_drill, _canonical_manifest, _changed_specs, _committed_delta, _load_task, _now, _record_intervention, _require_open_task, _sync_canonical_dirty_notification, _task_path, cost_self_report, describe_delivery, require_trunk
 from .task_orient import refresh_task
 
 def _proxy_flag(policy, name: str) -> bool:
@@ -191,6 +191,8 @@ def finish_task(
             delta = set(_committed_delta(canonical, str(task["source"]["head"]), manifest))
             if delta and not (delta & verified_paths):
                 refresh_task(canonical, task_id)
+                from .task_verify import verify_task
+
                 verify_task(worktree)
                 return finish_task(
                     start,

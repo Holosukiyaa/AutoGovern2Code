@@ -122,7 +122,7 @@ class McpCanonicalCensusWarningTests(unittest.TestCase):
             ]
             with (
                 patch("ag2c.enrollment.activation_status", return_value={"canonical_root": str(root)}),
-                patch("ag2c.tasks.list_tasks", return_value=open_tasks),
+                patch("ag2c.task_orient.list_tasks", return_value=open_tasks),
             ):
                 result = self._record(root)
             warning = result.get("warning", "")
@@ -142,7 +142,7 @@ class McpCanonicalCensusWarningTests(unittest.TestCase):
                     "ag2c.enrollment.activation_status",
                     return_value={"canonical_root": str(root / "canonical-elsewhere")},
                 ),
-                patch("ag2c.tasks.list_tasks", return_value=open_tasks),
+                patch("ag2c.task_orient.list_tasks", return_value=open_tasks),
             ):
                 result = self._record(root)
             self.assertNotIn("warning", result)
@@ -154,7 +154,7 @@ class McpCanonicalCensusWarningTests(unittest.TestCase):
             _git_fixture(root)
             with (
                 patch("ag2c.enrollment.activation_status", return_value={"canonical_root": str(root)}),
-                patch("ag2c.tasks.list_tasks", return_value=[]),
+                patch("ag2c.task_orient.list_tasks", return_value=[]),
             ):
                 result = self._record(root)
             self.assertNotIn("warning", result)

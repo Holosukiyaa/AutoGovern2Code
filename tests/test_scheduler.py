@@ -132,7 +132,8 @@ class ShadowPlanWiringTests(unittest.TestCase):
 
     def test_shadow_plan_lands_in_record_and_ledger(self) -> None:
         from ag2c.config import discover_manifest, load_manifest
-        from ag2c.tasks import start_task, verify_task
+        from ag2c.tasks import start_task
+        from ag2c.task_verify import verify_task
         from support import record_census
 
         with tempfile.TemporaryDirectory() as tmp:

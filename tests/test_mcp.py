@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 import bootstrap  # noqa: F401
+import ag2c.task_verify  # noqa: F401  # load before patch("ag2c.task_verify.verify_task")
 from ag2c.harnesses import PACKAGED_SKILLS
 from ag2c.mcp_server import (
     CONNECT_RESOURCE_URI,
@@ -569,7 +570,7 @@ class AsyncVerifyTests(unittest.TestCase):
 
     def test_fast_verify_returns_the_result_inline(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            with patch("ag2c.tasks.verify_task", return_value={"passed": True}) as mocked:
+            with patch("ag2c.task_verify.verify_task", return_value={"passed": True}) as mocked:
                 result = self._verify(Path(directory))
             self.assertEqual({"passed": True}, result)
             self.assertEqual(1, mocked.call_count)
@@ -586,7 +587,7 @@ class AsyncVerifyTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             cwd = Path(directory)
-            with patch("ag2c.tasks.verify_task", side_effect=slow) as mocked:
+            with patch("ag2c.task_verify.verify_task", side_effect=slow) as mocked:
                 with patch.object(self.server, "VERIFY_WAIT_SECONDS", 0.05):
                     first = self._verify(cwd)
                     self.assertEqual("running", first["state"])
@@ -603,7 +604,7 @@ class AsyncVerifyTests(unittest.TestCase):
         from ag2c.errors import AG2CError
 
         with tempfile.TemporaryDirectory() as directory:
-            with patch("ag2c.tasks.verify_task", side_effect=AG2CError("household gate blocked")):
+            with patch("ag2c.task_verify.verify_task", side_effect=AG2CError("household gate blocked")):
                 with self.assertRaisesRegex(AG2CError, "household gate blocked"):
                     self._verify(Path(directory))
             self.assertEqual({}, self.server._VERIFY_JOBS)

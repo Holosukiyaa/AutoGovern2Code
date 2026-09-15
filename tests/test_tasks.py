@@ -297,7 +297,7 @@ class AutoRefreshTests(unittest.TestCase):
             self.assertIn("INFERRED 用户说的任务", started2["ai_additions"])
 
     def test_verify_auto_refreshes_on_disjoint_divergence(self) -> None:
-        from ag2c.tasks import verify_task
+        from ag2c.task_verify import verify_task
 
         with tempfile.TemporaryDirectory() as tmp:
             root = self._project(tmp)
@@ -317,7 +317,7 @@ class AutoRefreshTests(unittest.TestCase):
 
     def test_verify_still_refuses_overlapping_divergence(self) -> None:
         from ag2c.errors import AG2CError
-        from ag2c.tasks import verify_task
+        from ag2c.task_verify import verify_task
 
         with tempfile.TemporaryDirectory() as tmp:
             root = self._project(tmp)
@@ -332,7 +332,8 @@ class AutoRefreshTests(unittest.TestCase):
             self.assertIn("canonical-head-diverged", [item["kind"] for item in record["interventions"]])
 
     def test_finish_auto_recovers_on_disjoint_divergence(self) -> None:
-        from ag2c.tasks import finish_task, verify_task
+        from ag2c.tasks import finish_task
+        from ag2c.task_verify import verify_task
 
         with tempfile.TemporaryDirectory() as tmp:
             root = self._project(tmp)
@@ -361,7 +362,7 @@ class GovernanceReconcileTests(AutoRefreshTests):
 
     def test_verify_refused_when_governance_code_behind(self) -> None:
         from ag2c.errors import AG2CError
-        from ag2c.tasks import verify_task
+        from ag2c.task_verify import verify_task
 
         with tempfile.TemporaryDirectory() as tmp:
             root = self._project(tmp)
@@ -381,7 +382,7 @@ class GovernanceReconcileTests(AutoRefreshTests):
 
     def test_verify_passes_when_task_itself_touches_governance_code(self) -> None:
         """领先放行：任务自己改了治理关键文件（canonical 未动）——那正是任务内容本身。"""
-        from ag2c.tasks import verify_task
+        from ag2c.task_verify import verify_task
         from ag2c.trust_base import declare_trust_base
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -397,7 +398,7 @@ class GovernanceReconcileTests(AutoRefreshTests):
 
     def test_verify_passes_when_canonical_moves_only_non_governance_code(self) -> None:
         """一致放行：canonical 动了、但动的不是治理关键文件——并行税自愈照旧。"""
-        from ag2c.tasks import verify_task
+        from ag2c.task_verify import verify_task
 
         with tempfile.TemporaryDirectory() as tmp:
             root = self._project(tmp)
@@ -413,7 +414,7 @@ class GovernanceReconcileTests(AutoRefreshTests):
     def test_verify_passes_after_manual_refresh(self) -> None:
         """refresh 后放行：被拒绝 → 手动 refresh → 重验通过（新代码随新进程生效）。"""
         from ag2c.errors import AG2CError
-        from ag2c.tasks import verify_task
+        from ag2c.task_verify import verify_task
         from ag2c.task_orient import refresh_task
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -435,7 +436,7 @@ class GovernanceReconcileTests(AutoRefreshTests):
         """降级原则：比对本身出 git 故障不阻塞 verify，记 intervention 留痕。"""
         import ag2c.tasks as tasks_module
         from ag2c.errors import AG2CError
-        from ag2c.tasks import verify_task
+        from ag2c.task_verify import verify_task
 
         with tempfile.TemporaryDirectory() as tmp:
             root = self._project(tmp)

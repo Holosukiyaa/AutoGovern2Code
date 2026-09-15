@@ -180,6 +180,7 @@ class DesktopHandler(BaseHTTPRequestHandler):
                 )
                 return
             if path == "/api/project/dashboard":
+                from .custody import custody_model
                 from .dashboard import dashboard_model
                 from .tray_host import selected_root_after_list
 
@@ -187,11 +188,15 @@ class DesktopHandler(BaseHTTPRequestHandler):
                 if not requested:
                     requested = selected_root_after_list(managed_projects(), "")
                 if not requested:
-                    self._json(HTTPStatus.OK, dashboard_model(None, None))
+                    model = dashboard_model(None, None)
+                    model["custody"] = custody_model(None, None)
+                    self._json(HTTPStatus.OK, model)
                     return
                 details = project_details(Path(requested).expanduser().resolve(), refresh=bool(body.get("refresh")))
                 guard = details.get("guard") if isinstance(details.get("guard"), dict) else {}
-                self._json(HTTPStatus.OK, dashboard_model(details, guard))
+                model = dashboard_model(details, guard)
+                model["custody"] = custody_model(details, guard)
+                self._json(HTTPStatus.OK, model)
                 return
             if path == "/api/project/tree":
                 from .tray_inspect import coverage_rows, empty_inspect

@@ -458,6 +458,8 @@ class WebViewPageTests(unittest.TestCase):
         self.assertIn('id="project"', UI_INDEX_HTML)
         self.assertIn('id="refresh"', UI_INDEX_HTML)
         self.assertIn("没有要你处理的事", UI_INDEX_HTML)
+        self.assertIn("添加项目", UI_INDEX_HTML)
+        self.assertIn("看 / 否 / 授", UI_INDEX_HTML)
         self.assertNotIn("imgui_bundle", UI_INDEX_HTML)
 
     def test_ops_render_audit_lines_not_json_dump(self):
@@ -465,6 +467,18 @@ class WebViewPageTests(unittest.TestCase):
 
         self.assertIn("payload.lines", UI_APP_JS)
         self.assertIn('function renderOps', UI_APP_JS)
+        self.assertIn("model.claim || model.who", UI_APP_JS)
+        self.assertIn("function nestFiles", UI_APP_JS)
+        self.assertIn("function clickFile(item, li)", UI_APP_JS)
+        self.assertIn("if (li) li.classList.add(\"active\")", UI_APP_JS)
+        self.assertIn('["看", null]', UI_APP_JS)
+        self.assertIn('["否", false]', UI_APP_JS)
+        self.assertIn('["授", true]', UI_APP_JS)
+        self.assertIn("/api/projects/add", UI_APP_JS)
+        from pathlib import Path as _Path
+        desktop_src = (_Path(__file__).resolve().parents[1] / "src" / "ag2c_gui" / "desktop.py").read_text(encoding="utf-8")
+        self.assertIn("custody_model", desktop_src)
+        self.assertIn('model["custody"]', desktop_src)
         self.assertNotIn("JSON.stringify(payload.worktrees", UI_APP_JS)
         self.assertNotIn("JSON.stringify(payload.journal", UI_APP_JS)
         self.assertIn("tree home inspect", UI_LAYOUT_CSS)

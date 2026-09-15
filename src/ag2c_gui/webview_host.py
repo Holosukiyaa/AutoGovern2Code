@@ -51,6 +51,20 @@ def ui_page(path: str) -> tuple[str, bytes] | None:
     return content_type, text.encode("utf-8")
 
 
+class _FolderPicker:
+    def pick_folder(self) -> str:
+        import webview
+
+        windows = list(getattr(webview, "windows", []) or [])
+        if not windows:
+            return ""
+        chosen = windows[0].create_file_dialog(webview.FileDialog.FOLDER)
+        if not chosen:
+            return ""
+        first = chosen[0]
+        return first if isinstance(first, str) else str(first)
+
+
 def web_ui_url(port: int) -> str:
     return f"http://127.0.0.1:{port}/ui/"
 
@@ -125,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
             url=web_ui_url(port),
             hidden=probe,
             text_select=True,
+            js_api=_FolderPicker(),
         )
 
         def on_loaded() -> None:

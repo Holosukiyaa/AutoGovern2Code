@@ -15,6 +15,7 @@ UI_INDEX_HTML = """<!DOCTYPE html>
   <label class="field">项目
     <select id="project"></select>
   </label>
+  <button type="button" id="add-project">添加项目</button>
   <button type="button" id="refresh">刷新</button>
   <span id="gate" class="gate"></span>
   <span id="status" class="status"></span>
@@ -26,6 +27,13 @@ UI_INDEX_HTML = """<!DOCTYPE html>
 </nav>
 <main id="home">
   <p id="attention" class="hero"></p>
+  <section id="custody">
+    <header class="zone-head"><h2>看 / 否 / 授</h2><span id="custody-head" class="muted"></span></header>
+    <p id="custody-irreversible" class="muted"></p>
+    <div id="custody-flags" class="flags"></div>
+    <ul id="custody-veto"></ul>
+    <p class="empty">先选择一个项目</p>
+  </section>
   <section id="action">
     <header class="zone-head"><h2>要你处理</h2><button type="button" data-copy="actions">复制给 AI</button></header>
     <ul></ul>
@@ -150,6 +158,12 @@ section.is-empty ul { display: none; }
 #copy-ops { margin-left: auto; }
 .ops-panel { flex: 1; overflow: auto; padding: 0.6rem 0.85rem; white-space: pre-wrap; font-family: ui-monospace, Consolas, monospace; font-size: 0.82rem; color: #d7d7dc; }
 .ops-row { padding: 0.25rem 0; border-bottom: 1px solid var(--line); font-family: inherit; }
+.muted { color: var(--muted); }
+.flags { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.3rem 0 0.5rem; }
+.flags button.on { border-color: var(--ok); color: var(--ok); }
+.tree-dir { list-style: none; margin: 0; padding-left: 0.85rem; }
+.tree-dir > summary { cursor: pointer; color: var(--muted); padding: 0.15rem 0; }
+.tree-file { padding-left: 0.2rem; }
 @media (max-width: 900px) {
   body { grid-template: "bar" auto "home" 1fr "ops" minmax(8rem, 34%) / 1fr; }
   #tree, #inspect { display: none; }
@@ -279,6 +293,7 @@ window.ag2cFetchDashboard = function () {
     .then(function (model) {
       window.__AG2C_DASHBOARD = model;
       if (attention) attention.textContent = (model.attention && model.attention.text) || "";
+      fillCustody(model);
       fillList("action", model.actions, "没有要你处理的事");
       fillList("alert", model.alerts, "没有系统警情");
       fillList("record", recordRows(model.records), "暂无记录");
@@ -296,24 +311,121 @@ function fillInspect(model) {
   if (title) title.textContent = (model && model.title) || "点文件树或知识卡";
   if (!fields) return;
   fields.innerHTML = "";
+  var claim = (model && (model.claim || model.who)) || "";
   var labels = [
-    ["path", "路径"],
-    ["who", "归属"],
-    ["floors", "楼层"],
-    ["when", "最近改动"],
-    ["status", "状态"],
-    ["summary", "说明"]
+    ["path", "路径", model && model.path],
+    ["claim", "归属", claim],
+    ["floors", "楼层", model && model.floors],
+    ["when", "最近改动", model && model.when],
+    ["status", "状态", model && model.status],
+    ["message", "说明", model && model.message],
+    ["summary", "设计思路", model && model.summary]
   ];
-  labels.forEach(function (pair) {
-    if (!model || !model[pair[0]]) return;
+  labels.forEach(function (row) {
+    if (!row[2]) return;
     var dt = document.createElement("dt");
-    dt.textContent = pair[1];
+    dt.textContent = row[1];
     var dd = document.createElement("dd");
-    dd.textContent = model[pair[0]];
+    dd.textContent = row[2];
     fields.appendChild(dt);
     fields.appendChild(dd);
   });
   window.__AG2C_INSPECT = model;
+}
+function nestFiles(files) {
+  var root = { name: "", children: {}, files: [] };
+  (files || []).forEach(function (item) {
+    var parts = String(item.path || "").replace(/\\\\/g, "/").split("/").filter(Boolean);
+    if (!parts.length) return;
+    var node = root;
+    parts.slice(0, -1).forEach(function (part) {
+      if (!node.children[part]) node.children[part] = { name: part, children: {}, files: [] };
+      node = node.children[part];
+    });
+    node.files.push(item);
+  });
+  return root;
+}
+function clickFile(item, li) {
+  document.querySelectorAll("#tree li").forEach(function (node) { node.classList.remove("active"); });
+  if (li) li.classList.add("active");
+  fetch("/api/project/inspect", {
+    method: "POST",
+    headers: jsonHeaders(),
+    credentials: "omit",
+    body: JSON.stringify(Object.assign(projectBody(), { file: item.path }))
+  })
+    .then(function (res) { return res.ok ? res.json() : {}; })
+    .then(fillInspect);
+}
+function renderTreeNode(host, node, filter) {
+  Object.keys(node.children).sort().forEach(function (name) {
+    var child = node.children[name];
+    var details = document.createElement("details");
+    details.className = "tree-dir";
+    details.open = Boolean(filter);
+    var summary = document.createElement("summary");
+    summary.textContent = name;
+    details.appendChild(summary);
+    var inner = document.createElement("div");
+    renderTreeNode(inner, child, filter);
+    details.appendChild(inner);
+    host.appendChild(details);
+  });
+  node.files.forEach(function (item) {
+    var label = item.title || item.path || "";
+    if (filter && label.toLowerCase().indexOf(filter) < 0 && String(item.path || "").toLowerCase().indexOf(filter) < 0) return;
+    var li = document.createElement("li");
+    li.className = "tree-file";
+    li.textContent = label.split("/").pop();
+    li.setAttribute("data-path", item.path || "");
+    li.onclick = function () { clickFile(item, li); };
+    host.appendChild(li);
+  });
+}
+function fillCustody(model) {
+  var section = document.getElementById("custody");
+  if (!section) return;
+  var custody = (model && model.custody) || {};
+  var head = document.getElementById("custody-head");
+  var irrev = document.getElementById("custody-irreversible");
+  var flags = document.getElementById("custody-flags");
+  var veto = document.getElementById("custody-veto");
+  if (head) head.textContent = custody.headline || "";
+  if (irrev) irrev.textContent = custody.irreversible || "";
+  if (flags) {
+    flags.innerHTML = "";
+    [["看", null], ["否", false], ["授", true]].forEach(function (pair) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = pair[0];
+      if (pair[1] === true && custody.granted) btn.className = "on";
+      if (pair[1] === false && !custody.granted) btn.className = "on";
+      if (pair[1] === null) btn.className = "on";
+      if (pair[1] !== null) {
+        btn.onclick = function () {
+          (custody.flags || []).forEach(function (flag) {
+            fetch("/api/project/proxy", {
+              method: "POST",
+              headers: jsonHeaders(),
+              credentials: "omit",
+              body: JSON.stringify({ path: window.__AG2C_PROJECT, flag: flag.id, on: pair[1] })
+            }).then(function () { window.ag2cFetchDashboard(); });
+          });
+        };
+      }
+      flags.appendChild(btn);
+    });
+  }
+  if (veto) {
+    veto.innerHTML = "";
+    (custody.veto || []).forEach(function (row) {
+      var li = document.createElement("li");
+      li.textContent = row.text || "";
+      veto.appendChild(li);
+    });
+  }
+  section.classList.toggle("is-empty", !window.__AG2C_PROJECT);
 }
 window.ag2cFetchTree = function () {
   var filter = ((document.getElementById("tree-filter") || {}).value || "").toLowerCase();
@@ -328,26 +440,7 @@ window.ag2cFetchTree = function () {
       var ul = document.querySelector("#tree ul");
       if (!ul) return;
       ul.innerHTML = "";
-      (payload.files || []).forEach(function (item) {
-        var label = item.title || item.path || "";
-        if (filter && label.toLowerCase().indexOf(filter) < 0 && String(item.path || "").toLowerCase().indexOf(filter) < 0) return;
-        var li = document.createElement("li");
-        li.textContent = label;
-        li.setAttribute("data-path", item.path || "");
-        li.onclick = function () {
-          ul.querySelectorAll("li").forEach(function (node) { node.classList.remove("active"); });
-          li.classList.add("active");
-          fetch("/api/project/inspect", {
-            method: "POST",
-            headers: jsonHeaders(),
-            credentials: "omit",
-            body: JSON.stringify(Object.assign(projectBody(), { file: item.path }))
-          })
-            .then(function (res) { return res.ok ? res.json() : {}; })
-            .then(fillInspect);
-        };
-        ul.appendChild(li);
-      });
+      renderTreeNode(ul, nestFiles(payload.files || []), filter);
       fillInspect(payload.inspect);
     });
 };
@@ -446,6 +539,29 @@ if (projectSelect) {
 }
 var refresh = document.getElementById("refresh");
 if (refresh) refresh.onclick = function () { window.ag2cFetchDashboard(); };
+var addProject = document.getElementById("add-project");
+if (addProject) {
+  addProject.onclick = function () {
+    function enroll(path) {
+      if (!path) return;
+      fetch("/api/projects/add", {
+        method: "POST",
+        headers: jsonHeaders(),
+        credentials: "omit",
+        body: JSON.stringify({ path: path })
+      }).then(function (res) { return res.ok ? res.json() : {}; })
+        .then(function (payload) {
+          var added = payload.project || {};
+          if (added.root) window.__AG2C_PROJECT = added.root;
+          window.ag2cFetchDashboard();
+        });
+    }
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.pick_folder) {
+      Promise.resolve(window.pywebview.api.pick_folder()).then(enroll);
+      return;
+    }
+  };
+}
 var treeFilter = document.getElementById("tree-filter");
 if (treeFilter) treeFilter.oninput = function () { window.ag2cFetchTree(); };
 if (window.__AG2C_TOKEN) {

@@ -457,7 +457,7 @@ class WebViewPageTests(unittest.TestCase):
         self.assertIn("AI 入口", UI_INDEX_HTML)
         self.assertIn('id="project"', UI_INDEX_HTML)
         self.assertIn('id="refresh"', UI_INDEX_HTML)
-        self.assertIn("没有要你处理的事", UI_INDEX_HTML)
+        self.assertIn("加载中", UI_INDEX_HTML)
         self.assertIn("添加项目", UI_INDEX_HTML)
         self.assertIn("看 / 否 / 授", UI_INDEX_HTML)
         self.assertNotIn("imgui_bundle", UI_INDEX_HTML)
@@ -483,6 +483,15 @@ class WebViewPageTests(unittest.TestCase):
         self.assertNotIn("JSON.stringify(payload.journal", UI_APP_JS)
         self.assertIn("tree home inspect", UI_LAYOUT_CSS)
         self.assertIn('"ops ops ops"', UI_LAYOUT_CSS)
+        self.assertIn("window.ag2cBoot", UI_APP_JS)
+        self.assertIn("session_token", UI_APP_JS)
+        self.assertIn("没有要你处理的事", UI_APP_JS)
+        self.assertNotIn("if (window.__AG2C_TOKEN) {\n  window.ag2cFetchStatus();", UI_APP_JS)
+        from ag2c_gui.webview_host import _JsBridge, inject_token_js
+
+        self.assertTrue(callable(_JsBridge("tok").session_token))
+        self.assertEqual("tok", _JsBridge("tok").session_token())
+        self.assertIn("ag2cBoot", inject_token_js("abc"))
 
     def test_clipboard_guard_skips_when_locked(self):
         with ClipboardLock() as lock:

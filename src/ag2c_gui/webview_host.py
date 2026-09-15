@@ -51,7 +51,13 @@ def ui_page(path: str) -> tuple[str, bytes] | None:
     return content_type, text.encode("utf-8")
 
 
-class _FolderPicker:
+class _JsBridge:
+    def __init__(self, token: str) -> None:
+        self._token = token
+
+    def session_token(self) -> str:
+        return self._token
+
     def pick_folder(self) -> str:
         import webview
 
@@ -73,8 +79,9 @@ def inject_token_js(token: str) -> str:
     return (
         "window.__AG2C_TOKEN = "
         + json.dumps(token)
-        + "; if (typeof window.ag2cFetchStatus === 'function') { window.ag2cFetchStatus(); }"
-        + " if (typeof window.ag2cFetchDashboard === 'function') { window.ag2cFetchDashboard(); }"
+        + "; if (typeof window.ag2cBoot === 'function') { window.ag2cBoot(); }"
+        + " else { if (typeof window.ag2cFetchStatus === 'function') { window.ag2cFetchStatus(); }"
+        + " if (typeof window.ag2cFetchDashboard === 'function') { window.ag2cFetchDashboard(); } }"
     )
 
 
@@ -139,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
             url=web_ui_url(port),
             hidden=probe,
             text_select=True,
-            js_api=_FolderPicker(),
+            js_api=_JsBridge(token),
         )
 
         def on_loaded() -> None:

@@ -26,28 +26,28 @@ UI_INDEX_HTML = """<!DOCTYPE html>
   <ul></ul>
 </nav>
 <main id="home">
-  <p id="attention" class="hero"></p>
+  <p id="attention" class="hero">加载中…</p>
   <section id="custody">
     <header class="zone-head"><h2>看 / 否 / 授</h2><span id="custody-head" class="muted"></span></header>
     <p id="custody-irreversible" class="muted"></p>
     <div id="custody-flags" class="flags"></div>
     <ul id="custody-veto"></ul>
-    <p class="empty">先选择一个项目</p>
+    <p class="empty">加载中…</p>
   </section>
   <section id="action">
     <header class="zone-head"><h2>要你处理</h2><button type="button" data-copy="actions">复制给 AI</button></header>
     <ul></ul>
-    <p class="empty">没有要你处理的事</p>
+    <p class="empty">加载中…</p>
   </section>
   <section id="alert">
     <header class="zone-head"><h2>系统警情</h2><button type="button" data-copy="alerts">复制给 AI</button></header>
     <ul></ul>
-    <p class="empty">没有系统警情</p>
+    <p class="empty">加载中…</p>
   </section>
   <section id="record">
     <header class="zone-head"><h2>记录</h2></header>
     <ul></ul>
-    <p class="empty">暂无记录</p>
+    <p class="empty">加载中…</p>
   </section>
 </main>
 <aside id="inspect">
@@ -146,9 +146,9 @@ section { padding: 0.55rem 1rem 0.2rem; }
 #home li.error { color: var(--danger); }
 #home li.warn { color: var(--decision); }
 #home li.ok { color: var(--ok); }
-.empty { display: none; color: var(--muted); margin: 0.2rem 0 0.6rem; }
-section.is-empty .empty { display: block; }
-section.is-empty ul { display: none; }
+.empty { color: var(--muted); margin: 0.2rem 0 0.6rem; }
+section.is-ready:not(.is-empty) .empty { display: none; }
+section.is-ready.is-empty ul { display: none; }
 #inspect-title { margin: 0 0 0.6rem; font-weight: 650; }
 #inspect-fields { margin: 0; }
 #inspect-fields dt { color: var(--muted); font-size: 0.75rem; margin-top: 0.55rem; }
@@ -195,6 +195,7 @@ function fillList(id, rows, emptyText) {
     ul.appendChild(li);
   });
   var vacant = !ul.childElementCount;
+  section.classList.add("is-ready");
   section.classList.toggle("is-empty", vacant);
   if (empty && emptyText) empty.textContent = emptyText;
 }
@@ -425,6 +426,7 @@ function fillCustody(model) {
       veto.appendChild(li);
     });
   }
+  section.classList.add("is-ready");
   section.classList.toggle("is-empty", !window.__AG2C_PROJECT);
 }
 window.ag2cFetchTree = function () {
@@ -564,9 +566,28 @@ if (addProject) {
 }
 var treeFilter = document.getElementById("tree-filter");
 if (treeFilter) treeFilter.oninput = function () { window.ag2cFetchTree(); };
-if (window.__AG2C_TOKEN) {
-  window.ag2cFetchStatus();
-  window.ag2cFetchDashboard();
-  setInterval(function () { window.ag2cPollDigest(); }, 5000);
-}
+window.ag2cBoot = function () {
+  function start() {
+    if (window.__AG2C_BOOTED || !window.__AG2C_TOKEN) return;
+    window.__AG2C_BOOTED = true;
+    window.ag2cFetchStatus();
+    window.ag2cFetchDashboard();
+    if (!window.__AG2C_DIGEST_TIMER) {
+      window.__AG2C_DIGEST_TIMER = setInterval(function () { window.ag2cPollDigest(); }, 5000);
+    }
+  }
+  if (window.__AG2C_TOKEN) {
+    start();
+    return;
+  }
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.session_token) {
+    Promise.resolve(window.pywebview.api.session_token()).then(function (token) {
+      if (token) window.__AG2C_TOKEN = token;
+      start();
+    });
+    return;
+  }
+  setTimeout(window.ag2cBoot, 150);
+};
+window.ag2cBoot();
 """

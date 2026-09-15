@@ -237,7 +237,7 @@ def _call_guard(args: dict[str, Any]) -> Any:
     return activation_status(_cwd(args))
 
 def _call_start(args: dict[str, Any]) -> Any:
-    from .tasks import start_task
+    from .task_start import start_task
 
     portrait = str(args.get("portrait") or "").strip()
     if not portrait:

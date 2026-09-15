@@ -242,7 +242,7 @@ class AutoRefreshTests(unittest.TestCase):
         return root
 
     def _start(self, root: Path):
-        from ag2c.tasks import start_task
+        from ag2c.task_start import start_task
 
         portrait = (
             "Done looks like: 服务函数返回值变更。Surfaces: verify 通过。"
@@ -275,7 +275,7 @@ class AutoRefreshTests(unittest.TestCase):
         return json.loads((manifest.state_dir / "tasks" / f"{task_id}.json").read_text(encoding="utf-8"))
 
     def test_start_surfaces_ai_additions(self) -> None:
-        from ag2c.tasks import start_task
+        from ag2c.task_start import start_task
 
         with tempfile.TemporaryDirectory() as tmp:
             root = self._project(tmp)

@@ -133,14 +133,14 @@ class StartDeclarationTests(unittest.TestCase):
     def _start(self, root: Path, **kwargs):
         from unittest import mock
 
-        from ag2c.tasks import start_task
+        from ag2c.task_start import start_task
 
         portrait = (
             "Done looks like: 服务函数返回值变更。Surfaces: verify 通过。"
             "Out of result: 不动其他模块。验证层: 机器验证 tests 套件全绿，输出片段进 finish proof。无加料。"
         )
         with mock.patch(
-            "ag2c.tasks.activation_status",
+            "ag2c.task_start.activation_status",
             return_value={"canonical_root": str(root), "managed": True, "issues": []},
         ):
             return start_task(

@@ -34,7 +34,7 @@ from ag2c.coordinates import (
 )
 from ag2c.errors import AG2CError
 from ag2c.ledger import append_event
-from ag2c.tasks import start_task
+from ag2c.task_start import start_task
 from ag2c.task_evidence import _start_evidence_valid
 
 PORTRAIT = (

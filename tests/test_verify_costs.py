@@ -420,7 +420,7 @@ class FullScanDeclarationTests(unittest.TestCase):
         return root
 
     def _start(self, root: Path):
-        from ag2c.tasks import start_task
+        from ag2c.task_start import start_task
 
         portrait = (
             "Done looks like: 服务函数返回值变更。Surfaces: verify 通过。"
@@ -480,7 +480,7 @@ class FullScanDeclarationTests(unittest.TestCase):
 
     def test_start_all_is_closed(self) -> None:
         from ag2c.errors import AG2CError
-        from ag2c.tasks import start_task
+        from ag2c.task_start import start_task
 
         with tempfile.TemporaryDirectory() as tmp:
             root = self._project(Path(tmp))

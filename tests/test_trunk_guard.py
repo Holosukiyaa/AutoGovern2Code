@@ -11,7 +11,8 @@ import bootstrap  # noqa: F401
 
 from ag2c.errors import AG2CError
 from ag2c.govern import configure_trunk
-from ag2c.tasks import require_trunk, start_task
+from ag2c.tasks import require_trunk
+from ag2c.task_start import start_task
 
 from support import _git, git_project, write_project
 
@@ -77,7 +78,7 @@ class StartTaskGuardTests(unittest.TestCase):
             "Out of result: 不动其他模块。验证层: 机器验证 tests 套件全绿，输出片段进 finish proof。无加料。"
         )
         with mock.patch(
-            "ag2c.tasks.activation_status",
+            "ag2c.task_start.activation_status",
             return_value={"canonical_root": str(root), "managed": True, "issues": []},
         ):
             return start_task(

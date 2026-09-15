@@ -1,11 +1,12 @@
 """Extracted by flatten-split."""
 from __future__ import annotations
+import sys
 from pathlib import Path
 from typing import Any, Callable, Mapping
 from . import __version__
 from .errors import AG2CError
 from .harnesses import PACKAGED_SKILLS
-from .mcp_server import MCP_INSTRUCTIONS, PROTOCOL_VERSIONS, SERVER_NAME, _actor, _args, _call_rehome, _call_verify, _cwd, _cwd_prop, _optional_int, _optional_string_list, _read_resource, _read_skill, _skill_resources, _string_list, _text_result, _tool, install_mcp_clients, mcp_health
+from .mcp_server import MCP_INSTRUCTIONS, PROTOCOL_VERSIONS, SERVER_NAME, _actor, _args, _call_rehome, _call_verify, _cwd, _cwd_prop, _optional_int, _optional_string_list, _read_resource, _read_skill, _skill_resources, _string_list, _text_result, _tool, install_mcp_clients, mcp_health, refresh_engine_from_disk
 
 def tool_defs() -> list[dict[str, Any]]:
     return [
@@ -565,7 +566,10 @@ def handle_mcp_request(message: Mapping[str, Any]) -> dict[str, Any] | None:
             return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": tool_defs()}}
         if method == "tools/call":
             name = str(params.get("name") or "")
-            handler = HANDLERS.get(name)
+            if name != "ag2c_mcp_health":
+                refresh_engine_from_disk()
+            handlers = sys.modules[__name__].HANDLERS
+            handler = handlers.get(name)
             if handler is None:
                 return {
                     "jsonrpc": "2.0",

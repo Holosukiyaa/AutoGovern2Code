@@ -1,6 +1,7 @@
 from __future__ import annotations
 import io
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -504,6 +505,50 @@ class McpServerTests(unittest.TestCase):
         payload = json.loads(tool["result"]["content"][0]["text"])
         self.assertEqual(ag2c.__version__, payload["code_version"])
         self.assertEqual(PROCESS_STARTED_AT, payload["started_at"])
+        self.assertIn("engine_stale", first)
+        self.assertFalse(first["engine_stale"])
+
+    def test_engine_stale_when_disk_digest_drifts(self) -> None:
+        from ag2c import mcp_server
+
+        original = dict(mcp_server._ENGINE_AT_IMPORT)
+        drifted = dict(original)
+        drifted["slicer.py"] = "not-the-import-digest"
+        mcp_server._ENGINE_AT_IMPORT = drifted
+        self.addCleanup(lambda: setattr(mcp_server, "_ENGINE_AT_IMPORT", original))
+        self.assertTrue(mcp_server.engine_stale())
+        health = mcp_health(handshake=False, home=Path(tempfile.mkdtemp()))
+        self.assertTrue(health["engine_stale"])
+
+    def test_tools_call_refreshes_stale_engine_except_health(self) -> None:
+        from ag2c import mcp_server
+
+        calls: list[str] = []
+
+        def fake_refresh() -> list[str]:
+            calls.append("refresh")
+            return ["ag2c.slicer"]
+
+        with patch("ag2c.mcp_handlers.refresh_engine_from_disk", fake_refresh):
+            _rpc("tools/call", {"name": "ag2c_mcp_health", "arguments": {"handshake": False}})
+            self.assertEqual([], calls)
+            _rpc("tools/call", {"name": "ag2c_task_list", "arguments": {}})
+            self.assertEqual(["refresh"], calls)
+
+    def test_refresh_reloads_slicer_and_clears_stale(self) -> None:
+        import ag2c.slicer as slicer
+        from ag2c import mcp_server
+
+        original = dict(mcp_server._ENGINE_AT_IMPORT)
+        mcp_server._ENGINE_AT_IMPORT = {key: "stale" for key in original}
+        self.addCleanup(lambda: setattr(mcp_server, "_ENGINE_AT_IMPORT", original))
+        self.assertTrue(mcp_server.engine_stale())
+        before = id(slicer.compile_slice)
+        reloaded = mcp_server.refresh_engine_from_disk()
+        self.assertIn("ag2c.slicer", reloaded)
+        self.assertFalse(mcp_server.engine_stale())
+        self.assertIs(sys.modules["ag2c.slicer"].compile_slice, __import__("ag2c.slicer", fromlist=["compile_slice"]).compile_slice)
+        self.assertNotEqual(before, id(sys.modules["ag2c.slicer"].compile_slice))
 
 
 class AsyncVerifyTests(unittest.TestCase):

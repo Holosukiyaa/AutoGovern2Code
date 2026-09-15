@@ -492,6 +492,10 @@ class WebViewPageTests(unittest.TestCase):
         self.assertTrue(callable(_JsBridge("tok").session_token))
         self.assertEqual("tok", _JsBridge("tok").session_token())
         self.assertIn("ag2cBoot", inject_token_js("abc"))
+        self.assertIn("连不上本地服务", UI_APP_JS)
+        self.assertIn("加载失败", UI_APP_JS)
+        self.assertIn("__AG2C_BOOT_TRIES", UI_APP_JS)
+        self.assertIn("> 40", UI_APP_JS)
 
     def test_clipboard_guard_skips_when_locked(self):
         with ClipboardLock() as lock:

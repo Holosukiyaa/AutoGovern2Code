@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import importlib
 import json
 import os
 import re
@@ -33,6 +35,58 @@ CONNECT_RESOURCE_URI = "ag2c://connect"
 
 PROCESS_STARTED_AT = datetime.now(timezone.utc).isoformat()
 _VERSION_ASSIGN = re.compile(r'^__version__\s*=\s*["\']([^"\']+)["\']', re.M)
+_ENGINE_FILES = (
+    "slicer.py",
+    "suite_bind.py",
+    "households.py",
+    "household_commands.py",
+    "govern.py",
+    "check_run.py",
+)
+_ENGINE_MODULES = (
+    "ag2c.suite_bind",
+    "ag2c.slicer",
+    "ag2c.check_run",
+    "ag2c.households",
+    "ag2c.household_commands",
+    "ag2c.govern",
+    "ag2c.mcp_handlers",
+)
+
+
+def engine_digests() -> dict[str, str]:
+    root = Path(__file__).resolve().parent
+    out: dict[str, str] = {}
+    for name in _ENGINE_FILES:
+        path = root / name
+        try:
+            out[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            out[name] = ""
+    return out
+
+
+_ENGINE_AT_IMPORT = engine_digests()
+
+
+def engine_stale() -> bool:
+    return engine_digests() != _ENGINE_AT_IMPORT
+
+
+def refresh_engine_from_disk() -> list[str]:
+    """Reload governance modules when their files on disk changed after import."""
+    global _ENGINE_AT_IMPORT
+    if not engine_stale():
+        return []
+    reloaded: list[str] = []
+    for name in _ENGINE_MODULES:
+        module = sys.modules.get(name)
+        if module is None:
+            continue
+        importlib.reload(module)
+        reloaded.append(name)
+    _ENGINE_AT_IMPORT = engine_digests()
+    return reloaded
 
 MCP_INSTRUCTIONS = """This workspace is governed by AutoGovern2Code (AG2C) when `ag2c_guard_status` reports managed.
 
@@ -700,6 +754,7 @@ def mcp_health(
         "clients": [{"harness": item["harness"], "configured": item["configured"]} for item in clients],
         "code_version": __version__,
         "started_at": PROCESS_STARTED_AT,
+        "engine_stale": engine_stale(),
     }
     disk = _version_in_init(src / "ag2c" / "__init__.py") if src_ok else None
     if disk:

@@ -303,7 +303,15 @@ window.ag2cFetchDashboard = function () {
     })
     .catch(function (err) {
       window.__AG2C_DASHBOARD_ERROR = String(err);
-      if (attention) attention.textContent = "error";
+      if (attention) attention.textContent = "连不上本地服务";
+      fillList("action", [], "加载失败");
+      fillList("alert", [], "加载失败");
+      fillList("record", [], "加载失败");
+      var custody = document.getElementById("custody");
+      if (custody) {
+        custody.classList.add("is-ready");
+        custody.classList.add("is-empty");
+      }
     });
 };
 function fillInspect(model) {
@@ -567,6 +575,18 @@ if (addProject) {
 var treeFilter = document.getElementById("tree-filter");
 if (treeFilter) treeFilter.oninput = function () { window.ag2cFetchTree(); };
 window.ag2cBoot = function () {
+  function failBoot() {
+    var attention = document.getElementById("attention");
+    if (attention) attention.textContent = "连不上本地服务";
+    fillList("action", [], "加载失败");
+    fillList("alert", [], "加载失败");
+    fillList("record", [], "加载失败");
+    var custody = document.getElementById("custody");
+    if (custody) {
+      custody.classList.add("is-ready");
+      custody.classList.add("is-empty");
+    }
+  }
   function start() {
     if (window.__AG2C_BOOTED || !window.__AG2C_TOKEN) return;
     window.__AG2C_BOOTED = true;
@@ -585,6 +605,11 @@ window.ag2cBoot = function () {
       if (token) window.__AG2C_TOKEN = token;
       start();
     });
+    return;
+  }
+  window.__AG2C_BOOT_TRIES = (window.__AG2C_BOOT_TRIES || 0) + 1;
+  if (window.__AG2C_BOOT_TRIES > 40) {
+    failBoot();
     return;
   }
   setTimeout(window.ag2cBoot, 150);

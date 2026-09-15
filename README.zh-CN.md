@@ -15,7 +15,7 @@ AutoGovern2Code 是一层本地、开源的 AI 编程治理工具。把 Git 工�
 
 ## Windows 怎么用（免安装便携版）
 
-需要 Windows 10/11 x64，不需要 Python。托盘是 Dear ImGui 窗口（Hello ImGui 停靠壳），不嵌入 Edge，也不再用 PySide/Qt。发行物就是一个文件夹：`AutoGovern2Code.exe`、`ag2c\`、`git\`、`data\` 加 `portable.ini`。不写 PATH、不写注册表、不加开机启动；整个文件夹随便放、随便搬，拷到别的机器也能直接用——搬迁后第一条命令会自动把登记册和 Git 门禁钩子指到新位置。
+需要 Windows 10/11 x64，以及 WebView2 Runtime；不需要 Python。产品窗口是 WebView2（pywebview），不用 Qt。发行物就是一个文件夹：`AutoGovern2Code.exe`、`ag2c\`、`git\`、`data\` 加 `portable.ini`。不写 PATH、不写注册表、不加开机启动；整个文件夹随便放、随便搬，拷到别的机器也能直接用——搬迁后第一条命令会自动把登记册和 Git 门禁钩子指到新位置。
 
 1. 从[最新 GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest)下载 `AutoGovern2Code-Portable-Windows-x64.zip`。
 2. 解压到任意位置（U 盘也行），双击 `AutoGovern2Code.exe`。

@@ -6,7 +6,7 @@ AG2C adoption has one user-facing action: choose a Git project in the tray appli
 
 Download `AutoGovern2Code-Portable-Windows-x64.zip` from the [latest GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest), extract it anywhere, and double-click `AutoGovern2Code.exe`. The no-install portable folder:
 
-- is a self-contained AG2C runtime without requiring Python, administrator rights, or Edge WebView2; the tray is a Dear ImGui window (Hello ImGui) and the package ships MinGit next to the app;
+- is a self-contained AG2C runtime without requiring Python or administrator rights; the product window is WebView2 (pywebview), so the WebView2 Runtime must be installed, and the package ships MinGit next to the app;
 - never writes PATH, the registry, the Start Menu, or login startup — every byte it owns stays in its own `data\` folder;
 - can be moved or copied to another machine as-is; the first command after a move re-points the project registry and the Git guard hooks to the new location;
 - can write itself into local MCP configs on demand (`ag2c mcp install`); the operator AI entry is a generic MCP connect prompt plus **检测 MCP**.

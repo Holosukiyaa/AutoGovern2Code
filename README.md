@@ -15,7 +15,7 @@ The project never receives an `.ag2c` directory, AG2C-generated `AGENTS.md` or `
 
 ## Use on Windows (no-install portable)
 
-Requirements: Windows 10 or 11 x64. Python is not required. The tray is a Dear ImGui window (Hello ImGui docking shell) and does not embed a browser or Qt. The download is a single folder: `AutoGovern2Code.exe`, `ag2c\`, `git\`, `data\`, and `portable.ini`. It never writes PATH, the registry, the Start Menu, or login startup. Put the folder anywhere — a USB drive works — and move it freely; the first command after a move re-points the project registry and the Git guard hooks to the new location automatically. Shipped MinGit is used even if another Git is on PATH.
+Requirements: Windows 10 or 11 x64, plus the WebView2 Runtime. Python is not required. The product window is WebView2 (pywebview) and does not use Qt. The download is a single folder: `AutoGovern2Code.exe`, `ag2c\`, `git\`, `data\`, and `portable.ini`. It never writes PATH, the registry, the Start Menu, or login startup. Put the folder anywhere — a USB drive works — and move it freely; the first command after a move re-points the project registry and the Git guard hooks to the new location automatically. Shipped MinGit is used even if another Git is on PATH.
 
 1. Download `AutoGovern2Code-Portable-Windows-x64.zip` from the [latest GitHub Release](https://github.com/Holosukiyaa/AutoGovern2Code/releases/latest).
 2. Extract it anywhere and double-click `AutoGovern2Code.exe`.

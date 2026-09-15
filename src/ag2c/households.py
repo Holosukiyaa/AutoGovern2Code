@@ -740,7 +740,7 @@ def enforce_households(manifest: Manifest, policy: Policy, entry_slice: dict, ch
         if card is not None and card.optional and card.card_type == "floor":
             continue
         problems.extend(f'{issue["code"]}:{item["id"]}' for issue in item["issues"])
-        if item["freshness"] != "current":
+        if item["freshness"] in {"never", "stale"}:
             problems.append(f'census-{item["freshness"]}:{item["id"]}')
             freshness_problems.append(f'census-{item["freshness"]}:{item["id"]}')
         missing = set(item["checkers"]) - checker_ids

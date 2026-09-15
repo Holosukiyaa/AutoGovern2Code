@@ -340,8 +340,47 @@ def apply_change(
     raw = _read_json(manifest.policy_path)
     cards = [item for item in raw.get("cards", []) if isinstance(item, dict)]
     existing = {str(item.get("id")): item for item in cards}
-    if existing.get(card_id, {}).get("jurisdiction") is not None:
+    budget_only_update = (
+        action == "update"
+        and budget_lines is not None
+        and not title.strip()
+        and not summary.strip()
+        and include is None
+        and provides is None
+        and conventions is None
+        and budget_chars is None
+        and budget_ast_nodes is None
+        and optional is None
+        and maturity is None
+    )
+    if existing.get(card_id, {}).get("jurisdiction") is not None and not budget_only_update:
         raise AG2CError("directory households must be updated through govern household; retain retired cards and census history")
+    if budget_only_update:
+        if card_id not in existing:
+            raise AG2CError(f"unknown card: {card_id}")
+        current = dict(existing[card_id])
+        current["budget_lines"] = max(0, int(budget_lines))
+        raw["cards"] = [current if item.get("id") == card_id else item for item in cards]
+        _atomic_json(manifest.policy_path, raw)
+        try:
+            policy = load_policy(manifest)
+        except ConfigurationError as exc:
+            raise AG2CError(f"updated policy is invalid: {exc}") from exc
+        build_index(manifest, policy, index_path(manifest))
+        event = append_event(
+            manifest.ledger_path,
+            "governance-applied",
+            {"action": action, "kind": kind, "id": card_id, "actor": actor, "reason": reason, "budget_lines": int(budget_lines)},
+        )
+        pending_updates(root)
+        return {
+            "action": action,
+            "id": card_id,
+            "actor": actor,
+            "reason": reason,
+            "budget_lines": int(budget_lines),
+            "ledger_event_digest": event["event_digest"],
+        }
     if action == "remove":
         if card_id not in existing:
             raise AG2CError(f"unknown card: {card_id}")

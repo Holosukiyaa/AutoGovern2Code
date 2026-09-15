@@ -9,6 +9,7 @@ PRODUCT_UNDECLARED = "undeclared"
 PRODUCT_BLOCKED = "blocked"
 PRODUCT_INCOMPLETE = "incomplete"
 PRODUCT_CHECKED = "checked"
+PRODUCT_NOT_RUN = "not-run"
 
 GROWTH_UNSPLIT = "unsplit"
 GROWTH_SLICED = "sliced"
@@ -20,6 +21,7 @@ PRODUCT_SUMMARIES = {
     PRODUCT_BLOCKED: "stored rules are stale or conflicting; not product-checked",
     PRODUCT_INCOMPLETE: "declared product checks did not all run and pass",
     PRODUCT_CHECKED: "declared product checks passed",
+    PRODUCT_NOT_RUN: "declared product checks were not in this slice or were skipped; not a product failure",
 }
 
 GROWTH_SUMMARIES = {
@@ -124,14 +126,20 @@ def assess_product(
     results = list((verification or {}).get("checker_results") or [])
     skipped_checks = [str(item.get("id")) for item in results if item.get("status") == "skipped"]
     product_results = [item for item in results if item.get("stage") in {"boundary", "scenario"}]
+    product_failed = [
+        item for item in product_results if item.get("status") not in {"passed", "skipped"}
+    ]
+    product_passed = [item for item in product_results if item.get("status") == "passed"]
     if not declared:
         status = PRODUCT_UNDECLARED
     elif stale_rules or leftover or competing:
         status = PRODUCT_BLOCKED
-    elif skipped_checks:
+    elif product_failed:
         status = PRODUCT_INCOMPLETE
-    elif product_results and all(item.get("status") == "passed" for item in product_results):
+    elif product_passed:
         status = PRODUCT_CHECKED
+    elif product_results or skipped_checks:
+        status = PRODUCT_NOT_RUN
     else:
         status = PRODUCT_INCOMPLETE
     return {

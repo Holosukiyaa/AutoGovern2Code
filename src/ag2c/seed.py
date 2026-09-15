@@ -37,6 +37,17 @@ PHASE_SUMMARIES = {
 }
 
 SKIP_GROUP_NAMES = {"__pycache__", "fixtures", "data"}
+FOUNDING_PACK_GROUP = "smoke"
+FOUNDING_PACK_EXAM = '''"""Pack smoke: the enrolled project root is a Git checkout."""
+from pathlib import Path
+import unittest
+
+
+class PackSmokeTests(unittest.TestCase):
+    def test_cwd_is_a_git_worktree(self) -> None:
+        root = Path.cwd()
+        self.assertTrue((root / ".git").exists(), f"missing .git at {root}")
+'''
 
 
 def is_host_project(root: Path) -> bool:
@@ -131,6 +142,15 @@ def native_discover_command(relative: str) -> list[str]:
     return ["python", "-B", "-m", "unittest", "discover", "-s", folder, "-p", "test_*.py"]
 
 
+def _any_test_files(root: Path) -> bool:
+    for base in (root / "tests", root / "scripts" / "tests"):
+        if not base.is_dir():
+            continue
+        if any(base.rglob("test_*.py")):
+            return True
+    return False
+
+
 def discover_groups(root: Path) -> dict[str, Path]:
     found: dict[str, Path] = {}
     for base in (root / "scripts" / "tests", root / "tests"):
@@ -223,6 +243,17 @@ def _bind_targets(policy: Policy, group: str, relative: str) -> list[str]:
     return list(dict.fromkeys(bound))
 
 
+def ensure_founding_pack_exam(pack: Path) -> str:
+    """Write a store-side smoke exam when the project has no test groups."""
+    folder = pack / "exams" / FOUNDING_PACK_GROUP
+    folder.mkdir(parents=True, exist_ok=True)
+    exam = folder / "test_pack_smoke.py"
+    if not exam.is_file():
+        exam.write_text(FOUNDING_PACK_EXAM, encoding="utf-8")
+    ensure_pack_runner(pack)
+    return FOUNDING_PACK_GROUP
+
+
 def plant_at_enrollment(root: Path) -> dict[str, Any]:
     """Sow once at enroll. Host skips. Failure does not roll back enrollment."""
     if is_host_project(root):
@@ -254,6 +285,9 @@ def sow(start: Path, *, actor: str, reason: str) -> dict[str, Any]:
     groups = discover_groups(root)
     pack = pack_dir(manifest.policy_path)
     pack_groups = discover_pack_groups(pack)
+    if not groups and not pack_groups and not _any_test_files(root):
+        ensure_founding_pack_exam(pack)
+        pack_groups = discover_pack_groups(pack)
     created: list[str] = []
     skipped: list[dict[str, str]] = []
     for name, folder in groups.items():

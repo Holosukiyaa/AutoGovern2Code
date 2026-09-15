@@ -151,6 +151,111 @@ class EnrollmentTests(unittest.TestCase):
             pack = Path(result["store"]) / "pack"
             self.assertFalse((pack / "exams").exists())
 
+    def test_enroll_without_test_groups_writes_pack_smoke(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = git_project(Path(directory) / "bare")
+            import shutil
+
+            shutil.rmtree(root / "tests")
+            data = Path(directory) / "ag2c-data"
+            with patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False):
+                result = enroll_project(root, skill_root=Path(directory) / "skills", harnesses=("agents",))
+            pack = Path(result["store"]) / "pack"
+            self.assertTrue((pack / "exams" / "smoke" / "test_pack_smoke.py").is_file())
+            self.assertTrue((pack / "run_exam.py").is_file())
+            self.assertIn("check.suite-smoke", result.get("seed", {}).get("created") or [])
+            self.assertFalse((root / "tests" / "suites.py").exists())
+            policy = load_policy(load_manifest(discover_manifest(root), project_root=root))
+            commands = [checker.command for checker in policy.checkers if checker.checker_id == "check.suite-smoke"]
+            self.assertEqual(1, len(commands))
+            joined = " ".join(commands[0])
+            self.assertIn("run_exam.py", joined)
+            self.assertIn("smoke", joined)
+
+    def test_skipped_product_checks_are_not_incomplete(self) -> None:
+        from ag2c.acceptance import PRODUCT_CHECKED, PRODUCT_INCOMPLETE, PRODUCT_NOT_RUN, assess_product
+        from ag2c.model import Checker, Coverage, Policy
+
+        policy = Policy(
+            path=Path("policy.json"),
+            cards=(),
+            relations=(),
+            contracts=(),
+            checkers=(
+                Checker(
+                    checker_id="check.knowledge.ag2c-gui",
+                    stage="scenario",
+                    target_id="app",
+                    command=("python", "-B", "scripts/check_desktop_boot.py"),
+                    cwd=".",
+                    timeout=600,
+                    always=False,
+                ),
+            ),
+            coverage=Coverage(level="none", strategy="", managed_by="", areas=()),
+        )
+        skipped = assess_product(
+            policy,
+            verification={
+                "checker_results": [
+                    {"id": "check.python", "stage": "floor", "status": "skipped"},
+                    {"id": "check.knowledge.ag2c-gui", "stage": "scenario", "status": "skipped", "skip_reason": "docs-only"},
+                ]
+            },
+        )
+        self.assertEqual(PRODUCT_NOT_RUN, skipped["status"])
+        self.assertNotEqual(PRODUCT_INCOMPLETE, skipped["status"])
+        passed = assess_product(
+            policy,
+            verification={"checker_results": [{"id": "check.knowledge.ag2c-gui", "stage": "scenario", "status": "passed"}]},
+        )
+        self.assertEqual(PRODUCT_CHECKED, passed["status"])
+
+    def test_census_version_mismatch_is_not_never_or_stale(self) -> None:
+        from ag2c.households import _census_freshness
+
+        self.assertEqual(
+            "version-mismatch",
+            _census_freshness(
+                {"code_version": "0.0.1", "scope_digest": "a", "declaration_digest": "b"},
+                "a",
+                "b",
+                "0.11.0",
+            ),
+        )
+        self.assertEqual(
+            "stale",
+            _census_freshness(
+                {"code_version": "0.11.0", "scope_digest": "old", "declaration_digest": "b"},
+                "a",
+                "b",
+                "0.11.0",
+            ),
+        )
+
+    def test_apply_floor_budget_lines_without_include(self) -> None:
+        from ag2c.govern import apply_change
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = git_project(Path(directory) / "floors")
+            data = Path(directory) / "ag2c-data"
+            with patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False):
+                enroll_project(root, skill_root=Path(directory) / "skills", harnesses=("agents",))
+            policy = load_policy(load_manifest(discover_manifest(root), project_root=root))
+            floor_id = next(card.card_id for card in policy.cards if card.card_type == "floor")
+            apply_change(
+                root,
+                action="update",
+                kind="card",
+                card_id=floor_id,
+                actor="grok",
+                reason="raise floor cap",
+                budget_lines=4321,
+            )
+            again = load_policy(load_manifest(discover_manifest(root), project_root=root))
+            floor = next(card for card in again.cards if card.card_id == floor_id)
+            self.assertEqual(4321, int(floor.budget_lines or 0))
+
     def test_enroll_host_skips_sow_and_still_enrolls(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = git_project(Path(directory) / "hosty")

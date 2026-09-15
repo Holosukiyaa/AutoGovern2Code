@@ -534,6 +534,22 @@ def _matches(card: Card, target: str, path: str) -> bool:
     return any(scope_matches(scope, target, path) for scope in card.scopes)
 
 
+def overlay_jurisdiction_owners(cards: list[Card], target: str, path: str) -> list[Card]:
+    """File-grain households overlay a live directory room; they win uniqueness."""
+    matched = [card for card in cards if card.jurisdiction and _matches(card, target, path)]
+    file_owners = [
+        card
+        for card in matched
+        if str((coerce_jurisdiction(card.jurisdiction) or {}).get("grain") or "") == "file"
+    ]
+    room_owners = [
+        card
+        for card in matched
+        if str((coerce_jurisdiction(card.jurisdiction) or {}).get("grain") or "") != "file"
+    ]
+    return file_owners or room_owners
+
+
 def _matches_include(card: Card, target: str, path: str) -> bool:
     return any(
         scope.target_id == target and any(path_matches(path, pattern) for pattern in scope.includes)
@@ -711,7 +727,7 @@ def enforce_households(manifest: Manifest, policy: Policy, entry_slice: dict, ch
     problems = [f'{item["code"]}:{item["target"]}:{item["path"]}' for item in report["gaps"] if not entries or (item["target"], item["path"]) in selected_paths]
     for target, path in selected_paths:
         if Path(path).suffix.lower() in CODE_SUFFIXES:
-            owners = [card for card in policy.cards if card.jurisdiction and _matches(card, target, path)]
+            owners = overlay_jurisdiction_owners(policy.cards, target, path)
             if len(owners) != 1:
                 problems.append(f"changed-code-without-unique-household:{target}:{path}")
     freshness_problems: list[str] = []

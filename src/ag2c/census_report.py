@@ -12,7 +12,7 @@ from .errors import AG2CError, ConfigurationError, WidenError
 from .index import _discover_files, _git, primary_owners, scope_matches
 from .model import Card, Manifest, Policy, Scope
 from .util import digest_file, digest_json, path_matches
-from .households import CENSUS_SCHEMA, CODE_SUFFIXES, _CENSUS_CACHE, _census_cache_key, _census_freshness, _code_direct_children, _direct_named_dirs, _history, _include_roots, _last_source_change, _matches, _matches_include, _version, coerce_jurisdiction, expired_renewals, file_card_summary, file_latest_commits
+from .households import CENSUS_SCHEMA, CODE_SUFFIXES, _CENSUS_CACHE, _census_cache_key, _census_freshness, _code_direct_children, _direct_named_dirs, _history, _include_roots, _last_source_change, _matches, _matches_include, _version, coerce_jurisdiction, expired_renewals, file_card_summary, file_latest_commits, overlay_jurisdiction_owners
 
 def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
     cache_key = _census_cache_key(manifest, policy)
@@ -50,20 +50,10 @@ def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
     for artifact in artifacts:
         if not artifact["code"]:
             continue
-        matched = [card for card in jurisdictions if _matches(card, artifact["target"], artifact["path"])]
-        file_owners = [
+        owners = [
             card.card_id
-            for card in matched
-            if str((coerce_jurisdiction(card.jurisdiction) or {}).get("grain") or "") == "file"
+            for card in overlay_jurisdiction_owners(jurisdictions, artifact["target"], artifact["path"])
         ]
-        room_owners = [
-            card.card_id
-            for card in matched
-            if str((coerce_jurisdiction(card.jurisdiction) or {}).get("grain") or "") != "file"
-        ]
-        # File-grain households overlay a live directory room for leftover
-        # deletion; they do not compete with that room for census ownership.
-        owners = file_owners or room_owners
         directory = str(Path(artifact["path"]).parent).replace("\\", "/")
         group = directories.setdefault((artifact["target"], directory), {"target": artifact["target"], "path": directory, "files": [], "owners": set(), "unowned": 0, "ambiguous": 0})
         group["files"].append(artifact["path"])

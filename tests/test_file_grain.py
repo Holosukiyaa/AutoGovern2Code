@@ -9,7 +9,7 @@ from pathlib import Path
 import bootstrap  # noqa: F401
 
 from ag2c.errors import AG2CError, ConfigurationError
-from ag2c.households import census_report, file_scope, households_covering_path
+from ag2c.households import census_report, file_scope, households_covering_path, overlay_jurisdiction_owners
 from ag2c.household_commands import confirm_retirement, register_household, retire_household
 from ag2c.tasks import _assert_retirement_diff
 from support import _git, git_project, write_project
@@ -337,6 +337,8 @@ class FileHouseholdGateTests(unittest.TestCase):
         covering = {item["id"] for item in households_covering_path(report, "app", "src/overlay59/t59-overlay.py")}
         self.assertIn("knowledge.t59-overlay-room", covering)
         self.assertIn("knowledge.t59-overlay-file", covering)
+        unique = overlay_jurisdiction_owners(policy.cards, "app", "src/overlay59/t59-overlay.py")
+        self.assertEqual(["knowledge.t59-overlay-file"], [card.card_id for card in unique])
         with self.assertRaisesRegex(AG2CError, "cannot-overlap-household"):
             register_household(
                 self.root,

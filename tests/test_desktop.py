@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import http.client
+import io
 import json
 import os
 import socket
@@ -413,6 +414,39 @@ class RehomeJobTests(unittest.TestCase):
 
     def test_unknown_job_poll_returns_none(self) -> None:
         self.assertIsNone(self._desktop._rehome_job("no-such-job"))
+
+
+class SecondLaunchTests(unittest.TestCase):
+    def test_probe_exits_nonzero_when_mutex_held(self) -> None:
+        from ag2c_gui.webview_host import main
+
+        stderr = io.StringIO()
+        with patch("ag2c_gui.webview_host.acquire_mutex", return_value=None):
+            with patch("ag2c_gui.webview_host.reveal_existing_window", return_value=False):
+                with patch("sys.stderr", stderr):
+                    code = main(["--probe"])
+        self.assertEqual(1, code)
+        self.assertIn("already running", stderr.getvalue())
+
+    def test_normal_second_launch_is_not_silent_zero_when_window_missing(self) -> None:
+        from ag2c_gui.webview_host import main
+
+        stderr = io.StringIO()
+        with patch("ag2c_gui.webview_host.acquire_mutex", return_value=None):
+            with patch("ag2c_gui.webview_host.reveal_existing_window", return_value=False):
+                with patch("ag2c_gui.webview_host.alert_already_running"):
+                    with patch("sys.stderr", stderr):
+                        code = main([])
+        self.assertEqual(1, code)
+        self.assertIn("already running", stderr.getvalue())
+
+    def test_second_launch_zero_only_when_existing_window_shown(self) -> None:
+        from ag2c_gui.webview_host import main
+
+        with patch("ag2c_gui.webview_host.acquire_mutex", return_value=None):
+            with patch("ag2c_gui.webview_host.reveal_existing_window", return_value=True):
+                code = main([])
+        self.assertEqual(0, code)
 
 
 class TrayHostSourceTests(unittest.TestCase):

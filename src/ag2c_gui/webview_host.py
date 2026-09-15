@@ -10,9 +10,11 @@ from typing import Any
 from .tray_host import (
     DesktopApi,
     acquire_mutex,
+    alert_already_running,
     app_directory,
     free_port,
     portable_env,
+    reveal_existing_window,
     runtime_command,
     session_token,
     start_desktop_server,
@@ -126,10 +128,14 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     mutex = acquire_mutex()
     if mutex is None:
+        shown = reveal_existing_window()
+        sys.stderr.write("AutoGovern2Code desktop is already running.\n")
         if probe:
-            sys.stderr.write("AutoGovern2Code desktop is already running.\n")
             return 1
-        return 0
+        if shown:
+            return 0
+        alert_already_running()
+        return 1
     token = session_token()
     port = free_port()
     extra = portable_env(app_directory()) if portable else None

@@ -588,6 +588,32 @@ def acquire_mutex() -> Any | None:
     return handle
 
 
+def reveal_existing_window() -> bool:
+    """Bring the live AutoGovern2Code window forward. False if none is found."""
+    if os.name != "nt":
+        return False
+    import ctypes
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    hwnd = user32.FindWindowW(None, "AutoGovern2Code")
+    if not hwnd:
+        return False
+    user32.ShowWindow(hwnd, 9)
+    user32.SetForegroundWindow(hwnd)
+    return True
+
+
+def alert_already_running() -> None:
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(None, "AutoGovern2Code 已经在运行。", "AutoGovern2Code", 0x40)
+    except OSError:
+        return
+
+
 def startup_enabled() -> bool:
     if os.name != "nt":
         return False

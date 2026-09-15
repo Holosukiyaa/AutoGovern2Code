@@ -474,7 +474,7 @@ class LiveDuplicateScanTests(unittest.TestCase):
             _write_warning_history(
                 manifest,
                 [{"kind": "possible-duplicate", "key": "src/ag2c/cli.py:main", "count": 4,
-                  "detail": "同名函数 main（src/ag2c/cli.py）与 src/ag2c_gui/imgui_tray.py 参数数相同"}],
+                  "detail": "同名函数 main（src/ag2c/cli.py）与 src/ag2c/util.py 参数数相同"}],
             )
             report = hazard_report(manifest)
             duplicates = [h for h in report["hazards"] if h["kind"] == "duplicate"]

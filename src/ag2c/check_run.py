@@ -206,6 +206,19 @@ def run_checks(
         selected_ids = requested_checker_ids
     if not selected_ids:
         raise AG2CError("entry slice selected no checkers; add a real checker before reporting validation")
+    if not all_mode:
+        from .suite_bind import unmapped_suite_checker_ids
+
+        entries = entry_slice.get("entries") if isinstance(entry_slice, dict) else None
+        raw_paths = entries.get("paths") if isinstance(entries, dict) else None
+        artifacts: list[str] = []
+        if isinstance(raw_paths, list):
+            for item in raw_paths:
+                if isinstance(item, dict):
+                    artifacts.append(str(item.get("path") or ""))
+        extras = unmapped_suite_checker_ids(selected_ids, artifacts)
+        if extras:
+            raise AG2CError("refusing unmapped suite checkers (full-suite steal-run):\n- " + "\n- ".join(extras))
     from .households import enforce_households
 
     enforce_households(manifest, policy, entry_slice, selected_ids)

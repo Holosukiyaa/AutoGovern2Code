@@ -22,12 +22,72 @@ from .ledger import append_event, inspect_ledger, read_events
 from .receipts import build_receipt, receipt_path, verify_commit_receipt, write_receipt
 from .slicer import compile_slice
 from .storage import git_private_path
+from .suite_bind import disk_engine_src
 from .portrait import lint_portrait, portrait_inference_section
-from .util import atomic_json_write, digest_file
+from .util import atomic_json_write, digest_file, hidden_process_kwargs
 from .task_evidence import _matching_event, _verification_evidence_valid, _start_evidence_valid, _portrait_amendment_chain_valid
 from .tasks import _assert_retirement_diff, _atomic_json, _canonical_manifest, _changed_specs, _committed_delta, _governance_code_reconcile, _notify_gate_block, _now, _record_intervention, _require_open_task, _sync_canonical_dirty_notification, _task_from_worktree, _task_path, _worktree_snapshot, front_back_overlap, refresh_task
 
+VERIFY_REEXEC_ENV = "AG2C_VERIFY_REEXEC"
+
+
+def _console_python() -> str:
+    exe = Path(sys.executable)
+    if exe.stem.lower() == "pythonw":
+        sibling = exe.with_name("python.exe" if exe.suffix.lower() == ".exe" else "python")
+        if sibling.is_file():
+            return str(sibling)
+    return str(exe)
+
+
+def _parse_verify_json(stdout: str) -> dict[str, Any]:
+    text = stdout.strip()
+    decoder = json.JSONDecoder()
+    payload: dict[str, Any] | None = None
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            obj, _end = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and "passed" in obj:
+            payload = obj
+    if payload is None:
+        raise AG2CError("verify child produced no JSON")
+    return payload
+
+
+def _reexec_verify(start: Path) -> dict[str, Any]:
+    worktree = repository_root(start)
+    canonical, _task = _task_from_worktree(worktree)
+    src = disk_engine_src(worktree, canonical)
+    env = os.environ.copy()
+    env[VERIFY_REEXEC_ENV] = "1"
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(src) if not existing else str(src) + os.pathsep + existing
+    completed = subprocess.run(
+        [_console_python(), "-B", "-m", "ag2c", "task", "verify"],
+        cwd=str(worktree),
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        **hidden_process_kwargs(),
+    )
+    stderr = (completed.stderr or "").strip()
+    if completed.returncode not in (0, 1):
+        msg = stderr or (completed.stdout or "").strip() or "verify child failed"
+        if msg.startswith("AG2C error:"):
+            msg = msg[len("AG2C error:") :].strip()
+        raise AG2CError(msg)
+    return _parse_verify_json(completed.stdout or "")
+
+
 def verify_task(start: Path, *, _auto_refreshed: bool = False) -> dict[str, Any]:
+    if os.environ.get(VERIFY_REEXEC_ENV) != "1":
+        return _reexec_verify(start)
     worktree = repository_root(start)
     canonical, task = _task_from_worktree(worktree)
     _require_open_task(task)

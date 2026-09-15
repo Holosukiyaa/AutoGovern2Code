@@ -939,6 +939,7 @@ class SliceTaxTests(unittest.TestCase):
                     },
                 }
             )
+            raw["relations"].append({"source": "knowledge.tests", "type": "explains", "target": "floor.tests"})
             raw["checkers"].extend(
                 [
                     {
@@ -971,3 +972,32 @@ class SliceTaxTests(unittest.TestCase):
             self.assertIn("check.suite-enrollment", planned)
             self.assertNotIn("check.suite-gui", planned)
             self.assertEqual("precise", sliced["route"]["state"])
+            record_census(root)
+            run_checks(manifest, policy, sliced)
+            sliced["check_plan"] = list(sliced["check_plan"]) + [
+                {
+                    "id": "check.suite-gui",
+                    "stage": "floor",
+                    "target": "app",
+                    "command": [sys.executable, "-c", "print('gui')"],
+                    "selection_reasons": ["steal-run"],
+                }
+            ]
+            with self.assertRaisesRegex(AG2CError, r"unmapped suite checkers[\s\S]*check.suite-gui"):
+                run_checks(manifest, policy, sliced)
+            run_checks(manifest, policy, sliced, all_mode=True)
+
+    def test_disk_engine_src_prefers_worktree(self) -> None:
+        from ag2c.suite_bind import disk_engine_src
+
+        with tempfile.TemporaryDirectory() as directory:
+            worktree = Path(directory) / "wt"
+            canonical = Path(directory) / "canon"
+            (worktree / "src" / "ag2c").mkdir(parents=True)
+            (worktree / "src" / "ag2c" / "slicer.py").write_text("# slicer\n", encoding="utf-8")
+            (canonical / "src" / "ag2c").mkdir(parents=True)
+            (canonical / "src" / "ag2c" / "slicer.py").write_text("# canon\n", encoding="utf-8")
+            self.assertEqual(worktree / "src", disk_engine_src(worktree, canonical))
+            empty = Path(directory) / "empty"
+            empty.mkdir()
+            self.assertEqual(canonical / "src", disk_engine_src(empty, canonical))

@@ -110,6 +110,27 @@ def suite_checker_ids_for_paths(
     return found
 
 
+def disk_engine_src(worktree: Path, canonical: Path) -> Path:
+    """Src dir a verify child must import. Worktree first so in-flight slicer edits run."""
+    if (worktree / "src" / "ag2c" / "slicer.py").is_file():
+        return worktree / "src"
+    return canonical / "src"
+
+
+def unmapped_suite_checker_ids(selected: Iterable[str], paths: Iterable[str]) -> list[str]:
+    """Suite checkers that are selected but do not belong to the changed test modules.
+
+    A long-lived process holding a pre-F3 slicer can still plan every check.suite-*
+    from floor.tests. Execution must refuse those extras instead of running them.
+    """
+    mapped = suite_checker_ids_for_paths(paths)
+    return sorted(
+        str(checker_id)
+        for checker_id in selected
+        if str(checker_id).startswith("check.suite-") and str(checker_id) not in mapped
+    )
+
+
 def is_tests_tree_includes(includes: Iterable[str]) -> bool:
     patterns = [str(item).replace("\\", "/").lstrip("./") for item in includes]
     return bool(patterns) and all(item == "tests" or item.startswith("tests/") for item in patterns)

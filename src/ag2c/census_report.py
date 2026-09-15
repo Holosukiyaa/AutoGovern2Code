@@ -50,7 +50,20 @@ def census_report(manifest: Manifest, policy: Policy) -> dict[str, Any]:
     for artifact in artifacts:
         if not artifact["code"]:
             continue
-        owners = [card.card_id for card in jurisdictions if _matches(card, artifact["target"], artifact["path"])]
+        matched = [card for card in jurisdictions if _matches(card, artifact["target"], artifact["path"])]
+        file_owners = [
+            card.card_id
+            for card in matched
+            if str((coerce_jurisdiction(card.jurisdiction) or {}).get("grain") or "") == "file"
+        ]
+        room_owners = [
+            card.card_id
+            for card in matched
+            if str((coerce_jurisdiction(card.jurisdiction) or {}).get("grain") or "") != "file"
+        ]
+        # File-grain households overlay a live directory room for leftover
+        # deletion; they do not compete with that room for census ownership.
+        owners = file_owners or room_owners
         directory = str(Path(artifact["path"]).parent).replace("\\", "/")
         group = directories.setdefault((artifact["target"], directory), {"target": artifact["target"], "path": directory, "files": [], "owners": set(), "unowned": 0, "ambiguous": 0})
         group["files"].append(artifact["path"])

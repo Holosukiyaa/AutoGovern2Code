@@ -295,6 +295,65 @@ class FileHouseholdGateTests(unittest.TestCase):
                     card["jurisdiction"] = {**card["jurisdiction"], "status": "retired"}
             policy_path.write_text(json.dumps(raw, indent=2), encoding="utf-8")
 
+    def test_file_grain_overlays_directory_room_without_ambiguity(self):
+        """grain=file 叠在活着的目录房间上：普查不算 code-ambiguous，可以登记。 第二张 current 文件户口仍算重叠。"""
+        from ag2c.config import discover_manifest, load_manifest, load_policy
+
+        self._commit_file("src/overlay59/t59-overlay.py", "VALUE = 1\n")
+        register_household(
+            self.root,
+            card_id="knowledge.t59-overlay-room",
+            title="t59 overlay room",
+            summary="named directory room covering src/overlay59",
+            includes=["src/overlay59/**"],
+            excludes=[],
+            floors=["floor.api"],
+            capability="api",
+            implementation="api.overlay-room",
+            status="current",
+            actor="test",
+            reason="directory room under which a leftover file household will sit",
+        )
+        register_household(
+            self.root,
+            card_id="knowledge.t59-overlay-file",
+            title="t59 overlay file",
+            summary="file-grain leftover overlay on one file inside the room",
+            includes=["src/overlay59/t59-overlay.py"],
+            excludes=[],
+            floors=["floor.api"],
+            capability="api",
+            implementation="api.overlay-file",
+            status="current",
+            grain="file",
+            actor="test",
+            reason="file-grain overlay must not be code-ambiguous with the room",
+        )
+        manifest = load_manifest(discover_manifest(self.root), project_root=self.root)
+        policy = load_policy(manifest)
+        report = census_report(manifest, policy)
+        ambiguous = [item for item in report["gaps"] if item.get("code") == "code-ambiguous" and item.get("path") == "src/overlay59/t59-overlay.py"]
+        self.assertEqual([], ambiguous)
+        covering = {item["id"] for item in households_covering_path(report, "app", "src/overlay59/t59-overlay.py")}
+        self.assertIn("knowledge.t59-overlay-room", covering)
+        self.assertIn("knowledge.t59-overlay-file", covering)
+        with self.assertRaisesRegex(AG2CError, "cannot-overlap-household"):
+            register_household(
+                self.root,
+                card_id="knowledge.t59-overlay-file-2",
+                title="t59 overlay file 2",
+                summary="second current file-grain on the same file",
+                includes=["src/overlay59/t59-overlay.py"],
+                excludes=[],
+                floors=["floor.api"],
+                capability="api",
+                implementation="api.overlay-file-2",
+                status="current",
+                grain="file",
+                actor="test",
+                reason="two current file-grain cards on one file still overlap",
+            )
+
     def test_unowned_delete_still_blocked(self):
         """无主文件删除仍挡：cannot-delete-unowned。"""
         head = self._commit_file("t59-orphan.ini")

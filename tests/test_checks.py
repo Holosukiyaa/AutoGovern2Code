@@ -12,6 +12,7 @@ from ag2c.checks import accept_test_baseline, load_test_baseline, parse_unittest
 from ag2c.config import load_manifest, load_policy
 from ag2c.errors import AG2CError, ConfigurationError
 from ag2c.govern import update_checker
+from ag2c.household_commands import register_household
 from ag2c.index import build_index
 from ag2c.ledger import verify_ledger
 from ag2c.slicer import compile_slice
@@ -583,6 +584,220 @@ class CheckerTests(unittest.TestCase):
                 update_checker(root, checker_id="check.suite-worker", actor="tester", reason="x", command=[])
             with self.assertRaisesRegex(AG2CError, "unsupported checker stage"):
                 update_checker(root, checker_id="check.suite-worker", actor="tester", reason="x", stage="outer-space")
+
+    def test_update_checker_retargets_implementation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root)
+            subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, capture_output=True)
+            _add_checker(root, _unittest_checker("print('ok')", implementation="hello_imgui"))
+            result = update_checker(
+                root,
+                checker_id="check.tests",
+                actor="tester",
+                reason="product window is WebView2",
+                implementation="webview2",
+            )
+            self.assertEqual({"implementation": "webview2"}, result["changes"])
+            _, policy = _reload(root)
+            self.assertEqual("webview2", policy.checker("check.tests").implementation)
+
+            result = update_checker(
+                root,
+                checker_id="check.tests",
+                actor="tester",
+                reason="clear the stack label",
+                implementation="",
+            )
+            self.assertEqual({"implementation": ""}, result["changes"])
+            _, policy = _reload(root)
+            self.assertEqual("", policy.checker("check.tests").implementation)
+
+            with self.assertRaisesRegex(AG2CError, "unknown checker"):
+                update_checker(root, checker_id="check.nope", actor="tester", reason="x", implementation="webview2")
+            with self.assertRaisesRegex(AG2CError, "nothing to change"):
+                update_checker(root, checker_id="check.tests", actor="tester", reason="x")
+
+    def test_household_implementation_rename_updates_bound_checker(self) -> None:
+        from ag2c.households import census_report
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root, gated=True)
+            subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, capture_output=True)
+            register_household(
+                root,
+                card_id="knowledge.worker",
+                title="Worker navigation",
+                summary="Explains worker source.",
+                includes=["src/worker/**"],
+                excludes=[],
+                floors=["floor.worker"],
+                capability="worker",
+                implementation="hello_imgui",
+                status="current",
+                meaning="named",
+                span="folder",
+                command=[sys.executable, "-c", "print('boot')"],
+                actor="tester",
+                reason="bind a scenario checker to the old stack label",
+            )
+            update_checker(
+                root,
+                checker_id="check.suite-worker",
+                actor="tester",
+                reason="room tool with no stack label",
+                command=[sys.executable, "-c", "print('suite')"],
+                parse="unittest",
+                bind=["knowledge.worker"],
+            )
+            register_household(
+                root,
+                card_id="knowledge.worker",
+                title="Worker navigation",
+                summary="Explains worker source.",
+                includes=["src/worker/**"],
+                excludes=[],
+                floors=["floor.worker"],
+                capability="worker",
+                implementation="webview2",
+                status="current",
+                meaning="named",
+                span="folder",
+                actor="tester",
+                reason="product window moved to WebView2",
+            )
+            manifest, policy = _reload(root)
+            self.assertEqual("webview2", policy.card("knowledge.worker").jurisdiction["implementation"])
+            self.assertEqual("webview2", policy.checker("check.knowledge.worker").implementation)
+            self.assertEqual("", policy.checker("check.suite-worker").implementation)
+            report = census_report(manifest, policy)
+            household = next(item for item in report["households"] if item["id"] == "knowledge.worker")
+            self.assertNotIn("implementation-check-mismatch", {issue["code"] for issue in household["issues"]})
+
+    def test_household_rename_skips_checker_still_bound_to_another_room(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root, gated=True)
+            subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, capture_output=True)
+            register_household(
+                root,
+                card_id="knowledge.worker",
+                title="Worker navigation",
+                summary="Explains worker source.",
+                includes=["src/worker/**"],
+                excludes=[],
+                floors=["floor.worker"],
+                capability="worker",
+                implementation="hello_imgui",
+                status="current",
+                meaning="named",
+                span="folder",
+                command=[sys.executable, "-c", "print('boot')"],
+                actor="tester",
+                reason="bind a scenario checker",
+            )
+            update_checker(
+                root,
+                checker_id="check.shared-boot",
+                actor="tester",
+                reason="shared stack probe",
+                command=[sys.executable, "-c", "print('shared')"],
+                implementation="hello_imgui",
+                bind=["knowledge.worker", "knowledge.api"],
+            )
+            policy_path = root / ".ag2c" / "policy.json"
+            raw = json.loads(policy_path.read_text(encoding="utf-8"))
+            for card in raw["cards"]:
+                if card.get("id") == "knowledge.api":
+                    card["jurisdiction"]["implementation"] = "hello_imgui"
+            policy_path.write_text(json.dumps(raw), encoding="utf-8")
+            register_household(
+                root,
+                card_id="knowledge.worker",
+                title="Worker navigation",
+                summary="Explains worker source.",
+                includes=["src/worker/**"],
+                excludes=[],
+                floors=["floor.worker"],
+                capability="worker",
+                implementation="webview2",
+                status="current",
+                meaning="named",
+                span="folder",
+                actor="tester",
+                reason="rename this room only",
+            )
+            _, policy = _reload(root)
+            self.assertEqual("webview2", policy.card("knowledge.worker").jurisdiction["implementation"])
+            self.assertEqual("webview2", policy.checker("check.knowledge.worker").implementation)
+            self.assertEqual("hello_imgui", policy.checker("check.shared-boot").implementation)
+
+    def test_household_command_retargets_existing_implementation_checker(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root, gated=True)
+            subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, capture_output=True)
+            register_household(
+                root,
+                card_id="knowledge.worker",
+                title="Worker navigation",
+                summary="Explains worker source.",
+                includes=["src/worker/**"],
+                excludes=[],
+                floors=["floor.worker"],
+                capability="worker",
+                implementation="hello_imgui",
+                status="current",
+                meaning="named",
+                span="folder",
+                command=[sys.executable, "-c", "print('boot')"],
+                actor="tester",
+                reason="create the scenario checker",
+            )
+            register_household(
+                root,
+                card_id="knowledge.worker",
+                title="Worker navigation",
+                summary="Explains worker source.",
+                includes=["src/worker/**"],
+                excludes=[],
+                floors=["floor.worker"],
+                capability="worker",
+                implementation="webview2",
+                status="current",
+                meaning="named",
+                span="folder",
+                command=[sys.executable, "-c", "print('boot-v2')"],
+                actor="tester",
+                reason="same checker id, new stack label",
+            )
+            _, policy = _reload(root)
+            checker = policy.checker("check.knowledge.worker")
+            self.assertEqual("webview2", checker.implementation)
+            self.assertEqual("-c", checker.command[1])
+            self.assertEqual("print('boot-v2')", checker.command[2])
+
+    def test_govern_checker_help_mentions_implementation(self) -> None:
+        import argparse
+
+        from ag2c.cli import build_parser
+
+        parser = build_parser()
+        help_text = ""
+        for action in parser._actions:
+            if not isinstance(action, argparse._SubParsersAction):
+                continue
+            govern = action.choices.get("govern")
+            if govern is None:
+                continue
+            for sub in govern._actions:
+                if not isinstance(sub, argparse._SubParsersAction):
+                    continue
+                checker = sub.choices.get("checker")
+                if checker is not None:
+                    help_text = checker.format_help()
+        self.assertIn("--implementation", help_text)
 
 
 class SliceTaxTests(unittest.TestCase):

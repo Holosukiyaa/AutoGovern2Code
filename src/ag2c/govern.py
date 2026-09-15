@@ -503,6 +503,7 @@ def update_checker(
     stage: str | None = None,
     bind: list[str] | None = None,
     budget_seconds: float | None = None,
+    implementation: str | None = None,
 ) -> dict[str, Any]:
     """Create or adjust a policy checker without hand-editing policy.json.
 
@@ -510,14 +511,26 @@ def update_checker(
     id updates only the fields passed. Policy forbids orphaned checkers, so
     creating requires --bind <card> (repeatable); binding also works on an
     existing checker and unions into each card's checker list.
+    --implementation retargets the stack label (empty string clears it).
     """
     actor = actor.strip()
     reason = reason.strip()
     checker_id = checker_id.strip()
     if not actor or not reason or not checker_id:
         raise AG2CError("governance checker requires --actor, --reason, and --id")
-    if always is None and parse is None and timeout is None and command is None and stage is None and not bind and budget_seconds is None:
-        raise AG2CError("nothing to change; pass --always, --parse, --timeout, --command, --stage, --bind, or --budget-seconds")
+    if (
+        always is None
+        and parse is None
+        and timeout is None
+        and command is None
+        and stage is None
+        and not bind
+        and budget_seconds is None
+        and implementation is None
+    ):
+        raise AG2CError(
+            "nothing to change; pass --always, --parse, --timeout, --command, --stage, --bind, --budget-seconds, or --implementation"
+        )
     if parse is not None and parse not in {"unittest", "none", ""}:
         raise AG2CError(f"unsupported parse mode: {parse}")
     if command is not None and (not command or any(not isinstance(item, str) or not item for item in command)):
@@ -580,6 +593,13 @@ def update_checker(
         else:
             target.pop("budget_seconds", None)  # 0 = 清除显式预算，回到动态仓
         changes["budget_seconds"] = budget_seconds
+    if implementation is not None:
+        value = str(implementation).strip()
+        if value:
+            target["implementation"] = value
+        else:
+            target.pop("implementation", None)
+        changes["implementation"] = value
     if bind:
         cards = [item for item in raw.get("cards", []) if isinstance(item, dict)]
         known = {str(item.get("id")) for item in cards}

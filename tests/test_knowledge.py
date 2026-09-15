@@ -61,7 +61,7 @@ class KnowledgeTests(unittest.TestCase):
             self.assertEqual(events[-1]["event_type"], "knowledge-sync")
             self.assertEqual(events[-1]["payload"]["actor"], "codex")
 
-    def test_reference_change_marks_stale_and_expands_route(self) -> None:
+    def test_reference_change_marks_stale_without_expanding_file_card(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             manifest, policy, reference = knowledge_project(Path(directory))
             build_index(manifest, policy)
@@ -78,11 +78,18 @@ class KnowledgeTests(unittest.TestCase):
             self.assertEqual(status["source_status"], "stale")
             self.assertEqual(status["assertion_status"], "current")
             entry_slice = compile_slice(manifest, policy, path_specs=["app:src/worker/job.py"])
-            self.assertEqual(entry_slice["route"]["state"], "conservative")
-            self.assertIn("stale-knowledge:knowledge.worker", entry_slice["route"]["fallback_reasons"])
-            card_ids = {card["id"] for card in entry_slice["cards"]}
-            self.assertIn("floor.api", card_ids)
-            self.assertIn("floor.worker", card_ids)
+            self.assertEqual(entry_slice["route"]["state"], "precise")
+            self.assertEqual([], entry_slice["route"]["fallback_reasons"])
+            cards = {card["id"]: card for card in entry_slice["cards"]}
+            self.assertIn("knowledge.worker", cards)
+            self.assertTrue(cards["knowledge.worker"].get("direct"))
+            self.assertIn("floor.worker", cards)
+            self.assertTrue(cards["floor.worker"].get("direct"))
+            self.assertIn("floor.api", cards)
+            self.assertFalse(cards["floor.api"].get("direct"))
+            self.assertEqual(["depends-on:floor.worker"], cards["floor.api"]["selection_reasons"])
+            self.assertNotIn("stale-knowledge:knowledge.worker", entry_slice["route"]["fallback_reasons"])
+            self.assertNotIn("conservative-target:app", entry_slice["route"]["fallback_reasons"])
 
     def test_rewritten_lead_marks_conflict_and_expands_route(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

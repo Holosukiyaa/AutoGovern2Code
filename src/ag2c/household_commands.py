@@ -196,12 +196,37 @@ def register_household(start: Path, *, card_id: str, title: str, summary: str, i
         if not command or any(not isinstance(item, str) or not item for item in command):
             raise AG2CError("checker command must be a nonempty JSON array of strings")
         checker_id = f"check.{card_id}"
-        previous = next((item for item in raw.get("checkers", []) if item["id"] == checker_id), None)
-        if previous and previous.get("implementation") != implementation:
-            raise AG2CError("cannot rebind an existing implementation checker")
-        checker = {"id": checker_id, "stage": "scenario", "target": "app", "cwd": ".", "command": command, "timeout": 600, "implementation": implementation}
-        raw["checkers"] = [item for item in raw.get("checkers", []) if item["id"] != checker_id] + [checker]
+        checkers_raw = [item for item in raw.get("checkers", []) if isinstance(item, dict)]
+        existing_checker = next((item for item in checkers_raw if str(item.get("id")) == checker_id), None)
+        if existing_checker is None:
+            existing_checker = {
+                "id": checker_id,
+                "stage": "scenario",
+                "target": "app",
+                "cwd": ".",
+                "timeout": 600,
+            }
+            checkers_raw.append(existing_checker)
+            raw["checkers"] = checkers_raw
+        existing_checker["command"] = list(command)
+        existing_checker["implementation"] = implementation
         selected_checkers.append(checker_id)
+    previous_impl = str(previous_jurisdiction.get("implementation") or "")
+    if previous_impl and previous_impl != implementation:
+        owned = set(selected_checkers)
+        bound_elsewhere: set[str] = set()
+        for other in raw.get("cards") or []:
+            if not isinstance(other, dict) or str(other.get("id")) == card_id:
+                continue
+            for checker_id in other.get("checkers") or []:
+                bound_elsewhere.add(str(checker_id))
+        for item in raw.get("checkers") or []:
+            if not isinstance(item, dict) or str(item.get("id")) not in owned:
+                continue
+            if str(item.get("id")) in bound_elsewhere:
+                continue
+            if str(item.get("implementation") or "") == previous_impl:
+                item["implementation"] = implementation
     if not file_grain:
         _carve_exploring_placeholders(raw, card_id, includes)
     card = {"id": card_id, "type": "knowledge", "title": title.strip(), "summary": summary.strip(), "scopes": [{"target": "app", "include": includes, "exclude": excludes, "ownership": "reference"}], "references": [], "checkers": list(dict.fromkeys(selected_checkers)), "jurisdiction": {"capability": capability, "implementation": implementation, "status": status, "entrypoints": list(entrypoints if entrypoints is not None else previous_entrypoints), "grain": grain or str(previous_jurisdiction.get("grain") or "") or "subtree", "meaning": meaning or str(previous_jurisdiction.get("meaning") or "") or "none", "contract": contract or str(previous_jurisdiction.get("contract") or "") or "none", "decider": decider or str(previous_jurisdiction.get("decider") or "") or "none", "span": normalize_span(span or previous_span or ("file" if file_grain else "none"))}}

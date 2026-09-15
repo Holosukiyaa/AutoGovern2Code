@@ -510,6 +510,7 @@ def main(argv: list[str] | None = None) -> int:
                     stage=args.stage or None,
                     bind=list(args.bind),
                     budget_seconds=float(args.budget_seconds) if args.budget_seconds is not None else None,
+                    implementation=args.implementation,
                 )
             elif args.govern_command == "test-baseline":
                 from .checks import accept_test_baseline

@@ -169,7 +169,8 @@ def main(argv: list[str] | None = None) -> int:
             print(_json(status))
             return 0 if status["managed"] else 1
         if args.command == "task":
-            from .tasks import abandon_task, amend_portrait, declare_front_back, declare_full_scan, finish_task, list_tasks, orient_task, refresh_task, start_task, task_record, verify_task
+            from .tasks import amend_portrait, declare_front_back, declare_full_scan, finish_task, start_task, task_record, verify_task
+            from .task_orient import abandon_task, list_tasks, orient_task, refresh_task
 
             if args.task_command == "start":
                 coordinate_declaration: dict[str, str] = {}

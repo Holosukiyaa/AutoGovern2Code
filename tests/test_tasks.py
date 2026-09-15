@@ -413,7 +413,8 @@ class GovernanceReconcileTests(AutoRefreshTests):
     def test_verify_passes_after_manual_refresh(self) -> None:
         """refresh 后放行：被拒绝 → 手动 refresh → 重验通过（新代码随新进程生效）。"""
         from ag2c.errors import AG2CError
-        from ag2c.tasks import refresh_task, verify_task
+        from ag2c.tasks import verify_task
+        from ag2c.task_orient import refresh_task
 
         with tempfile.TemporaryDirectory() as tmp:
             root = self._project(tmp)

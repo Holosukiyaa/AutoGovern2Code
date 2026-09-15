@@ -28,7 +28,8 @@ from .storage import (
     set_project_governance,
     unregister_project,
 )
-from .tasks import evidence, list_tasks
+from .tasks import evidence
+from .task_orient import list_tasks
 from .util import default_data_root
 
 

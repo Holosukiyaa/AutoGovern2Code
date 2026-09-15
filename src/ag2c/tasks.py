@@ -747,7 +747,7 @@ def task_records(start: Path, *, manifest=None) -> list[dict[str, Any]]:
     return sorted(records, key=lambda item: str(item.get("created_at", "")), reverse=True)
 
 from .task_delivery import classify_delivery, cost_self_report, describe_delivery, resolve_delivery
-from .task_orient import orient_task, _orient_next, _orient_queue_entry, list_tasks, refresh_task, abandon_task
+from .task_orient import _orient_queue_entry
 from .task_retire import _assert_retirement_diff
 from .task_report import evidence, _local_evidence
 from .task_verify import verify_task

@@ -300,23 +300,23 @@ def _call_finish(args: dict[str, Any]) -> Any:
     )
 
 def _call_list(args: dict[str, Any]) -> Any:
-    from .tasks import list_tasks
+    from .task_orient import list_tasks
 
     return list_tasks(_cwd(args))
 
 def _call_orient(args: dict[str, Any]) -> Any:
-    from .tasks import orient_task
+    from .task_orient import orient_task
 
     task = str(args.get("task") or "").strip()
     return orient_task(_cwd(args), task or None)
 
 def _call_refresh(args: dict[str, Any]) -> Any:
-    from .tasks import refresh_task
+    from .task_orient import refresh_task
 
     return refresh_task(_cwd(args, required=True), str(args.get("task") or ""))
 
 def _call_abandon(args: dict[str, Any]) -> Any:
-    from .tasks import abandon_task
+    from .task_orient import abandon_task
 
     return abandon_task(_cwd(args, required=True), str(args.get("task") or ""), reason=str(args.get("reason") or "mcp abandon"))
 
@@ -379,7 +379,8 @@ def _canonical_census_warning(root: Path) -> str | None:
     """
     try:
         from .enrollment import activation_status
-        from .tasks import TERMINAL_TASK_STATES, list_tasks
+        from .tasks import TERMINAL_TASK_STATES
+        from .task_orient import list_tasks
 
         status = activation_status(root)
         canonical = Path(status["canonical_root"]).resolve()

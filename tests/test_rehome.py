@@ -18,7 +18,8 @@ from ag2c.gitops import git
 from ag2c.govern import _read_json, apply_change
 from ag2c.household_commands import register_household, review_census
 from ag2c.rehome import python_module_name, rehome_file_card, rewrite_module_imports
-from ag2c.tasks import orient_task, task_record
+from ag2c.tasks import task_record
+from ag2c.task_orient import orient_task
 
 ACTOR = "tester"
 REASON = "rehome engine tests"

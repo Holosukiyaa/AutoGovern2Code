@@ -25,7 +25,8 @@ from .storage import git_private_path
 from .portrait import lint_portrait, portrait_inference_section
 from .util import atomic_json_write, digest_file
 from .task_evidence import _matching_event, _verification_evidence_valid, _start_evidence_valid, _portrait_amendment_chain_valid
-from .tasks import OPEN_TASK_STATES, _canonical_manifest, list_tasks
+from .tasks import OPEN_TASK_STATES, _canonical_manifest
+from .task_orient import list_tasks
 
 def _assert_retirement_diff(canonical: Path, worktree: Path, task: dict[str, Any], changed_paths: list[str]) -> None:
     # 删除的口径 = 内容真正从仓库消失。保留 git 改名判定（不加 --no-renames）：

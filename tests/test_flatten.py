@@ -11,9 +11,9 @@ from unittest.mock import patch
 
 import bootstrap  # noqa: F401
 from support import _git, git_project
-from ag2c.cli import main
+from ag2c.cli_main import main
 from ag2c.errors import AG2CError
-from ag2c.flatten import flatten_bill, flatten_door, flatten_glue, flatten_queue, flatten_split, pure_move_violations
+from ag2c.flatten import flatten_bill, flatten_cut, flatten_door, flatten_glue, flatten_queue, flatten_split, pure_move_violations
 
 
 def _diff(old: str, new: str, path: str = "src/ag2c/mod.py") -> str:
@@ -290,3 +290,58 @@ class FlattenTests(unittest.TestCase):
             self.assertIn("flatten-glue missing file", err.getvalue())
         finally:
             os.chdir(here)
+
+    def test_flatten_cut_dry_run_and_write(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "shop.py").write_text("def foo():\n    return 1\n\nfrom .side import bar\n", encoding="utf-8")
+            (root / "side.py").write_text("def bar():\n    return 2\n", encoding="utf-8")
+            (root / "alice.py").write_text("from .shop import foo\n", encoding="utf-8")
+            (root / "bob.py").write_text("from .shop import bar\n", encoding="utf-8")
+            (root / "mixed.py").write_text("from .shop import foo, bar\n", encoding="utf-8")
+            (root / "nested.py").write_text("def run():\n    from .shop import bar\n    return bar()\n", encoding="utf-8")
+            preview = flatten_cut(root, old="shop.py", side="side.py", names=["bar"], write=False)
+            self.assertFalse(preview["write"])
+            self.assertFalse(preview["cut"])
+            self.assertIn("from .side import bar", (root / "shop.py").read_text(encoding="utf-8"))
+            self.assertIn("from .shop import bar", (root / "bob.py").read_text(encoding="utf-8"))
+            paths = {item["path"] for item in preview["planned"]}
+            self.assertIn("bob.py", paths)
+            self.assertIn("shop.py", paths)
+            with self.assertRaises(AG2CError):
+                flatten_cut(root, old="shop.py", side="side.py", names=["missing"])
+            written = flatten_cut(root, old="shop.py", side="side.py", names=["bar"], write=True)
+            self.assertTrue(written["write"])
+            self.assertTrue(written["cut"])
+            self.assertNotIn("from .side import bar", (root / "shop.py").read_text(encoding="utf-8"))
+            self.assertIn("from .side import bar", (root / "bob.py").read_text(encoding="utf-8"))
+            self.assertIn("from .shop import foo", (root / "alice.py").read_text(encoding="utf-8"))
+            mixed = (root / "mixed.py").read_text(encoding="utf-8")
+            self.assertIn("from .shop import foo", mixed)
+            self.assertIn("from .side import bar", mixed)
+            nested = (root / "nested.py").read_text(encoding="utf-8")
+            self.assertIn("    from .side import bar", nested)
+            self.assertTrue(flatten_door(root, old="shop.py", side="side.py", names=["bar"])["cut"])
+            again = flatten_cut(root, old="shop.py", side="side.py", names=["bar"], write=True)
+            self.assertTrue(again["cut"])
+            self.assertEqual([], again["planned"])
+            here = Path.cwd()
+            os.chdir(root)
+            try:
+                (root / "shop.py").write_text("def foo():\n    return 1\n\nfrom .side import bar\n", encoding="utf-8")
+                (root / "bob.py").write_text("from .shop import bar\n", encoding="utf-8")
+                buf = io.StringIO()
+                with patch("sys.stdout", buf):
+                    code = main(["govern", "flatten-cut", "--old", "shop.py", "--side", "side.py", "--name", "bar", "--format", "json"])
+                self.assertEqual(0, code)
+                payload = json.loads(buf.getvalue())
+                self.assertFalse(payload["write"])
+                self.assertIn("from .side import bar", (root / "shop.py").read_text(encoding="utf-8"))
+                buf = io.StringIO()
+                with patch("sys.stdout", buf):
+                    code = main(["govern", "flatten-cut", "--old", "shop.py", "--side", "side.py", "--name", "bar", "--write", "--format", "json"])
+                self.assertEqual(0, code)
+                self.assertTrue(json.loads(buf.getvalue())["write"])
+                self.assertIn("from .side import bar", (root / "bob.py").read_text(encoding="utf-8"))
+            finally:
+                os.chdir(here)

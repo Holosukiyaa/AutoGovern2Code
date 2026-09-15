@@ -352,7 +352,7 @@ class SettleVerifyBudgetHookTests(unittest.TestCase):
         import io
         import os
 
-        from ag2c.cli import main
+        from ag2c.cli_main import main
         from ag2c.config import discover_manifest, load_manifest
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -376,7 +376,7 @@ class SettleVerifyBudgetHookTests(unittest.TestCase):
         import io
         import os
 
-        from ag2c.cli import main
+        from ag2c.cli_main import main
 
         with tempfile.TemporaryDirectory() as tmp:
             root = self._gated_project(Path(tmp))

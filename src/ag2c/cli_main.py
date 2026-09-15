@@ -336,6 +336,7 @@ def main(argv: list[str] | None = None) -> int:
             "flatten-split",
             "flatten-glue",
             "flatten-door",
+            "flatten-cut",
         }:
             if args.govern_command == "flatten-queue":
                 from .flatten import FLATTEN_QUEUE_SCHEMA, flatten_queue
@@ -404,12 +405,30 @@ def main(argv: list[str] | None = None) -> int:
                     return 0
                 print(_json(result))
                 return 0
-            from .flatten import flatten_door
+            if args.govern_command == "flatten-door":
+                from .flatten import flatten_door
 
-            result = flatten_door(Path.cwd(), old=str(args.old), side=str(args.side), names=list(args.name))
+                result = flatten_door(Path.cwd(), old=str(args.old), side=str(args.side), names=list(args.name))
+                if args.format == "text":
+                    print("门牌改掉了" if result["cut"] else "门牌没改")
+                    print(result.get("reason") or "")
+                    return 0
+                print(_json(result))
+                return 0
+            from .flatten import flatten_cut
+
+            result = flatten_cut(
+                Path.cwd(),
+                old=str(args.old),
+                side=str(args.side),
+                names=list(args.name),
+                write=bool(args.write),
+            )
             if args.format == "text":
-                print("门牌改掉了" if result["cut"] else "门牌没改")
+                print("预览" if not result["write"] else "已写盘")
                 print(result.get("reason") or "")
+                for item in result.get("planned") or []:
+                    print(f"{item['path']}: {item['before']} -> {item['after']}")
                 return 0
             print(_json(result))
             return 0

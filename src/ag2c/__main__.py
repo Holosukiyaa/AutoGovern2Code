@@ -1,4 +1,4 @@
-from .cli import main
+from .cli_main import main
 
 
 raise SystemExit(main())

@@ -1,4 +1,4 @@
-﻿"""危房名单（hazard_report）与看板集成的单元测试。"""
+"""危房名单（hazard_report）与看板集成的单元测试。"""
 
 from __future__ import annotations
 
@@ -395,7 +395,7 @@ class DismissalTests(unittest.TestCase):
         import io
         import os
 
-        from ag2c.cli import main
+        from ag2c.cli_main import main
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "proj"

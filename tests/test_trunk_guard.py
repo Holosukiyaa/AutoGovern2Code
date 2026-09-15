@@ -147,7 +147,7 @@ class TrunkCliTests(unittest.TestCase):
         import io
         import os
 
-        from ag2c.cli import main
+        from ag2c.cli_main import main
 
         with TemporaryDirectory() as tmp:
             root = _project(Path(tmp) / "proj")

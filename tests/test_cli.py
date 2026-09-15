@@ -10,7 +10,7 @@ from unittest.mock import patch
 import bootstrap
 
 from ag2c import __version__, tasks
-from ag2c.cli import main
+from ag2c.cli_main import main
 from ag2c.tasks import _orient_next
 from ag2c.errors import AG2CError
 

@@ -333,7 +333,7 @@ class EntryPointTests(unittest.TestCase):
         import io
         from contextlib import redirect_stdout
 
-        from ag2c.cli import main
+        from ag2c.cli_main import main
 
         with tempfile.TemporaryDirectory() as tmp:
             root = _project(tmp)
@@ -372,7 +372,7 @@ class EntryPointTests(unittest.TestCase):
         import io
         from contextlib import redirect_stderr
 
-        from ag2c.cli import main
+        from ag2c.cli_main import main
 
         with tempfile.TemporaryDirectory() as tmp:
             root = _project(tmp)

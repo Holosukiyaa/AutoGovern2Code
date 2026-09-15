@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,7 @@ FLATTEN_SPLIT_SCHEMA = "ag2c.flatten-split.v1"
 FLATTEN_BILL_SCHEMA = "ag2c.flatten-bill.v1"
 FLATTEN_GLUE_SCHEMA = "ag2c.flatten-glue.v1"
 FLATTEN_DOOR_SCHEMA = "ag2c.flatten-door.v1"
+FLATTEN_CUT_SCHEMA = "ag2c.flatten-cut.v1"
 
 _IMPORT_RE = re.compile(r"^[ \t]*(import |from )")
 _DOCSTRING_OPEN_RE = re.compile(r'^[ \t]*("""|\'\'\')')
@@ -399,7 +401,7 @@ def _parse_repo_py(root: Path) -> dict[str, ast.AST]:
         except ValueError:
             continue
         try:
-            files[rel] = ast.parse(path.read_text(encoding="utf-8"))
+            files[rel] = ast.parse(path.read_text(encoding="utf-8-sig"))
         except (OSError, SyntaxError, UnicodeError):
             continue
     return files
@@ -549,4 +551,219 @@ def flatten_door(root: Path, *, old: str, side: str, names: list[str]) -> dict[s
         "names": wanted,
         "cut": True,
         "reason": "老大门不再转口，用货的人直接去侧屋。门牌改掉了。",
+    }
+
+
+def _dotted_from_rel(rel: str) -> str:
+    parts = list(Path(rel).with_suffix("").parts)
+    if parts and parts[0] == "src":
+        parts = parts[1:]
+    return ".".join(parts)
+
+
+def _alias_text(alias: ast.alias) -> str:
+    return f"{alias.name} as {alias.asname}" if alias.asname else alias.name
+
+
+def _from_import_line(module: str, aliases: list[ast.alias], *, level: int) -> str:
+    bits = ", ".join(_alias_text(item) for item in aliases)
+    prefix = "." * level + (module or "")
+    return f"from {prefix} import {bits}\n"
+
+
+def _relative_spec(importer_rel: str, side_rel: str) -> tuple[int, str]:
+    importer_dir = Path(importer_rel).parent
+    side_dir = Path(side_rel).parent
+    stem = Path(side_rel).stem
+    relative = Path(os.path.relpath(side_dir, importer_dir))
+    if relative == Path("."):
+        return 1, stem
+    parts = relative.parts
+    ups = sum(1 for part in parts if part == "..")
+    rest = [part for part in parts if part != ".."]
+    if ups:
+        module = ".".join([*rest, stem]) if rest else stem
+        return ups + 1, module
+    return 1, ".".join([*parts, stem])
+
+
+def _resolve_from_import(importer_rel: str, node: ast.ImportFrom) -> str | None:
+    if node.level == 0:
+        if not node.module:
+            return None
+        parts = node.module.split(".")
+        return ("src/" + "/".join(parts) + ".py", "/".join(parts) + ".py")
+    base = Path(importer_rel).parent
+    for _ in range(max(node.level - 1, 0)):
+        base = base.parent
+    if node.module:
+        target = base / Path(node.module.replace(".", "/"))
+        return target.with_suffix(".py").as_posix()
+    return (base / "__init__.py").as_posix()
+
+
+def _matches_old_door(importer_rel: str, node: ast.ImportFrom, old_rel: str, old_dotted: str) -> bool:
+    if node.level == 0:
+        return bool(node.module) and node.module == old_dotted
+    resolved = _resolve_from_import(importer_rel, node)
+    if isinstance(resolved, tuple):
+        return old_rel in resolved
+    return resolved == old_rel
+
+
+def _apply_span_replacements(text: str, replacements: list[tuple[int, int, str]]) -> str:
+    lines = text.splitlines(keepends=True)
+    if text.endswith("\n") and (not lines or lines[-1].endswith("\n")):
+        pass
+    elif text and not text.endswith("\n"):
+        if lines:
+            lines[-1] = lines[-1] + "\n"
+    for start, end, new in sorted(replacements, key=lambda item: item[0], reverse=True):
+        block = new
+        if block and not block.endswith("\n"):
+            block += "\n"
+        replacement = [block] if block else []
+        lines[start - 1 : end] = replacement
+    body = "".join(lines)
+    if text.endswith("\n") and not body.endswith("\n"):
+        body += "\n"
+    return body
+
+
+def flatten_cut(
+    root: Path,
+    *,
+    old: str,
+    side: str,
+    names: list[str],
+    write: bool = False,
+) -> dict[str, Any]:
+    """Retarget callers from the old door to the side room; default is dry-run."""
+    wanted = [item.strip() for item in names if str(item).strip()]
+    if not wanted:
+        raise AG2CError("flatten-cut requires --name")
+    old_rel = _posix(old)
+    side_rel = _posix(side)
+    old_path = root / old_rel
+    side_path = root / side_rel
+    if not old_path.is_file():
+        raise AG2CError(f"flatten-cut missing old file: {old_rel}")
+    if not side_path.is_file():
+        raise AG2CError(f"flatten-cut missing side file: {side_rel}")
+    files = _parse_repo_py(root)
+    tree = files.get(old_rel)
+    if tree is None:
+        tree = ast.parse(old_path.read_text(encoding="utf-8"))
+    transferred = _reexports(tree)
+    missing = [name for name in wanted if name not in transferred]
+    already = flatten_door(root, old=old_rel, side=side_rel, names=wanted)
+    old_dotted = _dotted_from_rel(old_rel)
+    side_dotted = _dotted_from_rel(side_rel)
+    wanted_set = set(wanted)
+    planned: list[dict[str, str]] = []
+    edits: dict[str, list[tuple[int, int, str]]] = {}
+
+    def record(rel: str, start: int, end: int, before: str, after: str) -> None:
+        planned.append({"path": rel, "before": before.rstrip("\n"), "after": after.rstrip("\n")})
+        edits.setdefault(rel, []).append((start, end, after))
+
+    for rel, other in files.items():
+        source = (root / rel).read_text(encoding="utf-8-sig")
+        source_lines = source.splitlines()
+        for node in ast.walk(other):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            imported = list(node.names)
+            moving = [alias for alias in imported if alias.name in wanted_set]
+            if not moving:
+                continue
+            staying = [alias for alias in imported if alias.name not in wanted_set]
+            start = int(node.lineno)
+            end = int(getattr(node, "end_lineno", None) or node.lineno)
+            before = "\n".join(source_lines[start - 1 : end])
+            indent = re.match(r"^[ \t]*", source_lines[start - 1] or "").group(0)
+
+            def _indent_block(block: str) -> str:
+                if not block:
+                    return ""
+                return "".join(indent + line if line.strip() else line for line in block.splitlines(keepends=True))
+
+            if rel == old_rel:
+                after = _indent_block(_from_import_line(node.module or "", staying, level=node.level) if staying else "")
+                record(rel, start, end, before, after)
+                continue
+            if not _matches_old_door(rel, node, old_rel, old_dotted):
+                continue
+            chunks: list[str] = []
+            if staying:
+                chunks.append(_from_import_line(node.module or "", staying, level=node.level))
+            if node.level == 0:
+                chunks.append(_from_import_line(side_dotted, moving, level=0))
+            else:
+                level, module = _relative_spec(rel, side_rel)
+                chunks.append(_from_import_line(module, moving, level=level))
+            record(rel, start, end, before, _indent_block("".join(chunks)))
+
+    needle_pairs = [(f"{old_dotted}:{name}", f"{side_dotted}:{name}") for name in wanted]
+    for path in root.rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in {".toml", ".cfg", ".in"}:
+            continue
+        if ".git" in path.parts:
+            continue
+        try:
+            rel = path.resolve().relative_to(root.resolve()).as_posix()
+        except ValueError:
+            continue
+        text = path.read_text(encoding="utf-8")
+        updated = text
+        for needle, repl in needle_pairs:
+            updated = updated.replace(needle, repl)
+        if updated != text:
+            planned.append({"path": rel, "before": needle_pairs[0][0], "after": needle_pairs[0][1]})
+            if write:
+                path.write_text(updated, encoding="utf-8")
+
+    if write:
+        for rel, spans in edits.items():
+            original = (root / rel).read_text(encoding="utf-8-sig")
+            (root / rel).write_text(_apply_span_replacements(original, spans), encoding="utf-8")
+    if not planned:
+        side_stem = Path(side_rel).stem
+        side_takers = False
+        for rel, other in files.items():
+            if rel in {old_rel, side_rel}:
+                continue
+            for node in ast.walk(other):
+                if not isinstance(node, ast.ImportFrom):
+                    continue
+                if not _module_matches_stem(node.module, side_stem):
+                    continue
+                if any(alias.name in wanted_set for alias in node.names):
+                    side_takers = True
+                    break
+            if side_takers:
+                break
+        if already.get("cut") and side_takers:
+            door_after = flatten_door(root, old=old_rel, side=side_rel, names=wanted) if write else already
+            return {
+                "schema": FLATTEN_CUT_SCHEMA,
+                "old": old_rel,
+                "side": side_rel,
+                "names": wanted,
+                "write": bool(write),
+                "planned": [],
+                "cut": bool(door_after.get("cut")),
+                "reason": str(door_after.get("reason") or ""),
+            }
+        raise AG2CError("flatten-cut names are not reexported by the old door: " + ", ".join(missing or wanted))
+    door_after = flatten_door(root, old=old_rel, side=side_rel, names=wanted) if write else already
+    return {
+        "schema": FLATTEN_CUT_SCHEMA,
+        "old": old_rel,
+        "side": side_rel,
+        "names": wanted,
+        "write": bool(write),
+        "planned": planned,
+        "cut": bool(door_after.get("cut")),
+        "reason": str(door_after.get("reason") or ""),
     }

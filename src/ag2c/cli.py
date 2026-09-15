@@ -486,6 +486,15 @@ def build_parser() -> argparse.ArgumentParser:
     flatten_door_cmd.add_argument("--side", required=True, help="侧屋，相对仓库根")
     flatten_door_cmd.add_argument("--name", action="append", required=True, help="要检查的名字，可重复")
     flatten_door_cmd.add_argument("--format", choices=("text", "json"), default="json")
+    flatten_cut_cmd = govern_commands.add_parser(
+        "flatten-cut",
+        help="改门牌：调用方改去侧屋，大门不再转口；默认预览，--write 才写盘",
+    )
+    flatten_cut_cmd.add_argument("--old", required=True, help="老大门，相对仓库根")
+    flatten_cut_cmd.add_argument("--side", required=True, help="侧屋，相对仓库根")
+    flatten_cut_cmd.add_argument("--name", action="append", required=True, help="要切断的名字，可重复")
+    flatten_cut_cmd.add_argument("--write", action="store_true", help="确认写盘；省略则为预览")
+    flatten_cut_cmd.add_argument("--format", choices=("text", "json"), default="json")
     wdismiss_cmd = govern_commands.add_parser("warning-dismiss", help="撤销一条警告的累计计数（警告升级门的合法出口），带 actor/reason 落账本；计数从零重来")
     wdismiss_cmd.add_argument("--key", required=True, help="警告 key，与升级门报错中一致（如 check.suite-enrollment:seconds）")
     wdismiss_cmd.add_argument("--actor", required=True)
@@ -737,5 +746,3 @@ def _print_evidence(report: dict[str, Any]) -> None:
         print(f"Product: {product.get('status', 'undeclared')}")
         if product.get("summary"):
             print(f"Product detail: {product['summary']}")
-
-from .cli_main import main

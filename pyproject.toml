@@ -35,7 +35,7 @@ gui = ["pywebview>=5"]
 test = ["pytest>=8", "pytest-xdist>=3"]
 
 [project.scripts]
-ag2c = "ag2c.cli:main"
+ag2c = "ag2c.cli_main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

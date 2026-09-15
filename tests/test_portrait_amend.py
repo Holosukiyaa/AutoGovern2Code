@@ -147,7 +147,7 @@ class EntryPointTests(unittest.TestCase):
         import os
         from contextlib import redirect_stdout
 
-        from ag2c.cli import main
+        from ag2c.cli_main import main
 
         with TemporaryDirectory() as tmp:
             root = git_project(Path(tmp) / "proj")
@@ -176,7 +176,7 @@ class EntryPointTests(unittest.TestCase):
         import io
         from contextlib import redirect_stderr
 
-        from ag2c.cli import main
+        from ag2c.cli_main import main
 
         with redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
@@ -187,7 +187,7 @@ class EntryPointTests(unittest.TestCase):
         import os
         from contextlib import redirect_stdout
 
-        from ag2c.cli import main
+        from ag2c.cli_main import main
 
         with TemporaryDirectory() as tmp:
             root = git_project(Path(tmp) / "proj")
@@ -216,7 +216,7 @@ class EntryPointTests(unittest.TestCase):
         import os
         from contextlib import redirect_stderr
 
-        from ag2c.cli import main
+        from ag2c.cli_main import main
 
         with TemporaryDirectory() as tmp:
             root = git_project(Path(tmp) / "proj")
@@ -243,7 +243,7 @@ class EntryPointTests(unittest.TestCase):
         import os
         from contextlib import redirect_stderr
 
-        from ag2c.cli import main
+        from ag2c.cli_main import main
 
         with TemporaryDirectory() as tmp:
             root = git_project(Path(tmp) / "proj")

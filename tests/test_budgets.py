@@ -186,7 +186,7 @@ class SettleBudgetHookTests(unittest.TestCase):
         import io
         import os
 
-        from ag2c.cli import main
+        from ag2c.cli_main import main
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "proj"

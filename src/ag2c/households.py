@@ -744,10 +744,10 @@ def enforce_households(manifest: Manifest, policy: Policy, entry_slice: dict, ch
             problems.append(f'census-{item["freshness"]}:{item["id"]}')
             freshness_problems.append(f'census-{item["freshness"]}:{item["id"]}')
         missing = set(item["checkers"]) - checker_ids
-        if _household_is_tests_tree(item):
-            from .suite_bind import suite_checker_ids_for_paths
+        from .suite_bind import suite_checker_ids_for_paths
 
-            owed_suites = suite_checker_ids_for_paths(path for _target, path in selected_paths)
+        owed_suites = suite_checker_ids_for_paths(path for _target, path in selected_paths)
+        if owed_suites or _household_is_tests_tree(item):
             missing = {
                 checker_id
                 for checker_id in missing

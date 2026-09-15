@@ -583,3 +583,176 @@ class CheckerTests(unittest.TestCase):
                 update_checker(root, checker_id="check.suite-worker", actor="tester", reason="x", command=[])
             with self.assertRaisesRegex(AG2CError, "unsupported checker stage"):
                 update_checker(root, checker_id="check.suite-worker", actor="tester", reason="x", stage="outer-space")
+
+
+class SliceTaxTests(unittest.TestCase):
+    def test_stale_file_card_does_not_expand_the_whole_target(self) -> None:
+        from ag2c.knowledge import knowledge_path
+        from ag2c.util import atomic_json_write
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root, gated=True)
+            policy_path = root / ".ag2c" / "policy.json"
+            raw = json.loads(policy_path.read_text(encoding="utf-8"))
+            raw["cards"].append(
+                {
+                    "id": "knowledge.api-file",
+                    "type": "knowledge",
+                    "title": "service.py",
+                    "summary": "one file",
+                    "scopes": [{"target": "app", "include": ["src/api/service.py"], "ownership": "reference"}],
+                    "references": ["src/api/service.py"],
+                    "jurisdiction": {
+                        "capability": "api",
+                        "implementation": "api.file",
+                        "status": "current",
+                        "entrypoints": [],
+                        "grain": "file",
+                        "meaning": "none",
+                        "contract": "none",
+                        "decider": "none",
+                        "span": "file",
+                    },
+                }
+            )
+            policy_path.write_text(json.dumps(raw), encoding="utf-8")
+            manifest, policy = _reload(root)
+            build_index(manifest, policy)
+            atomic_json_write(
+                knowledge_path(manifest),
+                {
+                    "schema": "ag2c.knowledge.v1",
+                    "cards": {
+                        "knowledge.api-file": {
+                            "assertions": [
+                                {
+                                    "id": "lead:app:src/api/service.py",
+                                    "text": "THIS LEAD IS STALE",
+                                    "reference": "app:src/api/service.py",
+                                }
+                            ]
+                        }
+                    },
+                },
+            )
+            sliced = compile_slice(manifest, policy, path_specs=["app:src/api/service.py"])
+            self.assertNotIn("conservative-target:app", sliced["route"]["fallback_reasons"])
+            self.assertNotIn("floor.worker", {card["id"] for card in sliced["cards"] if card.get("direct")})
+
+    def test_stale_document_file_card_without_jurisdiction_does_not_expand(self) -> None:
+        from ag2c.knowledge import knowledge_path
+        from ag2c.util import atomic_json_write
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root, gated=True)
+            policy_path = root / ".ag2c" / "policy.json"
+            raw = json.loads(policy_path.read_text(encoding="utf-8"))
+            raw["cards"].append(
+                {
+                    "id": "knowledge.api-doc",
+                    "type": "knowledge",
+                    "title": "service.py note",
+                    "summary": "document file card",
+                    "scopes": [{"target": "app", "include": ["src/api/service.py"], "ownership": "reference"}],
+                    "references": ["src/api/service.py"],
+                }
+            )
+            policy_path.write_text(json.dumps(raw), encoding="utf-8")
+            manifest, policy = _reload(root)
+            build_index(manifest, policy)
+            atomic_json_write(
+                knowledge_path(manifest),
+                {
+                    "schema": "ag2c.knowledge.v1",
+                    "cards": {
+                        "knowledge.api-doc": {
+                            "assertions": [
+                                {
+                                    "id": "lead:app:src/api/service.py",
+                                    "text": "STALE LEAD",
+                                    "reference": "app:src/api/service.py",
+                                }
+                            ]
+                        }
+                    },
+                },
+            )
+            sliced = compile_slice(manifest, policy, path_specs=["app:src/api/service.py"])
+            self.assertNotIn("conservative-target:app", sliced["route"]["fallback_reasons"])
+            self.assertIn("knowledge.api-doc", {card["id"] for card in sliced["cards"]})
+
+    def test_mixed_product_and_tests_only_run_mapped_suites(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_project(root, gated=True)
+            tests = root / "tests"
+            tests.mkdir()
+            (tests / "test_enrollment.py").write_text("import unittest\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n", encoding="utf-8")
+            (tests / "test_desktop.py").write_text("import unittest\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n", encoding="utf-8")
+            policy_path = root / ".ag2c" / "policy.json"
+            raw = json.loads(policy_path.read_text(encoding="utf-8"))
+            raw["cards"].append(
+                {
+                    "id": "floor.tests",
+                    "type": "floor",
+                    "title": "tests",
+                    "summary": "test floor",
+                    "scopes": [{"target": "app", "include": ["tests/**"], "ownership": "primary"}],
+                    "checkers": ["check.floor", "check.suite-enrollment", "check.suite-gui"],
+                }
+            )
+            raw["cards"].append(
+                {
+                    "id": "knowledge.tests",
+                    "type": "knowledge",
+                    "title": "tests",
+                    "summary": "tests room",
+                    "scopes": [{"target": "app", "include": ["tests/**"], "ownership": "reference"}],
+                    "checkers": [],
+                    "jurisdiction": {
+                        "capability": "tests",
+                        "implementation": "tests.main",
+                        "status": "current",
+                        "entrypoints": [],
+                        "grain": "subtree",
+                        "meaning": "named",
+                        "contract": "none",
+                        "decider": "none",
+                        "span": "folder",
+                    },
+                }
+            )
+            raw["checkers"].extend(
+                [
+                    {
+                        "id": "check.suite-enrollment",
+                        "stage": "floor",
+                        "target": "app",
+                        "command": [sys.executable, "-c", "print('enroll')"],
+                        "cwd": ".",
+                        "timeout": 30,
+                    },
+                    {
+                        "id": "check.suite-gui",
+                        "stage": "floor",
+                        "target": "app",
+                        "command": [sys.executable, "-c", "print('gui')"],
+                        "cwd": ".",
+                        "timeout": 30,
+                    },
+                ]
+            )
+            policy_path.write_text(json.dumps(raw), encoding="utf-8")
+            manifest, policy = _reload(root)
+            build_index(manifest, policy)
+            sliced = compile_slice(
+                manifest,
+                policy,
+                path_specs=["app:src/api/service.py", "app:tests/test_enrollment.py"],
+            )
+            planned = {item["id"] for item in sliced["check_plan"]}
+            self.assertIn("check.suite-enrollment", planned)
+            self.assertNotIn("check.suite-gui", planned)
+            self.assertEqual("precise", sliced["route"]["state"])

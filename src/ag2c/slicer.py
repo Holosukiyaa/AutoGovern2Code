@@ -37,6 +37,25 @@ def parse_contract_spec(value: str, manifest: Manifest) -> tuple[str, str, str]:
     return target_id, contract_id, version
 
 
+def _single_file_knowledge(card: Card) -> bool:
+    """Per-file cards: stale means re-census that file, not detonate the target.
+
+    grain=file households, and document cards with no jurisdiction and one
+    file reference (the existing per-file knowledge cards).
+    """
+    jurisdiction = card.jurisdiction if isinstance(card.jurisdiction, dict) else {}
+    if str(jurisdiction.get("grain") or "") == "file":
+        return True
+    if jurisdiction:
+        return False
+    if len(card.references) != 1:
+        return False
+    ref = str(card.references[0]).replace("\\", "/").rsplit(":", 1)[-1]
+    if "*" in ref or ref.endswith("/"):
+        return False
+    return bool(Path(ref).suffix)
+
+
 def _card_payload(card: Card, reasons: set[str], freshness: dict[str, Any] | None = None) -> dict[str, Any]:
     payload = {
         "id": card.card_id,
@@ -136,9 +155,13 @@ def compile_slice(
             if card.card_type == "floor":
                 for scope in card.scopes:
                     floors_by_target[scope.target_id].add(card.card_id)
+        from .suite_bind import is_tests_tree_card
+
         for target_id, selected in selected_primary.items():
             total = floors_by_target.get(target_id, set())
-            if len(selected) >= 2 and total and len(selected) * 2 >= len(total):
+            product_selected = {fid for fid in selected if not is_tests_tree_card(policy.card(fid))}
+            product_total = {fid for fid in total if not is_tests_tree_card(policy.card(fid))}
+            if len(product_selected) >= 2 and product_total and len(product_selected) * 2 >= len(product_total):
                 expand_target(target_id, f"broad-change:{target_id}")
 
     for raw_spec in contract_specs:
@@ -162,6 +185,8 @@ def compile_slice(
         if card.card_type != "knowledge":
             continue
         freshness = freshness_by_id[card_id]
+        if freshness["status"] == "stale" and _single_file_knowledge(card):
+            continue
         if freshness["status"] in {"stale", "conflict"}:
             prefix = "conflict-knowledge" if freshness["status"] == "conflict" else "stale-knowledge"
             for target_id in freshness["target_ids"]:
@@ -226,8 +251,9 @@ def compile_slice(
         card = policy.card(card_id)
         tests_only = is_tests_tree_card(card)
         for checker_id in card.checkers:
-            if tests_only and str(checker_id).startswith("check.suite-") and checker_id not in mapped_suites:
-                continue
+            if str(checker_id).startswith("check.suite-") and checker_id not in mapped_suites:
+                if tests_only or mapped_suites:
+                    continue
             checker_reasons[checker_id].add(f"selected-card:{card_id}")
     for checker_id in mapped_suites:
         checker_reasons[checker_id].add("test-module-suite")

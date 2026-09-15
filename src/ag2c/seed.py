@@ -1,9 +1,11 @@
 """AG2C-owned seeding: lifecycle, observation, and mechanical sowing.
 
-Foreign projects are not trees. Enrollment plants a seed. `ag2c seed sow`
-writes room checkers whose command is native ``unittest discover`` on the
-project's test folder — not ``python -m ag2c`` and not a per-project
-suites.py. Status is derived from Policy, never from an agent-written map.
+Foreign projects are not trees. Enrollment plants a seed: `enroll` / `setup
+--project` sows once and stops. `sow` writes room checkers whose command is
+native ``unittest discover`` on the project's test folder — not
+``python -m ag2c`` and not a per-project suites.py. The tree grows later,
+when the project is actually used. Status is derived from Policy, never from
+an agent-written map.
 """
 from __future__ import annotations
 
@@ -219,6 +221,20 @@ def _bind_targets(policy: Policy, group: str, relative: str) -> list[str]:
         if floor_id not in bound:
             bound.append(floor_id)
     return list(dict.fromkeys(bound))
+
+
+def plant_at_enrollment(root: Path) -> dict[str, Any]:
+    """Sow once at enroll. Host skips. Failure does not roll back enrollment."""
+    if is_host_project(root):
+        return {
+            "action": "skipped-host",
+            "created": [],
+            "skipped": [{"reason": "host organism is not sown"}],
+        }
+    try:
+        return sow(root, actor="ag2c", reason="plant seed at enrollment")
+    except AG2CError as exc:
+        return {"action": "sow", "error": str(exc), "created": [], "skipped": []}
 
 
 def sow(start: Path, *, actor: str, reason: str) -> dict[str, Any]:

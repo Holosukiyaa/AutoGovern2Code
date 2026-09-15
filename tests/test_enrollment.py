@@ -91,10 +91,11 @@ class FirstDrillTests(unittest.TestCase):
         root = git_project(Path(directory) / "demo")
         return root, enroll_project(root, skill_root=Path(directory) / "skills", harnesses=("agents",), **kwargs)
 
-    def test_enroll_result_offers_first_drill(self) -> None:
+    def test_enroll_result_says_seed_planted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             step = (self._enrolled(directory)[1].get("next_step") or {})
-            self.assertEqual(("first-drill", True), (step.get("action"), bool(step.get("why") and "ag2c canary" in (step.get("command") or ""))))
+            self.assertEqual("seed-planted", step.get("action"))
+            self.assertIn("Stop", step.get("why") or "")
 
     def test_guard_status_hints_first_drill_until_team_exists(self) -> None:
         from ag2c.ledger import append_event
@@ -120,6 +121,49 @@ class FirstDrillTests(unittest.TestCase):
             self.assertEqual(("boom", True), (result["first_drill_result"]["error"], bool(result.get("project_id"))))
 
 class EnrollmentTests(unittest.TestCase):
+    def test_enroll_plants_native_suite_from_existing_test_groups(self) -> None:
+        from ag2c.seed import assess_seed
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = git_project(Path(directory) / "farm")
+            api = root / "scripts" / "tests" / "api"
+            api.mkdir(parents=True)
+            (api / "test_ok.py").write_text(
+                "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n",
+                encoding="utf-8",
+            )
+            data = Path(directory) / "ag2c-data"
+            with patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False):
+                result = enroll_project(root, skill_root=Path(directory) / "skills", harnesses=("agents",))
+            self.assertEqual("seed-planted", (result.get("next_step") or {}).get("action"))
+            self.assertIn("check.suite-api", result.get("seed", {}).get("created") or [])
+            self.assertFalse((root / "tests" / "suites.py").exists())
+            policy = load_policy(load_manifest(discover_manifest(root), project_root=root))
+            status = assess_seed(policy, project_root=root)
+            self.assertEqual("ag2c", status["sower"])
+            commands = [checker.command for checker in policy.checkers if checker.checker_id == "check.suite-api"]
+            self.assertEqual(1, len(commands))
+            joined = " ".join(commands[0])
+            self.assertIn("unittest", joined)
+            self.assertIn("discover", joined)
+            self.assertIn("scripts/tests/api", joined)
+            self.assertNotIn("ag2c", joined)
+            pack = Path(result["store"]) / "pack"
+            self.assertFalse((pack / "exams").exists())
+
+    def test_enroll_host_skips_sow_and_still_enrolls(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = git_project(Path(directory) / "hosty")
+            (root / "src" / "ag2c").mkdir(parents=True)
+            (root / "src" / "ag2c" / "__init__.py").write_text("", encoding="utf-8")
+            data = Path(directory) / "ag2c-data"
+            with patch.dict(os.environ, {"AG2C_DATA_ROOT": str(data)}, clear=False):
+                result = enroll_project(root, skill_root=Path(directory) / "skills", harnesses=("agents",))
+            self.assertTrue(result.get("project_id"))
+            self.assertEqual("seed-planted", (result.get("next_step") or {}).get("action"))
+            self.assertEqual("skipped-host", result.get("seed", {}).get("action"))
+            self.assertFalse((root / "tests" / "suites.py").exists())
+
     def test_enroll_allows_a_dirty_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = git_project(Path(directory) / "demo")

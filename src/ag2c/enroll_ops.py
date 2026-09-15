@@ -250,7 +250,11 @@ def enroll_project(
         "skill_paths": [item["path"] for item in activation["skills"]],
         "ledger_event": event["event_digest"],
         "recovery": recovery,
-        "next_step": _first_drill_step(),
+        "next_step": {
+            "action": "seed-planted",
+            "command": "",
+            "why": "Enrollment planted the seed. Stop. The tree grows when you start using the project.",
+        },
         "regulator": {
             "status": "configured",
             "finish_allowed": bool(os.environ.get("DEEPSEEK_API_KEY", "").strip()),
@@ -260,6 +264,9 @@ def enroll_project(
     hint = _git_identity_hint(root)
     if hint:
         payload["git_identity"] = hint
+    from .seed import plant_at_enrollment
+
+    payload["seed"] = plant_at_enrollment(root)
     if run_first_drill:
         payload["first_drill_result"] = _run_first_drill(root)
     return payload

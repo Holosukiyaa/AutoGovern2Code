@@ -21,7 +21,7 @@ from ag2c_gui.desktop import DesktopServer
 
 def _webview_sources(root: Path | None = None) -> str:
     base = (root or Path(__file__).resolve().parents[1]) / "src" / "ag2c_gui"
-    names = ("webview_host.py", "desktop.py", "custody.py", "dashboard.py")
+    names = ("webview_host.py", "webview_ui.py", "desktop.py", "custody.py", "dashboard.py")
     return "\n".join((base / name).read_text(encoding="utf-8") for name in names if (base / name).is_file())
 
 

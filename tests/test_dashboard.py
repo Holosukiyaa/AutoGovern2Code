@@ -455,7 +455,20 @@ class WebViewPageTests(unittest.TestCase):
         self.assertIn("施工", UI_INDEX_HTML)
         self.assertIn("实际记录", UI_INDEX_HTML)
         self.assertIn("AI 入口", UI_INDEX_HTML)
+        self.assertIn('id="project"', UI_INDEX_HTML)
+        self.assertIn('id="refresh"', UI_INDEX_HTML)
+        self.assertIn("没有要你处理的事", UI_INDEX_HTML)
         self.assertNotIn("imgui_bundle", UI_INDEX_HTML)
+
+    def test_ops_render_audit_lines_not_json_dump(self):
+        from ag2c_gui.webview_ui import UI_APP_JS, UI_LAYOUT_CSS
+
+        self.assertIn("payload.lines", UI_APP_JS)
+        self.assertIn('function renderOps', UI_APP_JS)
+        self.assertNotIn("JSON.stringify(payload.worktrees", UI_APP_JS)
+        self.assertNotIn("JSON.stringify(payload.journal", UI_APP_JS)
+        self.assertIn("tree home inspect", UI_LAYOUT_CSS)
+        self.assertIn('"ops ops ops"', UI_LAYOUT_CSS)
 
     def test_clipboard_guard_skips_when_locked(self):
         with ClipboardLock() as lock:
